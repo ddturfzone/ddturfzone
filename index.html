@@ -1016,7 +1016,14 @@
   const RESERVE_PHONE = '917305123765';
   let _availSelectedDate = null;
   let _availSlotsCache = null; // null = "no live data available yet", [] = "live data says nothing booked"
+  let _availSlotsCacheNextDay = null; // same shape, for the calendar day AFTER _availSelectedDate — needed to check conflicts for bookings that cross midnight
   let _currentVisibleIndices = []; // raw AVAIL_SLOT_TIMES indices currently shown, in left-to-right display order
+
+  function _nextDateStr(dateStr){
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0,10);
+  }
 
   function scrollToAvailability(){
     document.getElementById('availability').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1047,18 +1054,28 @@
   }
   window.selectAvailDate = selectAvailDate;
 
-  const AVAIL_SLOT_TIMES = ['12:00 AM','1:00 AM','2:00 AM','3:00 AM','4:00 AM','5:00 AM','6:00 AM','7:00 AM','8:00 AM','9:00 AM',
-    '10:00 AM','11:00 AM','12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM','5:00 PM','6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM','11:00 PM'];
+  // 30-minute granularity: 48 slots covering the full day. Each entry is
+  // the START time of that half-hour block (e.g. '5:30 AM' = the
+  // 5:30–6:00 AM block). This lets a booking like 5:30–8:30 AM be
+  // selected precisely, instead of only landing on whole hours.
+  const AVAIL_SLOT_TIMES = (() => {
+    const out = [];
+    for (let h = 0; h < 24; h++) {
+      const period = h < 12 ? 'AM' : 'PM';
+      const h12 = h % 12 === 0 ? 12 : h % 12;
+      out.push(`${h12}:00 ${period}`, `${h12}:30 ${period}`);
+    }
+    return out;
+  })();
 
   // Twilight / Morning / Noon / Evening — 4 clean, non-overlapping,
-  // non-wrapping ranges covering all 24 hours between them (no more
-  // midnight-spanning tab, which is simpler than the earlier 3-tab
-  // version and reads better against a literal clock too).
+  // non-wrapping ranges covering all 48 half-hour slots between them
+  // (same clock boundaries as before, just doubled resolution).
   const AVAIL_PERIODS = {
-    twilight: { range: [0, 5] },    // 12:00 AM – 5:00 AM
-    morning:  { range: [6, 11] },   // 6:00 AM – 11:00 AM
-    noon:     { range: [12, 16] },  // 12:00 PM – 4:00 PM
-    evening:  { range: [17, 23] }   // 5:00 PM – 11:00 PM
+    twilight: { range: [0, 11] },   // 12:00 AM – 5:30 AM
+    morning:  { range: [12, 23] },  // 6:00 AM – 11:30 AM
+    noon:     { range: [24, 33] },  // 12:00 PM – 4:30 PM
+    evening:  { range: [34, 47] }   // 5:00 PM – 11:30 PM
   };
   function _indicesForPeriod(period){
     const p = AVAIL_PERIODS[period] || AVAIL_PERIODS.evening;
@@ -1077,7 +1094,11 @@
   function selectAvailPeriod(period){
     _activeAvailPeriod = period;
     document.querySelectorAll('.avail-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === period));
-    resetSelection();
+    // Deliberately NOT calling resetSelection() here. Selection state is
+    // keyed on raw AVAIL_SLOT_TIMES indices (not a position local to the
+    // currently-visible period), so a start time picked in one tab stays
+    // valid after switching to another tab to pick the end time — e.g.
+    // starting at 5:30 AM in Twilight and finishing at 8:30 AM in Morning.
     renderAvailabilityGrid();
   }
   window.selectAvailPeriod = selectAvailPeriod;
@@ -1173,26 +1194,25 @@
   // grouping/layout so it works the same for real data and the
   // "unknown" fallback state.
   function _buildTimelineRows(visibleIndices, describe){
-    const ROW_SIZE = 3;
+    const ROW_SIZE = 6; // 6 half-hour slots = 3 hours per row, same row width as before
     let html = '';
     for (let r = 0; r < visibleIndices.length; r += ROW_SIZE) {
       const rowIdxs = visibleIndices.slice(r, r + ROW_SIZE);
-      const labelTimes = rowIdxs.map(i => AVAIL_SLOT_TIMES[i]);
+      const labelTimes = [AVAIL_SLOT_TIMES[rowIdxs[0]]];
       const lastRaw = rowIdxs[rowIdxs.length - 1];
-      labelTimes.push(AVAIL_SLOT_TIMES[(lastRaw + 1) % 24]); // closing boundary label
+      labelTimes.push(AVAIL_SLOT_TIMES[(lastRaw + 1) % 48]); // closing boundary label
       const labelsHtml = labelTimes.map((t, i) =>
         (i === 0 ? '' : '<span class="avail-row-dot">•</span>') + `<span class="avail-row-label">${t}</span>`
       ).join('');
 
-      const cellsHtml = rowIdxs.map((rawIdx, localPos) => {
-        const pos = r + localPos; // GLOBAL position within the period — what selection logic keys off
+      // rawIdx IS the position selection logic keys off — using the real
+      // AVAIL_SLOT_TIMES index (not a position local to this period) is
+      // what lets a start tap in one tab and an end tap in another tab
+      // resolve to the correct, orderable range.
+      const cellsHtml = rowIdxs.map((rawIdx) => {
         const { cls, title, clickable } = describe(rawIdx);
-        const click = clickable ? ` onclick="handleSlotClick(${pos})"` : '';
-        // Two sub-cells per hour, purely visual density to match the
-        // reference — both share the same data-pos/click handler, so
-        // tapping either half selects the same whole hour.
-        const sub = `<div class="avail-slot ${cls}" data-pos="${pos}" title="${title}"${click}></div>`;
-        return sub + sub;
+        const click = clickable ? ` onclick="handleSlotClick(${rawIdx})"` : '';
+        return `<div class="avail-slot ${cls}" data-pos="${rawIdx}" title="${title}"${click}></div>`;
       }).join('');
 
       html += `<div class="avail-row" style="animation-delay:${(r / ROW_SIZE) * 60}ms">
@@ -1209,11 +1229,11 @@
   // fallback. Uses the exact same describe()/position logic as the
   // timeline, so selection behaves identically either way.
   function _buildListRows(visibleIndices, describe){
-    return visibleIndices.map((rawIdx, pos) => {
+    return visibleIndices.map((rawIdx, i) => {
       const { cls, title, clickable } = describe(rawIdx);
       const time = AVAIL_SLOT_TIMES[rawIdx];
-      const click = clickable ? ` onclick="handleSlotClick(${pos})"` : '';
-      return `<div class="avail-list-item ${cls}" data-pos="${pos}" title="${title}"${click} style="animation-delay:${pos * 20}ms">
+      const click = clickable ? ` onclick="handleSlotClick(${rawIdx})"` : '';
+      return `<div class="avail-list-item ${cls}" data-pos="${rawIdx}" title="${title}"${click} style="animation-delay:${i * 20}ms">
         <span class="avail-list-time">${time}</span><span class="avail-list-status">${title}</span>
       </div>`;
     }).join('');
@@ -1244,8 +1264,8 @@
      selection is REJECTED up front (not applied, not partially applied) —
      the person has to pick a clean range.
   ===================================================================== */
-  let _rangeStartPos = null;   // set after the first tap, cleared once a range is confirmed (or cancelled) — a POSITION within the current period's timeline, not a raw hour-index
-  let _selRange = null;        // {start, end} once a valid range is confirmed (also position-space)
+  let _rangeStartPos = null;   // set after the first tap, cleared once a range is confirmed (or cancelled) — a raw AVAIL_SLOT_TIMES index, valid regardless of which period tab is currently visible
+  let _selRange = null;        // {start, end} once a valid range is confirmed (also raw AVAIL_SLOT_TIMES indices)
 
   function resetSelection(){
     _rangeStartPos = null;
@@ -1260,7 +1280,7 @@
     reapplySelectionHighlight();
   }
 
-  function _timeAtPos(pos){ return AVAIL_SLOT_TIMES[_currentVisibleIndices[pos]]; }
+  function _timeAtPos(rawIdx){ return AVAIL_SLOT_TIMES[rawIdx]; }
 
   function handleSlotClick(pos){
     const errEl = document.getElementById('resv-error');
@@ -1297,10 +1317,10 @@
     }
 
     // Second tap: candidate end of the range (order-independent — the
-    // earlier-tapped position is always treated as the start). Working in
-    // POSITION space (not raw hour-index) means this stays correct even
-    // for the Evening tab, which visually runs 5 PM → 11 PM → 12 AM → 5
-    // AM — a plain min/max on hour-of-day would break at midnight.
+    // earlier-tapped position is always treated as the start). Raw
+    // AVAIL_SLOT_TIMES indices increase monotonically through the day
+    // (no period wraps past midnight), so a plain min/max works correctly
+    // even when the two taps came from different period tabs.
     const start = Math.min(_rangeStartPos, pos);
     const end = Math.max(_rangeStartPos, pos);
     _rangeStartPos = null;
@@ -1320,11 +1340,14 @@
     _selRange = { start, end };
     errEl.textContent = '';
     const fromTime = _timeAtPos(start), toTime = _timeAtPos(end);
-    const hours = end - start;
+    const totalMinutes = (end - start) * 30;
+    const durationLabel = totalMinutes % 60 === 0
+      ? `${totalMinutes / 60} Hour${totalMinutes === 60 ? '' : 's'}`
+      : `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
     const dateLabel = new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
     document.getElementById('resv-from-display').textContent = fromTime;
     document.getElementById('resv-to-display').textContent = toTime;
-    document.getElementById('resv-duration').textContent = `${hours} Hour${hours===1?'':'s'}`;
+    document.getElementById('resv-duration').textContent = durationLabel;
     document.getElementById('resv-date-display').textContent = dateLabel;
     document.getElementById('resv-status-display').textContent = 'Available';
     document.getElementById('resv-status-display').className = 'status-available';
