@@ -169,27 +169,72 @@
   .avail-date-btn{flex:0 0 auto;padding:10px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--white);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s}
   .avail-date-btn.active{background:var(--pitch);color:var(--white);border-color:var(--pitch)}
   .avail-sport-select{padding:10px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--white);font-family:'Inter',sans-serif;font-size:14px;font-weight:600;cursor:pointer}
-  .avail-legend{display:flex;gap:20px;font-size:13px;color:var(--gray3);margin-bottom:18px;flex-wrap:wrap}
+  .avail-legend{display:flex;gap:20px;font-size:13px;color:var(--gray3);margin:18px 0;flex-wrap:wrap}
   .avail-legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1.5px solid transparent}
-  .dot-avail{background:var(--white);border-color:#22c55e} .dot-selected{background:#0a3327} .dot-red{background:#ef4444} .dot-yellow{background:#eab308}
-  .avail-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
-  @media (max-width:800px){ .avail-grid{grid-template-columns:repeat(4,1fr)} }
-  @media (max-width:480px){ .avail-grid{grid-template-columns:repeat(3,1fr)} }
-  .avail-slot{padding:12px 6px;text-align:center;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;border:1.5px solid transparent;transition:transform .12s, background .12s;user-select:none;-webkit-tap-highlight-color:transparent}
-  /* Available = white with green border, per spec */
-  .avail-slot.avail-open{background:var(--white);color:#15803d;border-color:#22c55e;cursor:pointer}
-  .avail-slot.avail-open:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
-  /* Start & end of the selected range = dark green */
-  .avail-slot.avail-open.avail-range-end{background:#0a3327;color:var(--white);border-color:#0a3327}
-  /* Everything selected in between = light green */
-  .avail-slot.avail-open.avail-in-range{background:#86efac;color:#14532d;border-color:#86efac}
-  .avail-slot.avail-booked{background:#ef4444;color:var(--white);border-color:#ef4444;cursor:not-allowed;opacity:.9}
-  .avail-slot.avail-blocked{background:#eab308;color:#3f2d00;border-color:#eab308;cursor:not-allowed;opacity:.9}
-  .avail-slot.avail-unknown{background:var(--gray2,#e5e7eb);color:var(--gray3);border-color:var(--gray2,#e5e7eb);cursor:not-allowed}
-  .avail-loading{grid-column:1/-1;text-align:center;color:var(--gray3);padding:30px;font-size:14px}
+  .dot-avail{background:transparent;border-color:#3b82f6} .dot-selected{background:#3b82f6} .dot-red{background:#ef4444} .dot-grey{background:#3f3f46}
+
+  /* Dark card housing the whole "pick a time slot" widget */
+  .avail-dark-card{background:#0a0a0f;border-radius:26px;padding:26px 22px 22px}
+  .avail-dark-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
+  .avail-dark-title{font-family:'Inter',sans-serif;font-size:15px;font-weight:800;letter-spacing:1.5px;color:#e4e4e7}
+  .avail-view-toggle{display:flex;gap:4px;border:1.5px solid #3f3f46;border-radius:14px;padding:4px}
+  .avail-view-btn{background:transparent;border:none;color:#71717a;width:34px;height:30px;border-radius:10px;font-size:15px;cursor:pointer;transition:all .15s}
+  .avail-view-btn.active{background:#27272a;color:#60a5fa}
+
+  /* Twilight / Morning / Noon / Evening period tabs — plain text off,
+     dark rounded pill with icon+bold white text when active */
+  .avail-period-tabs{display:flex;gap:22px;margin-bottom:34px;flex-wrap:wrap;align-items:center}
+  .avail-period-btn{padding:12px 22px;border-radius:999px;border:none;background:transparent;font-family:'Inter',sans-serif;font-weight:600;font-size:16px;color:#71717a;cursor:pointer;transition:all .18s ease;display:flex;align-items:center;gap:9px}
+  .avail-period-icon{display:none;font-size:16px}
+  .avail-period-btn:hover{color:#a1a1aa}
+  .avail-period-btn.active{background:#1c1c22;color:#fff;font-weight:800}
+  .avail-period-btn.active .avail-period-icon{display:inline}
+
+  /* Segmented "capsule row" timeline — a dot-separated hour-label line
+     sitting above one rounded, blue-outlined pill. Each hour renders as
+     TWO plain sub-cells (visual density matching the reference) that
+     both belong to the same hour — actual bookable granularity stays
+     whole-hour throughout the rest of the system (admin pricing, the
+     WhatsApp message, and the Sheet's duration column all assume it). */
+  .avail-grid.timeline{display:flex;flex-direction:column;gap:26px}
+  .avail-row-labels{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;color:#e4e4e7}
+  .avail-row-label{flex:0 0 auto;white-space:nowrap}
+  .avail-row-dot{flex:0 0 auto;color:#52525b;font-size:10px}
+  @keyframes rowFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .avail-row{animation:rowFadeIn .35s ease backwards}
+  .avail-row-capsule{display:flex;border:1.5px solid #3b5bfa;border-radius:999px;overflow:hidden;background:transparent}
+  .avail-row-capsule .avail-slot{flex:1 1 0;min-width:0;border:none;border-radius:0;border-right:1px solid rgba(59,91,250,.35);animation:none}
+  .avail-row-capsule .avail-slot:last-child{border-right:none}
+  .avail-slot{padding:22px 2px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0;transition:background .15s ease;user-select:none;-webkit-tap-highlight-color:transparent}
+  /* Available = transparent (the dark card shows through), selectable */
+  .avail-slot.avail-open{background:transparent;cursor:pointer}
+  .avail-slot.avail-open:hover{background:rgba(59,91,250,.12)}
+  .avail-slot.avail-open:active{background:rgba(59,91,250,.22)}
+  /* Start & end of the selected range = solid blue glow */
+  .avail-slot.avail-open.avail-range-end{background:#3b5bfa;box-shadow:inset 0 0 20px rgba(96,165,250,.5)}
+  /* Everything selected in between = soft blue glow gradient */
+  .avail-slot.avail-open.avail-in-range{background:linear-gradient(90deg,rgba(59,91,250,.35),rgba(96,165,250,.5))}
+  .avail-slot.avail-booked{background:#ef4444;cursor:not-allowed;opacity:.85}
+  /* Blocked = diagonal hatch pattern on dark, per the reference image */
+  .avail-slot.avail-blocked{background-image:repeating-linear-gradient(45deg,#1c1c22,#1c1c22 6px,#2c2c34 6px,#2c2c34 12px);cursor:not-allowed}
+  .avail-slot.avail-unknown{background:#18181b;cursor:not-allowed}
+  .avail-loading{text-align:center;color:#71717a;padding:30px;font-size:14px;width:100%}
+
+  /* List view — vertical alternative to the timeline, toggled via the
+     ▤/☰ buttons in the dark card's header */
+  .avail-grid.list-view{display:flex;flex-direction:column;gap:8px}
+  .avail-list-item{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-radius:14px;border:1.5px solid #27272a;font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:#e4e4e7;transition:background .15s ease;animation:rowFadeIn .3s ease backwards}
+  .avail-list-item.avail-open{cursor:pointer}
+  .avail-list-item.avail-open:hover{background:rgba(59,91,250,.12);border-color:#3b5bfa}
+  .avail-list-item.avail-open.avail-range-end{background:#3b5bfa;border-color:#3b5bfa}
+  .avail-list-item.avail-open.avail-in-range{background:rgba(59,91,250,.25);border-color:rgba(59,91,250,.4)}
+  .avail-list-item.avail-booked{border-color:#ef4444;background:rgba(239,68,68,.12);color:#fca5a5;cursor:not-allowed}
+  .avail-list-item.avail-blocked{background-image:repeating-linear-gradient(45deg,#1c1c22,#1c1c22 6px,#2c2c34 6px,#2c2c34 12px);cursor:not-allowed}
+  .avail-list-item.avail-unknown{background:#18181b;color:#71717a;cursor:not-allowed}
+  .avail-list-status{font-size:12px;font-weight:700;opacity:.8}
   .avail-note{margin-top:20px;text-align:center;font-size:13px;font-weight:600;color:var(--pitch);background:var(--green-bg,#f0fdf4);padding:14px;border-radius:12px}
   .avail-sync-status{font-size:12px;font-weight:600;color:var(--gray3);white-space:nowrap}
-  .avail-sync-banner{grid-column:1/-1;text-align:center;color:#92400e;background:#fffbeb;border:1px solid #fde68a;padding:14px;border-radius:10px;font-size:13px;font-weight:600}
+  .avail-sync-banner{text-align:center;color:#92400e;background:#fffbeb;border:1px solid #fde68a;padding:14px;border-radius:10px;font-size:13px;font-weight:600;margin-bottom:14px}
   .img-placeholder{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--pitch) 0%,var(--ink) 100%);color:rgba(255,255,255,.55);font-size:13px;font-weight:600;text-align:center;width:100%;height:100%}
 
   /* ---- Reserve panel (read-only summary, filled by tapping the grid) ---- */
@@ -327,7 +372,7 @@
       <a href="#cafe" data-nav-link="cafe">DD Café</a>
       <a href="#google-reviews" data-nav-link="google-reviews">Reviews</a>
       <a href="#contact" data-nav-link="contact">Contact</a>
-      <a href="admin/" class="btn-ghost btn" style="padding:8px 18px">Staff Login</a>
+      <a href="admin.html" class="btn-ghost btn" style="padding:8px 18px">Staff Login</a>
     </div>
     <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" onclick="toggleMobileMenu()">
       <span></span><span></span><span></span>
@@ -345,7 +390,7 @@
   <a href="#cafe" onclick="closeMobileMenu()">DD Café</a>
   <a href="#google-reviews" onclick="closeMobileMenu()">Reviews</a>
   <a href="#contact" onclick="closeMobileMenu()">Contact</a>
-  <a href="admin/" class="btn btn-primary" style="margin-top:10px;justify-content:center">Staff Login</a>
+  <a href="admin.html" class="btn btn-primary" style="margin-top:10px;justify-content:center">Staff Login</a>
 </div>
 
 <header class="hero" id="home">
@@ -448,16 +493,34 @@
       <div id="avail-sync-status" class="avail-sync-status">⏳ Checking latest availability…</div>
     </div>
 
+    <div class="avail-dark-card">
+      <div class="avail-dark-head">
+        <div class="avail-dark-title">PICK A TIME SLOT</div>
+        <div class="avail-view-toggle">
+          <button class="avail-view-btn active" id="avail-view-timeline" onclick="setAvailView('timeline')" title="Timeline view">▤</button>
+          <button class="avail-view-btn" id="avail-view-list" onclick="setAvailView('list')" title="List view">☰</button>
+        </div>
+      </div>
+
+      <div class="avail-period-tabs" id="avail-period-tabs">
+        <button class="avail-period-btn" data-period="twilight" onclick="selectAvailPeriod('twilight')"><span class="avail-period-icon">🌌</span>Twilight</button>
+        <button class="avail-period-btn" data-period="morning" onclick="selectAvailPeriod('morning')"><span class="avail-period-icon">🌅</span>Morning</button>
+        <button class="avail-period-btn" data-period="noon" onclick="selectAvailPeriod('noon')"><span class="avail-period-icon">☀️</span>Noon</button>
+        <button class="avail-period-btn" data-period="evening" onclick="selectAvailPeriod('evening')"><span class="avail-period-icon">🌙</span>Evening</button>
+      </div>
+
+      <div id="avail-banner"></div>
+      <div id="avail-grid" class="avail-grid timeline"><div class="avail-loading">Loading today's availability…</div></div>
+    </div>
+
     <div class="avail-legend">
       <span><i class="dot dot-avail"></i> Available</span>
       <span><i class="dot dot-selected"></i> Selected</span>
       <span><i class="dot dot-red"></i> Booked</span>
-      <span><i class="dot dot-yellow"></i> Blocked</span>
+      <span><i class="dot dot-grey"></i> Blocked</span>
     </div>
 
-    <div id="avail-grid" class="avail-grid"><div class="avail-loading">Loading today's availability…</div></div>
-
-    <!-- RESERVE PANEL — read-only summary, filled in entirely by tapping the grid above -->
+    <!-- RESERVE PANEL — read-only summary, filled in entirely by tapping the timeline above -->
     <div class="resv-form" id="resv-form">
       <div class="resv-title">Your Reservation</div>
       <div class="resv-summary-grid">
@@ -474,6 +537,27 @@
     <div class="avail-note">✅ Reservation is confirmed only after DD Turf Zone approves your request.</div>
   </div>
 </section>
+
+<!-- CUSTOMER DETAILS — asked once before WhatsApp opens; saved locally so returning visitors don't retype it -->
+<div class="bk-overlay" id="customer-modal">
+  <div class="bk-modal">
+    <h3>Your Details</h3>
+    <div class="hint">So DD Turf Zone knows who's booking — this stays on your device and isn't shared with anyone else.</div>
+    <div class="bk-field">
+      <label>Name</label>
+      <input type="text" id="cust-name-input" placeholder="Your name" autocomplete="name">
+    </div>
+    <div class="bk-field">
+      <label>Mobile Number</label>
+      <input type="tel" id="cust-mobile-input" placeholder="10-digit mobile number" autocomplete="tel" inputmode="numeric" maxlength="10">
+    </div>
+    <div class="resv-error" id="cust-modal-error"></div>
+    <div class="bk-actions">
+      <button class="btn btn-ghost" onclick="closeCustomerModal()">Cancel</button>
+      <button class="btn btn-cta" onclick="confirmCustomerDetails()">Continue to WhatsApp</button>
+    </div>
+  </div>
+</div>
 
 <!-- COACHING -->
 <section id="coaching" style="background:var(--white)" class="reveal">
@@ -705,7 +789,7 @@
       </div>
       <div>
         <h4>For Staff</h4>
-        <ul><li><a href="admin/">Staff Login →</a></li></ul>
+        <ul><li><a href="admin.html">Staff Login →</a></li></ul>
       </div>
     </div>
     <div class="foot-bottom">© 2026 DD Turf Zone, Madambakkam. All rights reserved.</div>
@@ -932,6 +1016,7 @@
   const RESERVE_PHONE = '917305123765';
   let _availSelectedDate = null;
   let _availSlotsCache = null; // null = "no live data available yet", [] = "live data says nothing booked"
+  let _currentVisibleIndices = []; // raw AVAIL_SLOT_TIMES indices currently shown, in left-to-right display order
 
   function scrollToAvailability(){
     document.getElementById('availability').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -965,6 +1050,38 @@
   const AVAIL_SLOT_TIMES = ['12:00 AM','1:00 AM','2:00 AM','3:00 AM','4:00 AM','5:00 AM','6:00 AM','7:00 AM','8:00 AM','9:00 AM',
     '10:00 AM','11:00 AM','12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM','5:00 PM','6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM','11:00 PM'];
 
+  // Twilight / Morning / Noon / Evening — 4 clean, non-overlapping,
+  // non-wrapping ranges covering all 24 hours between them (no more
+  // midnight-spanning tab, which is simpler than the earlier 3-tab
+  // version and reads better against a literal clock too).
+  const AVAIL_PERIODS = {
+    twilight: { range: [0, 5] },    // 12:00 AM – 5:00 AM
+    morning:  { range: [6, 11] },   // 6:00 AM – 11:00 AM
+    noon:     { range: [12, 16] },  // 12:00 PM – 4:00 PM
+    evening:  { range: [17, 23] }   // 5:00 PM – 11:00 PM
+  };
+  function _indicesForPeriod(period){
+    const p = AVAIL_PERIODS[period] || AVAIL_PERIODS.evening;
+    const [a, b] = p.range;
+    const out = []; for (let i = a; i <= b; i++) out.push(i);
+    return out;
+  }
+  function _periodForHour(hour){ // hour = 0-23, used to default to "now"
+    if (hour <= 5) return 'twilight';
+    if (hour <= 11) return 'morning';
+    if (hour <= 16) return 'noon';
+    return 'evening';
+  }
+  let _activeAvailPeriod = _periodForHour(new Date().getHours());
+
+  function selectAvailPeriod(period){
+    _activeAvailPeriod = period;
+    document.querySelectorAll('.avail-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === period));
+    resetSelection();
+    renderAvailabilityGrid();
+  }
+  window.selectAvailPeriod = selectAvailPeriod;
+
   function _timeToMinutes(t){
     const m = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
     if (!m) return null;
@@ -991,7 +1108,7 @@
   // distinct "unknown" state rather than quietly claiming everything's
   // free. cache:'no-store' + a timestamp param defeats both the browser's
   // HTTP cache and any intermediate proxy cache, so a booking made in the
-  // admin panel a second ago shows up on next fetch instead of a stale one.
+  // admin panel a moment ago shows up on next fetch instead of a stale one.
   async function fetchLiveSlotStatus(dateStr){
     const sheetUrl = getLiveSheetUrl();
     if (!sheetUrl) { _setSyncStatus('unconfigured'); return null; }
@@ -1016,35 +1133,107 @@
   async function renderAvailabilityGrid(){
     const grid = document.getElementById('avail-grid');
     if (!grid || !_availSelectedDate) return;
+    document.querySelectorAll('.avail-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === _activeAvailPeriod));
     grid.innerHTML = `<div class="avail-loading">Loading ${_availSelectedDate}'s availability…</div>`;
     _setSyncStatus('loading');
     _availSlotsCache = await fetchLiveSlotStatus(_availSelectedDate);
+    const visibleIndices = _indicesForPeriod(_activeAvailPeriod);
+    _currentVisibleIndices = visibleIndices;
 
     if (_availSlotsCache === null) {
-      // No live data source reachable — don't guess. Show every hour as
-      // "unknown" (grey, not selectable) plus one clear banner, instead
-      // of a green grid that might be quietly wrong.
-      grid.innerHTML = `<div class="avail-sync-banner">Live availability isn't connected right now. Please WhatsApp us directly to confirm a slot.</div>` +
-        AVAIL_SLOT_TIMES.map(time => `<div class="avail-slot avail-unknown" title="Availability unknown">${time}</div>`).join('');
+      // No live data source reachable — don't guess. Show this period's
+      // hours as "unknown" (grey, not selectable) plus one clear banner,
+      // instead of a green timeline that might be quietly wrong.
+      document.getElementById('avail-banner').innerHTML = `<div class="avail-sync-banner">Live availability isn't connected right now. Please WhatsApp us directly to confirm a slot.</div>`;
+      const describeUnknown = () => ({ cls: 'avail-unknown', title: 'Availability unknown', clickable: false });
+      grid.innerHTML = _availViewMode === 'list' ? _buildListRows(visibleIndices, describeUnknown) : _buildTimelineRows(visibleIndices, describeUnknown);
       return;
     }
+    document.getElementById('avail-banner').innerHTML = '';
 
-    grid.innerHTML = AVAIL_SLOT_TIMES.map(time => {
+    const describeSlot = (i) => {
+      const time = AVAIL_SLOT_TIMES[i];
       const match = _slotStatusAt(time, _availSlotsCache);
       if (match) {
         const cls = match.status === 'blocked' ? 'avail-blocked' : 'avail-booked';
-        const label = match.status === 'blocked' ? `Blocked${match.reason ? ' · '+match.reason : ''}` : 'Booked';
-        return `<div class="avail-slot ${cls}" title="${label}">${time}</div>`;
+        const title = match.status === 'blocked' ? `Blocked${match.reason ? ' · '+match.reason : ''}` : 'Booked';
+        return { cls, title, clickable: false };
       }
-      return `<div class="avail-slot avail-open" title="Tap to select a start or end time" onclick="handleSlotClick('${time}')">${time}</div>`;
-    }).join('');
+      return { cls: 'avail-open', title: 'Available', clickable: true };
+    };
+    grid.innerHTML = _availViewMode === 'list' ? _buildListRows(visibleIndices, describeSlot) : _buildTimelineRows(visibleIndices, describeSlot);
     reapplySelectionHighlight();
   }
+
+  // Groups a flat list of raw hour-indices into 3-hour "capsule rows": a
+  // dot-separated label line (one label per hour boundary, so a 3-hour
+  // row shows 4 labels) sitting above one rounded pill divided into
+  // hourly cells. `describe(rawIdx)` returns { cls, title, clickable }
+  // for a given hour — the caller decides status, this just handles the
+  // grouping/layout so it works the same for real data and the
+  // "unknown" fallback state.
+  function _buildTimelineRows(visibleIndices, describe){
+    const ROW_SIZE = 3;
+    let html = '';
+    for (let r = 0; r < visibleIndices.length; r += ROW_SIZE) {
+      const rowIdxs = visibleIndices.slice(r, r + ROW_SIZE);
+      const labelTimes = rowIdxs.map(i => AVAIL_SLOT_TIMES[i]);
+      const lastRaw = rowIdxs[rowIdxs.length - 1];
+      labelTimes.push(AVAIL_SLOT_TIMES[(lastRaw + 1) % 24]); // closing boundary label
+      const labelsHtml = labelTimes.map((t, i) =>
+        (i === 0 ? '' : '<span class="avail-row-dot">•</span>') + `<span class="avail-row-label">${t}</span>`
+      ).join('');
+
+      const cellsHtml = rowIdxs.map((rawIdx, localPos) => {
+        const pos = r + localPos; // GLOBAL position within the period — what selection logic keys off
+        const { cls, title, clickable } = describe(rawIdx);
+        const click = clickable ? ` onclick="handleSlotClick(${pos})"` : '';
+        // Two sub-cells per hour, purely visual density to match the
+        // reference — both share the same data-pos/click handler, so
+        // tapping either half selects the same whole hour.
+        const sub = `<div class="avail-slot ${cls}" data-pos="${pos}" title="${title}"${click}></div>`;
+        return sub + sub;
+      }).join('');
+
+      html += `<div class="avail-row" style="animation-delay:${(r / ROW_SIZE) * 60}ms">
+        <div class="avail-row-labels">${labelsHtml}</div>
+        <div class="avail-row-capsule">${cellsHtml}</div>
+      </div>`;
+    }
+    return html;
+  }
+
+  // List view — a simple vertical list of each hour with its time and
+  // status spelled out in text. Easier to read precisely than the
+  // timeline on a very small screen, and doubles as an accessible
+  // fallback. Uses the exact same describe()/position logic as the
+  // timeline, so selection behaves identically either way.
+  function _buildListRows(visibleIndices, describe){
+    return visibleIndices.map((rawIdx, pos) => {
+      const { cls, title, clickable } = describe(rawIdx);
+      const time = AVAIL_SLOT_TIMES[rawIdx];
+      const click = clickable ? ` onclick="handleSlotClick(${pos})"` : '';
+      return `<div class="avail-list-item ${cls}" data-pos="${pos}" title="${title}"${click} style="animation-delay:${pos * 20}ms">
+        <span class="avail-list-time">${time}</span><span class="avail-list-status">${title}</span>
+      </div>`;
+    }).join('');
+  }
+
+  let _availViewMode = 'timeline';
+  function setAvailView(mode){
+    _availViewMode = mode;
+    document.getElementById('avail-view-timeline').classList.toggle('active', mode === 'timeline');
+    document.getElementById('avail-view-list').classList.toggle('active', mode === 'list');
+    document.getElementById('avail-grid').classList.toggle('timeline', mode === 'timeline');
+    document.getElementById('avail-grid').classList.toggle('list-view', mode === 'list');
+    renderAvailabilityGrid();
+  }
+  window.setAvailView = setAvailView;
 
   // Auto-refresh: refreshes on an interval, and instantly whenever the
   // tab regains focus (the moment someone flips back from the admin
   // panel to check the site) — the closest a static page gets to "live."
-  setInterval(() => renderAvailabilityGrid(), 45000);
+  setInterval(() => renderAvailabilityGrid(), 30000); // 30s per spec — keeps availability effectively live without a manual refresh
   document.addEventListener('visibilitychange', () => { if (!document.hidden) renderAvailabilityGrid(); });
   window.addEventListener('focus', () => renderAvailabilityGrid());
 
@@ -1055,11 +1244,11 @@
      selection is REJECTED up front (not applied, not partially applied) —
      the person has to pick a clean range.
   ===================================================================== */
-  let _rangeStartIdx = null;   // set after the first tap, cleared once a range is confirmed (or cancelled)
-  let _selRange = null;        // {start, end} once a valid range is confirmed
+  let _rangeStartPos = null;   // set after the first tap, cleared once a range is confirmed (or cancelled) — a POSITION within the current period's timeline, not a raw hour-index
+  let _selRange = null;        // {start, end} once a valid range is confirmed (also position-space)
 
   function resetSelection(){
-    _rangeStartIdx = null;
+    _rangeStartPos = null;
     _selRange = null;
     document.getElementById('resv-from-display').textContent = '—';
     document.getElementById('resv-to-display').textContent = '—';
@@ -1071,15 +1260,16 @@
     reapplySelectionHighlight();
   }
 
-  function handleSlotClick(time){
-    const idx = AVAIL_SLOT_TIMES.indexOf(time);
+  function _timeAtPos(pos){ return AVAIL_SLOT_TIMES[_currentVisibleIndices[pos]]; }
+
+  function handleSlotClick(pos){
     const errEl = document.getElementById('resv-error');
 
-    if (_rangeStartIdx === null && _selRange === null) {
+    if (_rangeStartPos === null && _selRange === null) {
       // First tap of a fresh selection: mark the start, wait for the end.
-      _rangeStartIdx = idx;
+      _rangeStartPos = pos;
       errEl.textContent = '';
-      document.getElementById('resv-from-display').textContent = time;
+      document.getElementById('resv-from-display').textContent = _timeAtPos(pos);
       document.getElementById('resv-to-display').textContent = '—';
       document.getElementById('resv-duration').textContent = '—';
       document.getElementById('resv-status-display').textContent = 'Pick an end time';
@@ -1093,24 +1283,27 @@
       // A complete range already exists — a further tap starts a brand
       // new selection rather than confusingly editing the old one.
       resetSelection();
-      _rangeStartIdx = idx;
-      document.getElementById('resv-from-display').textContent = time;
+      _rangeStartPos = pos;
+      document.getElementById('resv-from-display').textContent = _timeAtPos(pos);
       document.getElementById('resv-status-display').textContent = 'Pick an end time';
       reapplySelectionHighlight();
       return;
     }
 
-    if (idx === _rangeStartIdx) {
+    if (pos === _rangeStartPos) {
       // Tapping the same cell again cancels and clears back to nothing.
       resetSelection();
       return;
     }
 
     // Second tap: candidate end of the range (order-independent — the
-    // earlier of the two tapped hours is always treated as the start).
-    const start = Math.min(_rangeStartIdx, idx);
-    const end = Math.max(_rangeStartIdx, idx);
-    _rangeStartIdx = null;
+    // earlier-tapped position is always treated as the start). Working in
+    // POSITION space (not raw hour-index) means this stays correct even
+    // for the Evening tab, which visually runs 5 PM → 11 PM → 12 AM → 5
+    // AM — a plain min/max on hour-of-day would break at midnight.
+    const start = Math.min(_rangeStartPos, pos);
+    const end = Math.max(_rangeStartPos, pos);
+    _rangeStartPos = null;
 
     const conflicts = checkRangeConflict(start, end);
     if (conflicts.length) {
@@ -1126,7 +1319,7 @@
 
     _selRange = { start, end };
     errEl.textContent = '';
-    const fromTime = AVAIL_SLOT_TIMES[start], toTime = AVAIL_SLOT_TIMES[end];
+    const fromTime = _timeAtPos(start), toTime = _timeAtPos(end);
     const hours = end - start;
     const dateLabel = new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
     document.getElementById('resv-from-display').textContent = fromTime;
@@ -1142,72 +1335,86 @@
   window.handleSlotClick = handleSlotClick;
 
   // Re-paints the dark-green start/end + light-green in-between styling
-  // on whatever grid is currently rendered (called after every grid
+  // on whatever timeline is currently rendered (called after every
   // refresh too, so a background auto-refresh doesn't wipe a selection
-  // someone is still looking at).
+  // someone is still looking at). Uses data-pos lookups rather than
+  // NodeList array-position, since only a subset of hours (the active
+  // period) is ever actually in the DOM at once.
   function reapplySelectionHighlight(){
     const grid = document.getElementById('avail-grid');
     if (!grid) return;
-    const cells = grid.querySelectorAll('.avail-slot');
-    cells.forEach(c => c.classList.remove('avail-in-range', 'avail-range-end'));
-    if (_rangeStartIdx !== null) {
-      cells[_rangeStartIdx]?.classList.add('avail-range-end');
+    grid.querySelectorAll('.avail-slot, .avail-list-item').forEach(c => c.classList.remove('avail-in-range', 'avail-range-end'));
+    const cellsAt = (pos) => grid.querySelectorAll(`[data-pos="${pos}"]`);
+    if (_rangeStartPos !== null) {
+      cellsAt(_rangeStartPos).forEach(c => c.classList.add('avail-range-end'));
     } else if (_selRange) {
-      cells[_selRange.start]?.classList.add('avail-range-end');
-      cells[_selRange.end - 1]?.classList.add('avail-range-end');
-      for (let i = _selRange.start + 1; i < _selRange.end - 1; i++) cells[i]?.classList.add('avail-in-range');
+      cellsAt(_selRange.start).forEach(c => c.classList.add('avail-range-end'));
+      cellsAt(_selRange.end - 1).forEach(c => c.classList.add('avail-range-end'));
+      for (let i = _selRange.start + 1; i < _selRange.end - 1; i++) cellsAt(i).forEach(c => c.classList.add('avail-in-range'));
     }
   }
 
-  function checkRangeConflict(startIdx, endIdx){
+  function checkRangeConflict(startPos, endPos){
     const conflicts = [];
-    for (let i = startIdx; i < endIdx; i++) {
-      const t = AVAIL_SLOT_TIMES[i];
+    for (let i = startPos; i < endPos; i++) {
+      const t = _timeAtPos(i);
       const match = _slotStatusAt(t, _availSlotsCache || []);
       if (match) conflicts.push(`${t} (${match.status === 'blocked' ? 'blocked' : 'booked'})`);
     }
     return conflicts;
   }
 
+  // ----- Customer details (Name + Mobile), asked once before WhatsApp,
+  // remembered locally for next time -----
+  function openCustomerModal(){
+    document.getElementById('cust-name-input').value = localStorage.getItem('ddtz_cust_name') || '';
+    document.getElementById('cust-mobile-input').value = localStorage.getItem('ddtz_cust_mobile') || '';
+    document.getElementById('cust-modal-error').textContent = '';
+    document.getElementById('customer-modal').classList.add('open');
+  }
+  function closeCustomerModal(){
+    document.getElementById('customer-modal').classList.remove('open');
+  }
+  window.closeCustomerModal = closeCustomerModal;
+
+  function confirmCustomerDetails(){
+    const name = document.getElementById('cust-name-input').value.trim();
+    const mobile = document.getElementById('cust-mobile-input').value.trim();
+    const errEl = document.getElementById('cust-modal-error');
+    if (!name) { errEl.textContent = 'Please enter your name.'; return; }
+    if (!/^\d{10}$/.test(mobile)) { errEl.textContent = 'Please enter a valid 10-digit mobile number.'; return; }
+    localStorage.setItem('ddtz_cust_name', name);
+    localStorage.setItem('ddtz_cust_mobile', mobile);
+    closeCustomerModal();
+    _sendReservationToWhatsApp(name, mobile);
+  }
+  window.confirmCustomerDetails = confirmCustomerDetails;
+
+  function _sendReservationToWhatsApp(name, mobile){
+    const fromTime = _timeAtPos(_selRange.start), toTime = _timeAtPos(_selRange.end);
+    const duration = document.getElementById('resv-duration').textContent;
+    const dateLabel = new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
+
+    const message = `DD Turf Zone Booking Request\n\nName: ${name}\nMobile: ${mobile}\n\nDate: ${dateLabel}\nTime: ${fromTime} - ${toTime}\nDuration: ${duration}\n\nPlease confirm my booking.`;
+    window.open(`https://wa.me/${RESERVE_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
+  }
+
   function reserveTimeRange(){
     if (!_selRange) return;
     const errEl = document.getElementById('resv-error');
 
-    // Defensive re-check: the grid auto-refreshes every 45s, so it's
+    // Defensive re-check: the timeline auto-refreshes every 30s, so it's
     // possible (if unlikely) the slot got booked by someone else in the
     // moments between selecting it and tapping Reserve.
     const conflicts = checkRangeConflict(_selRange.start, _selRange.end);
     if (conflicts.length) {
       resetSelection();
-      errEl.textContent = 'Selected time range contains unavailable slots. Please choose another time.';
+      errEl.textContent = 'Selected time range is no longer available — someone may have just booked it. Please choose another time.';
       renderAvailabilityGrid();
       return;
     }
 
-    const fromTime = AVAIL_SLOT_TIMES[_selRange.start];
-    const toTime = AVAIL_SLOT_TIMES[_selRange.end];
-    const duration = document.getElementById('resv-duration').textContent;
-    const dateLabel = new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
-
-    const lines = [
-      'DD Turf Zone Booking Request',
-      '',
-      'Date:',
-      dateLabel,
-      '',
-      'Time:',
-      `${fromTime} - ${toTime}`,
-      '',
-      'Duration:',
-      duration,
-      '',
-      'Name:',
-      '__________',
-      '',
-      'Mobile:',
-      '__________'
-    ];
-    window.open(`https://wa.me/${RESERVE_PHONE}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
+    openCustomerModal();
   }
   window.reserveTimeRange = reserveTimeRange;
 
@@ -1467,7 +1674,7 @@
   injectStructuredData(_effectiveImages);
   loadAdminManagedPricing();
   syncLiveSiteConfig();
-  setInterval(syncLiveSiteConfig, 45000);
+  setInterval(syncLiveSiteConfig, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncLiveSiteConfig(); });
 </script>
 
