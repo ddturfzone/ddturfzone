@@ -165,9 +165,13 @@
 
   /* ---- Live Slot Availability ---- */
   .avail-controls{display:flex;gap:14px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+  .avail-dates-nav{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
   .avail-dates{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;flex:1;min-width:0}
   .avail-date-btn{flex:0 0 auto;padding:10px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--white);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s}
   .avail-date-btn.active{background:var(--pitch);color:var(--white);border-color:var(--pitch)}
+  .avail-date-arrow{flex:0 0 auto;width:36px;height:36px;border-radius:10px;border:1.5px solid var(--line);background:var(--white);font-size:17px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;color:var(--pitch)}
+  .avail-date-arrow:hover:not(:disabled){background:var(--pitch);color:var(--white);border-color:var(--pitch)}
+  .avail-date-arrow:disabled{opacity:.35;cursor:not-allowed}
   .avail-sport-select{padding:10px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--white);font-family:'Inter',sans-serif;font-size:14px;font-weight:600;cursor:pointer}
   .avail-legend{display:flex;gap:20px;font-size:13px;color:var(--gray3);margin:18px 0;flex-wrap:wrap}
   .avail-legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1.5px solid transparent}
@@ -489,7 +493,11 @@
     </div>
 
     <div class="avail-controls">
-      <div class="avail-dates" id="avail-date-tabs"></div>
+      <div class="avail-dates-nav">
+        <button type="button" class="avail-date-arrow" id="avail-date-prev" onclick="shiftAvailDateStrip(-1)" aria-label="Earlier dates">‹</button>
+        <div class="avail-dates" id="avail-date-tabs"></div>
+        <button type="button" class="avail-date-arrow" id="avail-date-next" onclick="shiftAvailDateStrip(1)" aria-label="Later dates">›</button>
+      </div>
       <div id="avail-sync-status" class="avail-sync-status">⏳ Checking latest availability…</div>
     </div>
 
@@ -1019,6 +1027,16 @@
   let _availSlotsCacheNextDay = null; // same shape, for the calendar day AFTER _availSelectedDate — needed to check conflicts for bookings that cross midnight
   let _currentVisibleIndices = []; // raw AVAIL_SLOT_TIMES indices currently shown, in left-to-right display order
 
+  // ----- 7-day date strip, scrollable via ‹ › arrows -----
+  // _availStripStart is "days from today" for the FIRST tab currently shown
+  // (0 = the window starting at Today, 7 = the window starting a week out,
+  // etc). Kept separate from _availSelectedDate so the two can move
+  // independently — e.g. arriving on the page always starts the strip at
+  // Today, but the previously-selected date (if any) stays selected even
+  // if it's scrolled out of view.
+  let _availStripStart = 0;
+  const AVAIL_MAX_DAYS_AHEAD = 60; // how far forward visitors can browse — adjust freely, no backend limit tied to this
+
   function _nextDateStr(dateStr){
     const d = new Date(dateStr + 'T00:00:00');
     d.setDate(d.getDate() + 1);
@@ -1035,16 +1053,47 @@
     const today = new Date();
     let html = '';
     for (let i = 0; i < 7; i++) {
-      // Starts at today, going forward only — there is no path to a past
-      // date here, so past dates are never selectable (spec #8).
-      const d = new Date(today); d.setDate(today.getDate() + i);
+      // Starts at today + _availStripStart, going forward only — there is
+      // no path to a past date here, so past dates are never selectable
+      // (spec #8).
+      const dayOffset = _availStripStart + i;
+      const d = new Date(today); d.setDate(today.getDate() + dayOffset);
       const iso = d.toISOString().slice(0,10); // fine here: just a key, not a calendar-date computation
-      const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
-      html += `<button class="avail-date-btn${i===0?' active':''}" data-date="${iso}" onclick="selectAvailDate('${iso}', this)">${label}</button>`;
-      if (i === 0) _availSelectedDate = iso;
+      const label = dayOffset === 0 ? 'Today' : dayOffset === 1 ? 'Tomorrow' : d.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
+      const isActive = iso === _availSelectedDate;
+      html += `<button class="avail-date-btn${isActive?' active':''}" data-date="${iso}" onclick="selectAvailDate('${iso}', this)">${label}</button>`;
     }
     wrap.innerHTML = html;
+
+    // If nothing in the newly-rendered window is selected (first load, or
+    // after scrolling the strip past whatever was selected before),
+    // default to the first visible day so the grid never shows nothing.
+    if (!wrap.querySelector('.avail-date-btn.active')) {
+      const firstBtn = wrap.querySelector('.avail-date-btn');
+      if (firstBtn) {
+        firstBtn.classList.add('active');
+        _availSelectedDate = firstBtn.dataset.date;
+      }
+    }
+
+    const prevBtn = document.getElementById('avail-date-prev');
+    const nextBtn = document.getElementById('avail-date-next');
+    if (prevBtn) prevBtn.disabled = _availStripStart <= 0;
+    if (nextBtn) nextBtn.disabled = _availStripStart + 7 >= AVAIL_MAX_DAYS_AHEAD;
   }
+
+  // Moves the visible 7-day window backward/forward by a full week and
+  // re-renders. Clamped so it can never scroll before Today or past
+  // AVAIL_MAX_DAYS_AHEAD, and re-fetches availability for the newly
+  // selected date since the window shift may change which date is active.
+  window.shiftAvailDateStrip = (dir) => {
+    const next = _availStripStart + dir * 7;
+    _availStripStart = Math.max(0, Math.min(next, AVAIL_MAX_DAYS_AHEAD - 7));
+    buildAvailDateTabs();
+    resetSelection();
+    renderAvailabilityGrid();
+  };
+
   function selectAvailDate(iso, btn){
     _availSelectedDate = iso;
     document.querySelectorAll('.avail-date-btn').forEach(b => b.classList.remove('active'));
@@ -1053,6 +1102,7 @@
     renderAvailabilityGrid();
   }
   window.selectAvailDate = selectAvailDate;
+
 
   // 30-minute granularity: 48 slots covering the full day. Each entry is
   // the START time of that half-hour block (e.g. '5:30 AM' = the
