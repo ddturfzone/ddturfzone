@@ -167,8 +167,6 @@
   .ai-answer-box.loading{display:flex;align-items:center;gap:10px;color:var(--gray3);font-style:italic}
   .ai-spinner{width:16px;height:16px;border:2.5px solid rgba(31,175,90,.25);border-top-color:var(--pitch);border-radius:50%;animation:aiSpin .7s linear infinite;flex-shrink:0}
   @keyframes aiSpin{to{transform:rotate(360deg)}}
-  .ai-manual-copy{margin-top:12px;position:relative;z-index:1}
-  .ai-manual-copy textarea{width:100%;min-height:70px;padding:12px;border-radius:12px;border:1.5px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:12px;background:rgba(255,255,255,.9);color:var(--gray3)}
   .ai-disclaimer{text-align:center;font-size:12.5px;color:var(--gray3);margin-top:18px;line-height:1.7}
   .ai-fab{position:fixed;right:22px;bottom:166px;z-index:60;width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,var(--pitch),var(--pitch-2));color:white;font-size:26px;display:flex;align-items:center;justify-content:center;border:none;box-shadow:0 8px 24px rgba(31,175,90,.4);cursor:pointer;transition:transform .2s ease}
   .ai-fab:hover{transform:scale(1.08)}
@@ -197,19 +195,14 @@
   .avail-legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1.5px solid transparent}
   .dot-avail{background:transparent;border-color:#3b82f6} .dot-selected{background:#3b82f6} .dot-red{background:#ef4444} .dot-grey{background:#3f3f46}
 
-  /* Dark card housing the whole "pick a time slot" widget */
+  /* Dark card housing the whole "booked & blocked slots" list */
   .avail-dark-card{background:#0a0a0f;border-radius:26px;padding:26px 22px 22px;position:relative}
-  .avail-drag-bubble{position:absolute;z-index:20;background:#ef4444;color:#fff;font-weight:700;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 11px;border-radius:999px;transform:translate(-50%,-130%);pointer-events:none;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4)}
-  .avail-drag-bubble::after{content:'';position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);border:5px solid transparent;border-top-color:#ef4444}
   .resv-price-box{margin:14px 0;padding:14px 16px;background:#eafbf1;border:1.5px solid var(--pitch-2);border-radius:14px}
   .resv-happy-note{font-size:13px;font-weight:600;color:var(--pitch-dark);margin-bottom:6px}
   .resv-price-row{display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:600;color:var(--ink)}
   .resv-price-row span:last-child{font-size:22px;font-weight:800;color:var(--pitch-dark)}
   .avail-dark-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
   .avail-dark-title{font-family:'Inter',sans-serif;font-size:15px;font-weight:800;letter-spacing:1.5px;color:#e4e4e7}
-  .avail-view-toggle{display:flex;gap:4px;border:1.5px solid #3f3f46;border-radius:14px;padding:4px}
-  .avail-view-btn{background:transparent;border:none;color:#71717a;width:34px;height:30px;border-radius:10px;font-size:15px;cursor:pointer;transition:all .15s}
-  .avail-view-btn.active{background:#27272a;color:#60a5fa}
 
   /* Twilight / Morning / Noon / Evening period tabs — plain text off,
      dark rounded pill with icon+bold white text when active */
@@ -219,66 +212,34 @@
   .avail-period-btn:hover{color:#a1a1aa}
   .avail-period-btn.active{background:#1c1c22;color:#fff;font-weight:800}
   .avail-period-btn.active .avail-period-icon{display:inline}
-
-  /* Segmented "capsule row" timeline — a dot-separated hour-label line
-     sitting above one rounded, blue-outlined pill. Each hour renders as
-     TWO plain sub-cells (visual density matching the reference) that
-     both belong to the same hour — actual bookable granularity stays
-     whole-hour throughout the rest of the system (admin pricing, the
-     WhatsApp message, and the Sheet's duration column all assume it). */
-  .avail-grid.timeline{display:flex;flex-direction:column;gap:26px}
-  .avail-row-labels{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-family:'Inter',sans-serif;font-size:15px;font-weight:600;color:#e4e4e7}
-  .avail-row-label{flex:0 0 auto;white-space:nowrap}
-  .avail-row-dot{flex:0 0 auto;color:#52525b;font-size:10px}
-  @keyframes rowFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-  .avail-row{animation:rowFadeIn .35s ease backwards}
-  .avail-row-capsule{display:flex;border:1.5px solid #3b5bfa;border-radius:999px;overflow:hidden;background:transparent}
-  .avail-row-capsule .avail-slot{flex:1 1 0;min-width:0;border:none;border-radius:0;border-right:1px solid rgba(59,91,250,.35);animation:none}
-  .avail-row-capsule .avail-slot:last-child{border-right:none}
-  .avail-slot{padding:22px 2px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0;transition:background .15s ease;user-select:none;-webkit-tap-highlight-color:transparent}
-  /* Available = transparent (the dark card shows through), selectable */
-  .avail-slot.avail-open{background:transparent;cursor:pointer}
-  .avail-slot.avail-open:hover{background:rgba(59,91,250,.12)}
-  .avail-slot.avail-open:active{background:rgba(59,91,250,.22)}
-  /* Start & end of the selected range = solid blue glow */
-  .avail-slot.avail-open.avail-range-end{background:#3b5bfa;box-shadow:inset 0 0 20px rgba(96,165,250,.5)}
-  /* Everything selected in between = soft blue glow gradient */
-  .avail-slot.avail-open.avail-in-range{background:linear-gradient(90deg,rgba(59,91,250,.35),rgba(96,165,250,.5))}
-  .avail-slot.avail-booked{background:#ef4444;cursor:not-allowed;opacity:.85}
-  /* Blocked = diagonal hatch pattern on dark, per the reference image */
-  .avail-slot.avail-blocked{background-image:repeating-linear-gradient(45deg,#1c1c22,#1c1c22 6px,#2c2c34 6px,#2c2c34 12px);cursor:not-allowed}
-  .avail-slot.avail-unknown{background:#18181b;cursor:not-allowed}
   .avail-loading{text-align:center;color:#71717a;padding:30px;font-size:14px;width:100%}
 
-  /* List view — vertical alternative to the timeline, toggled via the
-     ▤/☰ buttons in the dark card's header */
+  /* Simple, neat list — one row per half-hour slot, status spelled out in text */
+  @keyframes rowFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   .avail-grid.list-view{display:flex;flex-direction:column;gap:8px}
   .avail-list-item{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-radius:14px;border:1.5px solid #27272a;font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:#e4e4e7;transition:background .15s ease;animation:rowFadeIn .3s ease backwards}
-  .avail-list-item.avail-open{cursor:pointer}
-  .avail-list-item.avail-open:hover{background:rgba(59,91,250,.12);border-color:#3b5bfa}
-  .avail-list-item.avail-open.avail-range-end{background:#3b5bfa;border-color:#3b5bfa}
-  .avail-list-item.avail-open.avail-in-range{background:rgba(59,91,250,.25);border-color:rgba(59,91,250,.4)}
-  .avail-list-item.avail-booked{border-color:#ef4444;background:rgba(239,68,68,.12);color:#fca5a5;cursor:not-allowed}
-  .avail-list-item.avail-blocked{background-image:repeating-linear-gradient(45deg,#1c1c22,#1c1c22 6px,#2c2c34 6px,#2c2c34 12px);cursor:not-allowed}
-  .avail-list-item.avail-unknown{background:#18181b;color:#71717a;cursor:not-allowed}
+  .avail-list-item.avail-open{color:#86efac;border-color:rgba(134,239,172,.3)}
+  .avail-list-item.avail-booked{border-color:#ef4444;background:rgba(239,68,68,.12);color:#fca5a5}
+  .avail-list-item.avail-blocked{background-image:repeating-linear-gradient(45deg,#1c1c22,#1c1c22 6px,#2c2c34 6px,#2c2c34 12px)}
+  .avail-list-item.avail-unknown{background:#18181b;color:#71717a}
   .avail-list-status{font-size:12px;font-weight:700;opacity:.8}
   .avail-note{margin-top:20px;text-align:center;font-size:13px;font-weight:600;color:var(--pitch);background:var(--green-bg,#f0fdf4);padding:14px;border-radius:12px}
   .avail-sync-status{font-size:12px;font-weight:600;color:var(--gray3);white-space:nowrap}
   .avail-sync-banner{text-align:center;color:#92400e;background:#fffbeb;border:1px solid #fde68a;padding:14px;border-radius:10px;font-size:13px;font-weight:600;margin-bottom:14px}
   .img-placeholder{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--pitch) 0%,var(--ink) 100%);color:rgba(255,255,255,.55);font-size:13px;font-weight:600;text-align:center;width:100%;height:100%}
 
-  /* ---- Reserve panel (read-only summary, filled by tapping the grid) ---- */
+  /* ---- Reserve panel — typed menu (sport / start time / duration), rate shown instantly ---- */
   .resv-form{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-top:24px}
+  .resv-menu-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+  @media (max-width:800px){ .resv-menu-grid{grid-template-columns:1fr} }
+  .resv-menu-field label{display:block;font-size:11px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+  .resv-menu-field select{width:100%;padding:12px 13px;border-radius:10px;background:var(--paper);border:1.5px solid #e4e4e7;font-family:'Inter',sans-serif;font-weight:700;color:var(--ink);font-size:14px;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.293l3.71-4.06a.75.75 0 111.08 1.04l-4.25 4.65a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:16px}
+  .resv-menu-field select:focus{outline:none;border-color:var(--pitch)}
   .resv-title{font-family:'Inter',sans-serif;font-weight:800;font-size:16px;text-transform:none;letter-spacing:0;margin-bottom:16px;color:var(--ink)}
   .resv-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:16px}
   @media (max-width:800px){ .resv-summary-grid{grid-template-columns:repeat(2,1fr)} }
   .resv-summary-cell label{display:block;font-size:11px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
   .resv-summary-cell > div{padding:11px 13px;border-radius:10px;background:var(--paper);font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--ink);text-align:center;font-size:13px}
-  .resv-summary-cell{position:relative}
-  .resv-summary-cell input[type="time"]{width:100%;padding:11px 13px;border-radius:10px;background:var(--paper);border:1.5px solid transparent;font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--ink);text-align:center;font-size:13px;cursor:pointer;transition:border-color .15s ease}
-  .resv-summary-cell input[type="time"]:hover{border-color:var(--pitch-2)}
-  .resv-summary-cell input[type="time"]:focus{outline:none;border-color:var(--pitch);box-shadow:0 0 0 3px rgba(31,175,90,.15)}
-  .resv-nextday-badge{position:absolute;top:-8px;right:6px;background:var(--pitch);color:white;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:999px}
   #resv-status-display.status-available{color:#15803d}
   #resv-status-display.status-blocked{color:#b91c1c}
   .resv-error{color:#dc2626;font-size:13px;font-weight:600;margin-bottom:12px;min-height:18px}
@@ -522,7 +483,7 @@
     <div class="sec-head">
       <div class="sec-eyebrow">LIVE AVAILABILITY</div>
       <h2>Check &amp; Reserve a Slot</h2>
-      <p>Tap a start time, then tap an end time — every hour in between fills in as your reservation. WhatsApp opens with it pre-filled; nothing is confirmed until DD Turf Zone approves it.</p>
+      <p>Pick a date, then use the menu below to choose your sport, start time and duration — the rate is shown instantly and WhatsApp opens with it pre-filled. Nothing is confirmed until DD Turf Zone approves it.</p>
     </div>
 
     <div class="avail-controls">
@@ -532,11 +493,7 @@
 
     <div class="avail-dark-card">
       <div class="avail-dark-head">
-        <div class="avail-dark-title">PICK A TIME SLOT</div>
-        <div class="avail-view-toggle">
-          <button class="avail-view-btn active" id="avail-view-timeline" onclick="setAvailView('timeline')" title="Timeline view">▤</button>
-          <button class="avail-view-btn" id="avail-view-list" onclick="setAvailView('list')" title="List view">☰</button>
-        </div>
+        <div class="avail-dark-title">BOOKED &amp; BLOCKED SLOTS</div>
       </div>
 
       <div class="avail-period-tabs" id="avail-period-tabs">
@@ -547,9 +504,9 @@
       </div>
 
       <div id="avail-banner"></div>
-      <div id="avail-drag-bubble" class="avail-drag-bubble" style="display:none"></div>
-      <div id="avail-grid" class="avail-grid timeline"><div class="avail-loading">Loading today's availability…</div></div>
+      <div id="avail-grid" class="avail-grid list-view"><div class="avail-loading">Loading today's availability…</div></div>
     </div>
+
 
     <div class="avail-legend">
       <span><i class="dot dot-avail"></i> Available</span>
@@ -558,12 +515,38 @@
       <span><i class="dot dot-grey"></i> Blocked</span>
     </div>
 
-    <!-- RESERVE PANEL — read-only summary, filled in entirely by tapping the timeline above -->
+    <!-- RESERVE PANEL — type your reservation: pick sport, start time & duration; rate + status fill in automatically -->
     <div class="resv-form" id="resv-form">
       <div class="resv-title">Your Reservation</div>
+      <div class="resv-menu-grid">
+        <div class="resv-menu-field">
+          <label>Sport</label>
+          <select id="resv-sport-select" onchange="updateReservationMenu()">
+            <option value="Football">⚽ Football Turf</option>
+            <option value="Cricket">🏏 Cricket Turf</option>
+          </select>
+        </div>
+        <div class="resv-menu-field">
+          <label>Start Time</label>
+          <select id="resv-start-select" onchange="updateReservationMenu()"></select>
+        </div>
+        <div class="resv-menu-field">
+          <label>Duration</label>
+          <select id="resv-duration-select" onchange="updateReservationMenu()">
+            <option value="1">1 Hour</option>
+            <option value="1.5">1.5 Hours</option>
+            <option value="2" selected>2 Hours</option>
+            <option value="2.5">2.5 Hours</option>
+            <option value="3">3 Hours</option>
+            <option value="4">4 Hours</option>
+            <option value="5">5 Hours</option>
+            <option value="6">6 Hours</option>
+          </select>
+        </div>
+      </div>
       <div class="resv-summary-grid">
-        <div class="resv-summary-cell"><label>From</label><input type="time" id="resv-from-display" step="1800" onchange="editReservationTime()"></div>
-        <div class="resv-summary-cell"><label>To</label><input type="time" id="resv-to-display" step="1800" onchange="editReservationTime()"><span id="resv-to-nextday-badge" class="resv-nextday-badge" style="display:none">Next day</span></div>
+        <div class="resv-summary-cell"><label>From</label><div id="resv-from-display">—</div></div>
+        <div class="resv-summary-cell"><label>To</label><div id="resv-to-display">—</div></div>
         <div class="resv-summary-cell"><label>Duration</label><div id="resv-duration">—</div></div>
         <div class="resv-summary-cell"><label>Booking Date</label><div id="resv-date-display">—</div></div>
         <div class="resv-summary-cell"><label>Status</label><div id="resv-status-display">—</div></div>
@@ -661,7 +644,7 @@
     <div class="sec-head">
       <div class="sec-eyebrow">NEW</div>
       <h2>Ask AI Assistant</h2>
-      <p>Get instant answers about booking, coaching, pricing and more — powered by Google Gemini.</p>
+      <p>Get instant answers about booking, coaching, pricing and more.</p>
     </div>
     <div class="ai-hub-card">
       <div class="ai-prompt-box">
@@ -669,14 +652,10 @@
       </div>
       <div class="ai-chips" id="ai-suggestion-chips"></div>
       <div class="ai-platform-buttons">
-        <button class="ai-btn ai-btn-gemini" id="ai-ask-btn" onclick="askGemini()">✨ Ask Gemini</button>
+        <button class="ai-btn ai-btn-gemini" id="ai-ask-btn" onclick="askAIAssistant()">✨ Ask AI Assistant</button>
       </div>
       <div id="ai-answer-box" class="ai-answer-box" style="display:none"></div>
       <div class="ai-toast" id="ai-toast" style="display:none"></div>
-      <div class="ai-manual-copy" id="ai-manual-copy" style="display:none">
-        <label style="font-size:12px;font-weight:700;color:var(--gray3);display:block;margin-bottom:6px">Gemini isn't reachable right now — copy this prompt and paste it into <a href="https://gemini.google.com/app" target="_blank" rel="noopener">gemini.google.com</a> instead:</label>
-        <textarea id="ai-manual-copy-text" readonly onclick="this.select()"></textarea>
-      </div>
     </div>
     <div class="ai-disclaimer">AI Assistant provides general information and guidance. Live slot availability and confirmed bookings are managed through the DD Turf Zone Booking System and WhatsApp.</div>
   </div>
@@ -1121,7 +1100,6 @@
     _availSelectedDate = iso;
     document.querySelectorAll('.avail-date-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    resetSelection();
     renderAvailabilityGrid();
   }
   window.selectAvailDate = selectAvailDate;
@@ -1166,11 +1144,9 @@
   function selectAvailPeriod(period){
     _activeAvailPeriod = period;
     document.querySelectorAll('.avail-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === period));
-    // Deliberately NOT calling resetSelection() here. Selection state is
-    // keyed on raw AVAIL_SLOT_TIMES indices (not a position local to the
-    // currently-visible period), so a start time picked in one tab stays
-    // valid after switching to another tab to pick the end time — e.g.
-    // starting at 5:30 AM in Twilight and finishing at 8:30 AM in Morning.
+    // These tabs just filter which hours are shown in the read-only
+    // booked/blocked display below — they no longer affect the
+    // reservation menu, which uses its own Start Time dropdown.
     renderAvailabilityGrid();
   }
   window.selectAvailPeriod = selectAvailPeriod;
@@ -1239,8 +1215,9 @@
       // hours as "unknown" (grey, not selectable) plus one clear banner,
       // instead of a green timeline that might be quietly wrong.
       document.getElementById('avail-banner').innerHTML = `<div class="avail-sync-banner">Live availability isn't connected right now. Please WhatsApp us directly to confirm a slot.</div>`;
-      const describeUnknown = () => ({ cls: 'avail-unknown', title: 'Availability unknown', clickable: false });
-      grid.innerHTML = _availViewMode === 'list' ? _buildListRows(visibleIndices, describeUnknown) : _buildTimelineRows(visibleIndices, describeUnknown);
+      const describeUnknown = () => ({ cls: 'avail-unknown', title: 'Availability unknown' });
+      grid.innerHTML = _buildListRows(visibleIndices, describeUnknown);
+      updateReservationMenu();
       return;
     }
     document.getElementById('avail-banner').innerHTML = '';
@@ -1251,75 +1228,26 @@
       if (match) {
         const cls = match.status === 'blocked' ? 'avail-blocked' : 'avail-booked';
         const title = match.status === 'blocked' ? `Blocked${match.reason ? ' · '+match.reason : ''}` : 'Booked';
-        return { cls, title, clickable: false };
+        return { cls, title };
       }
-      return { cls: 'avail-open', title: 'Available', clickable: true };
+      return { cls: 'avail-open', title: 'Available' };
     };
-    grid.innerHTML = _availViewMode === 'list' ? _buildListRows(visibleIndices, describeSlot) : _buildTimelineRows(visibleIndices, describeSlot);
-    reapplySelectionHighlight();
+    grid.innerHTML = _buildListRows(visibleIndices, describeSlot);
+    updateReservationMenu();
   }
 
-  // Groups a flat list of raw hour-indices into 3-hour "capsule rows": a
-  // dot-separated label line (one label per hour boundary, so a 3-hour
-  // row shows 4 labels) sitting above one rounded pill divided into
-  // hourly cells. `describe(rawIdx)` returns { cls, title, clickable }
-  // for a given hour — the caller decides status, this just handles the
-  // grouping/layout so it works the same for real data and the
-  // "unknown" fallback state.
-  function _buildTimelineRows(visibleIndices, describe){
-    const ROW_SIZE = 6; // 6 half-hour slots = 3 hours per row, same row width as before
-    let html = '';
-    for (let r = 0; r < visibleIndices.length; r += ROW_SIZE) {
-      const rowIdxs = visibleIndices.slice(r, r + ROW_SIZE);
-      const labelTimes = [AVAIL_SLOT_TIMES[rowIdxs[0]]];
-      const lastRaw = rowIdxs[rowIdxs.length - 1];
-      labelTimes.push(AVAIL_SLOT_TIMES[(lastRaw + 1) % 48]); // closing boundary label
-      const labelsHtml = labelTimes.map((t, i) =>
-        (i === 0 ? '' : '<span class="avail-row-dot">•</span>') + `<span class="avail-row-label">${t}</span>`
-      ).join('');
-
-      // rawIdx IS the position selection logic keys off — using the real
-      // AVAIL_SLOT_TIMES index (not a position local to this period) is
-      // what lets a start tap in one tab and an end tap in another tab
-      // resolve to the correct, orderable range.
-      const cellsHtml = rowIdxs.map((rawIdx) => {
-        const { cls, title } = describe(rawIdx);
-        return `<div class="avail-slot ${cls}" data-pos="${rawIdx}" title="${title}"></div>`;
-      }).join('');
-
-      html += `<div class="avail-row" style="animation-delay:${(r / ROW_SIZE) * 60}ms">
-        <div class="avail-row-labels">${labelsHtml}</div>
-        <div class="avail-row-capsule">${cellsHtml}</div>
-      </div>`;
-    }
-    return html;
-  }
-
-  // List view — a simple vertical list of each hour with its time and
-  // status spelled out in text. Easier to read precisely than the
-  // timeline on a very small screen, and doubles as an accessible
-  // fallback. Uses the exact same describe()/position logic as the
-  // timeline, so selection behaves identically either way.
+  // Simple vertical list of each half-hour slot with its time and status
+  // spelled out in text — the booked/blocked display is read-only, so
+  // this is just a clean, easy-to-scan list, no timeline/grid layout.
   function _buildListRows(visibleIndices, describe){
     return visibleIndices.map((rawIdx, i) => {
       const { cls, title } = describe(rawIdx);
       const time = AVAIL_SLOT_TIMES[rawIdx];
-      return `<div class="avail-list-item ${cls}" data-pos="${rawIdx}" title="${title}" style="animation-delay:${i * 20}ms">
+      return `<div class="avail-list-item ${cls}" title="${title}" style="animation-delay:${i * 20}ms">
         <span class="avail-list-time">${time}</span><span class="avail-list-status">${title}</span>
       </div>`;
     }).join('');
   }
-
-  let _availViewMode = 'timeline';
-  function setAvailView(mode){
-    _availViewMode = mode;
-    document.getElementById('avail-view-timeline').classList.toggle('active', mode === 'timeline');
-    document.getElementById('avail-view-list').classList.toggle('active', mode === 'list');
-    document.getElementById('avail-grid').classList.toggle('timeline', mode === 'timeline');
-    document.getElementById('avail-grid').classList.toggle('list-view', mode === 'list');
-    renderAvailabilityGrid();
-  }
-  window.setAvailView = setAvailView;
 
   // Auto-refresh: refreshes on an interval, and instantly whenever the
   // tab regains focus (the moment someone flips back from the admin
@@ -1329,30 +1257,13 @@
   window.addEventListener('focus', () => renderAvailabilityGrid());
 
   /* =====================================================================
-     TAP-TO-SELECT RANGE
-     First tap = start. Second tap = end. Everything in between fills in
-     automatically. If any hour in that span is booked/blocked, the whole
-     selection is REJECTED up front (not applied, not partially applied) —
-     the person has to pick a clean range.
+     TYPE-YOUR-RESERVATION MENU
+     No tapping the grid — pick Sport, Start Time and Duration from the
+     dropdowns above and the rate + status fill in automatically. The grid
+     above stays purely as a read-only view of what's already booked or
+     blocked; it never drives selection.
   ===================================================================== */
-  let _rangeStartPos = null;   // set after the first tap, cleared once a range is confirmed (or cancelled) — a raw AVAIL_SLOT_TIMES index, valid regardless of which period tab is currently visible
-  let _selRange = null;        // {start, end} once a valid range is confirmed (also raw AVAIL_SLOT_TIMES indices)
-
-  function resetSelection(){
-    _rangeStartPos = null;
-    _selRange = null;
-    document.getElementById('resv-from-display').value = '';
-    document.getElementById('resv-to-display').value = '';
-    document.getElementById('resv-to-nextday-badge').style.display = 'none';
-    document.getElementById('resv-duration').textContent = '—';
-    document.getElementById('resv-status-display').textContent = '—';
-    document.getElementById('resv-status-display').className = '';
-    document.getElementById('resv-error').textContent = '';
-    document.getElementById('resv-reserve-btn').disabled = true;
-    document.getElementById('resv-price-box').style.display = 'none';
-    _hideDragBubble();
-    reapplySelectionHighlight();
-  }
+  let _selRange = null; // {start, end, wraps, sport} once a valid, conflict-free selection exists — null otherwise
 
   // ----- Pricing: mirrors the rates shown in the Turf Timings & Rates
   // section — ₹600/hr Happy Hours (10:00 AM–3:00 PM, every day),
@@ -1400,164 +1311,6 @@
 
   function _timeAtPos(rawIdx){ return AVAIL_SLOT_TIMES[rawIdx]; }
 
-  // Editable From/To fields use native <input type="time"> (24-hour
-  // "HH:MM" values), which is a different format from the human-readable
-  // AVAIL_SLOT_TIMES labels ("5:30 AM") used for display text and the
-  // WhatsApp message — these two helpers convert between a slot index
-  // and that HH:MM form specifically for the input fields.
-  function _hhmmFromPos(pos){
-    const h = Math.floor(pos / 2), m = (pos % 2) * 30;
-    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-  }
-  function _posFromHHMM(hhmm){
-    if (!hhmm) return null;
-    const parts = hhmm.split(':').map(Number);
-    if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return null;
-    return parts[0] * 2 + (parts[1] >= 30 ? 1 : 0);
-  }
-
-  function handleSlotClick(pos){
-    const errEl = document.getElementById('resv-error');
-
-    if (_rangeStartPos === null && _selRange === null) {
-      // First tap of a fresh selection: mark the start, wait for the end.
-      _rangeStartPos = pos;
-      errEl.textContent = '';
-      document.getElementById('resv-from-display').value = _hhmmFromPos(pos);
-      document.getElementById('resv-to-display').value = '';
-      document.getElementById('resv-to-nextday-badge').style.display = 'none';
-      document.getElementById('resv-duration').textContent = '—';
-      document.getElementById('resv-status-display').textContent = 'Pick an end time';
-      document.getElementById('resv-status-display').className = '';
-      document.getElementById('resv-reserve-btn').disabled = true;
-      reapplySelectionHighlight();
-      return;
-    }
-
-    if (_selRange !== null) {
-      // A complete range already exists — a further tap starts a brand
-      // new selection rather than confusingly editing the old one.
-      resetSelection();
-      _rangeStartPos = pos;
-      document.getElementById('resv-from-display').value = _hhmmFromPos(pos);
-      document.getElementById('resv-status-display').textContent = 'Pick an end time';
-      reapplySelectionHighlight();
-      return;
-    }
-
-    if (pos === _rangeStartPos) {
-      // Tapping the same cell again cancels and clears back to nothing.
-      resetSelection();
-      return;
-    }
-
-    // Second tap: end of the range. The FIRST tap is always the start and
-    // the SECOND is always the end — taps are no longer auto-reordered
-    // into a min/max pair. If the second tap lands earlier in the day
-    // than the first (e.g. 10:00 PM start, 1:00 AM end), that's read as
-    // an overnight booking finishing the next calendar day, not a
-    // mistake that needs correcting — this is what makes a 10 PM–1 AM
-    // booking possible at all.
-    finalizeRange(_rangeStartPos, pos);
-  }
-  window.handleSlotClick = handleSlotClick;
-
-  // Shared by both the tap-tap flow above and the press-and-drag flow
-  // below — takes a confirmed start/end pair and either commits it (no
-  // conflicts) or rejects it entirely (any conflict anywhere in the
-  // span). This is the single source of truth for "is this range OK",
-  // so drag and tap can never disagree with each other.
-  function finalizeRange(start, end){
-    const errEl = document.getElementById('resv-error');
-    const wraps = end < start;
-    _rangeStartPos = null;
-
-    const conflicts = checkRangeConflict(start, end, wraps);
-    if (conflicts.length) {
-      // Reject the whole selection outright — nothing is applied, and the
-      // person has to start over with a clean range. resetSelection()
-      // clears the error field itself, so it must run BEFORE we set the
-      // message, not after (otherwise the message flashes and vanishes
-      // instantly — never actually seen).
-      resetSelection();
-      errEl.textContent = 'Selected time range contains unavailable slots. Please choose another time.';
-      return;
-    }
-
-    _selRange = { start, end, wraps };
-    errEl.textContent = '';
-    const totalMinutes = ((end - start) * 30) + (wraps ? 24 * 60 : 0);
-    const durationLabel = totalMinutes % 60 === 0
-      ? `${totalMinutes / 60} Hour${totalMinutes === 60 ? '' : 's'}`
-      : `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
-    const startDateObj = new Date(_availSelectedDate + 'T00:00:00');
-    const dateLabel = wraps
-      ? `${startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'short' })} → ${new Date(_nextDateStr(_availSelectedDate) + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}`
-      : startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
-    document.getElementById('resv-from-display').value = _hhmmFromPos(start);
-    document.getElementById('resv-to-display').value = _hhmmFromPos(end);
-    document.getElementById('resv-to-nextday-badge').style.display = wraps ? 'inline-block' : 'none';
-    document.getElementById('resv-duration').textContent = durationLabel;
-    document.getElementById('resv-date-display').textContent = dateLabel;
-    document.getElementById('resv-status-display').textContent = 'Available';
-    document.getElementById('resv-status-display').className = 'status-available';
-    document.getElementById('resv-reserve-btn').disabled = false;
-    _renderPriceBox(start, end, wraps);
-    reapplySelectionHighlight();
-    document.getElementById('resv-form')?.scrollIntoView({ behavior:'smooth', block:'center' });
-  }
-
-  // Lets a visitor type/adjust times directly in the From/To fields
-  // instead of only tapping the grid — goes through the exact same
-  // finalizeRange() validation (conflict-checking, pricing, overnight
-  // handling) as a tap or drag, so a manually-typed range can't bypass
-  // any of those checks.
-  window.editReservationTime = function(){
-    const fromEl = document.getElementById('resv-from-display');
-    const toEl = document.getElementById('resv-to-display');
-    const errEl = document.getElementById('resv-error');
-    const start = _posFromHHMM(fromEl.value);
-    const end = _posFromHHMM(toEl.value);
-    if (start === null || end === null) return; // one field still empty — wait for both
-    if (start === end) {
-      errEl.textContent = 'Start and end time can\'t be the same — please pick a different end time.';
-      document.getElementById('resv-reserve-btn').disabled = true;
-      return;
-    }
-    _rangeStartPos = null; // manual edits always resolve as a complete, fresh range
-    finalizeRange(start, end);
-  };
-
-  // Re-paints the dark-green start/end + light-green in-between styling
-  // on whatever timeline is currently rendered (called after every
-  // refresh too, so a background auto-refresh doesn't wipe a selection
-  // someone is still looking at). Uses data-pos lookups rather than
-  // NodeList array-position, since only a subset of hours (the active
-  // period) is ever actually in the DOM at once.
-  function reapplySelectionHighlight(){
-    const grid = document.getElementById('avail-grid');
-    if (!grid) return;
-    grid.querySelectorAll('.avail-slot, .avail-list-item').forEach(c => c.classList.remove('avail-in-range', 'avail-range-end'));
-    const cellsAt = (pos) => grid.querySelectorAll(`[data-pos="${pos}"]`);
-    if (_rangeStartPos !== null) {
-      cellsAt(_rangeStartPos).forEach(c => c.classList.add('avail-range-end'));
-    } else if (_selRange) {
-      const { start, end, wraps } = _selRange;
-      if (!wraps) {
-        cellsAt(start).forEach(c => c.classList.add('avail-range-end'));
-        cellsAt(end - 1).forEach(c => c.classList.add('avail-range-end'));
-        for (let i = start + 1; i < end - 1; i++) cellsAt(i).forEach(c => c.classList.add('avail-in-range'));
-      } else {
-        // The grid only ever shows one calendar day at a time, so only
-        // the "tonight" portion (start through the end of the day) has
-        // real tiles to highlight — the "tomorrow" portion is confirmed
-        // in the summary panel above instead, not on this grid.
-        cellsAt(start).forEach(c => c.classList.add('avail-range-end'));
-        for (let i = start + 1; i <= 47; i++) cellsAt(i).forEach(c => c.classList.add('avail-in-range'));
-      }
-    }
-  }
-
   function checkRangeConflict(startPos, endPos, wraps){
     const conflicts = [];
     if (!wraps) {
@@ -1581,107 +1334,77 @@
     return conflicts;
   }
 
-  // ----- Press-and-drag selection. This is layered ON TOP OF the
-  // existing tap-tap flow, not a replacement for it: a press with no
-  // movement behaves exactly like a single tap (so cross-period and
-  // overnight selections — which need a tab switch between the two
-  // taps — still work), while a press that moves before release paints
-  // a live preview and a floating time bubble, then commits through the
-  // exact same finalizeRange() used by taps. Drag and tap can never
-  // disagree with each other because they share that one code path.
-  let _dragActive = false, _dragMoved = false, _dragHoverPos = null;
-
-  function _cellFromPoint(clientX, clientY){
-    const el = document.elementFromPoint(clientX, clientY);
-    const cell = el && el.closest ? el.closest('.avail-slot[data-pos], .avail-list-item[data-pos]') : null;
-    if (!cell) return null;
-    if (cell.classList.contains('avail-booked') || cell.classList.contains('avail-blocked') || cell.classList.contains('avail-unknown')) return null;
-    const pos = parseInt(cell.dataset.pos, 10);
-    return Number.isNaN(pos) ? null : pos;
+  // Fills the Start Time dropdown once at boot — every half-hour slot,
+  // same list the grid itself is built from.
+  function _populateStartTimeSelect(){
+    const sel = document.getElementById('resv-start-select');
+    if (!sel) return;
+    sel.innerHTML = AVAIL_SLOT_TIMES.map((t, i) => `<option value="${i}">${t}</option>`).join('');
   }
 
-  function _showDragBubble(clientX, clientY, label){
-    const bubble = document.getElementById('avail-drag-bubble');
-    const card = document.querySelector('.avail-dark-card');
-    if (!bubble || !card) return;
-    const cardRect = card.getBoundingClientRect();
-    bubble.style.left = `${clientX - cardRect.left}px`;
-    bubble.style.top = `${clientY - cardRect.top}px`;
-    bubble.textContent = label;
-    bubble.style.display = 'block';
-  }
-  function _hideDragBubble(){
-    const bubble = document.getElementById('avail-drag-bubble');
-    if (bubble) bubble.style.display = 'none';
-  }
+  // Reads Sport / Start Time / Duration straight from the dropdowns,
+  // checks the chosen range against live booked/blocked data, and fills
+  // in the summary + rate — or an error if the range isn't free. This is
+  // the single place selection state (_selRange) gets set, replacing the
+  // old tap-the-grid flow entirely.
+  function updateReservationMenu(){
+    const errEl = document.getElementById('resv-error');
+    const startSel = document.getElementById('resv-start-select');
+    const durSel = document.getElementById('resv-duration-select');
+    const sportSel = document.getElementById('resv-sport-select');
+    if (!startSel || !startSel.value || !durSel || !sportSel) return;
 
-  // Live-preview highlighting while actively dragging — separate from
-  // reapplySelectionHighlight() because nothing is committed yet, so it
-  // must never touch _selRange.
-  function _paintDragPreview(start, hoverPos){
-    const grid = document.getElementById('avail-grid');
-    if (!grid) return;
-    grid.querySelectorAll('.avail-slot, .avail-list-item').forEach(c => c.classList.remove('avail-in-range', 'avail-range-end'));
-    const cellsAt = (pos) => grid.querySelectorAll(`[data-pos="${pos}"]`);
-    const wraps = hoverPos < start;
-    cellsAt(start).forEach(c => c.classList.add('avail-range-end'));
-    if (!wraps) {
-      cellsAt(hoverPos).forEach(c => c.classList.add('avail-range-end'));
-      for (let i = Math.min(start, hoverPos) + 1; i < Math.max(start, hoverPos); i++) cellsAt(i).forEach(c => c.classList.add('avail-in-range'));
-    } else {
-      // Same "only tonight's tiles are real" limitation as the committed
-      // wraps highlight — see reapplySelectionHighlight() above.
-      for (let i = start + 1; i <= 47; i++) cellsAt(i).forEach(c => c.classList.add('avail-in-range'));
+    const startPos = parseInt(startSel.value, 10);
+    const durationHours = parseFloat(durSel.value);
+    const durationHalfSlots = Math.round(durationHours * 2);
+    let endPos = startPos + durationHalfSlots;
+    const wraps = endPos > 48;
+    if (wraps) endPos -= 48;
+
+    errEl.textContent = '';
+    document.getElementById('resv-price-box').style.display = 'none';
+    document.getElementById('resv-reserve-btn').disabled = true;
+    _selRange = null;
+
+    const fromTime = _timeAtPos(startPos), toTime = _timeAtPos(endPos);
+    const totalMinutes = durationHalfSlots * 30;
+    const durationLabel = totalMinutes % 60 === 0
+      ? `${totalMinutes / 60} Hour${totalMinutes === 60 ? '' : 's'}`
+      : `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+    const startDateObj = new Date(_availSelectedDate + 'T00:00:00');
+    const dateLabel = wraps
+      ? `${startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'short' })} → ${new Date(_nextDateStr(_availSelectedDate) + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}`
+      : startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+
+    document.getElementById('resv-from-display').textContent = fromTime;
+    document.getElementById('resv-to-display').textContent = toTime + (wraps ? ' (next day)' : '');
+    document.getElementById('resv-duration').textContent = durationLabel;
+    document.getElementById('resv-date-display').textContent = dateLabel;
+
+    if (_availSlotsCache === null) {
+      // No live data reachable — don't claim it's available or booked.
+      document.getElementById('resv-status-display').textContent = 'Unknown';
+      document.getElementById('resv-status-display').className = '';
+      errEl.textContent = "Live availability isn't connected right now — WhatsApp us directly to confirm this slot.";
+      return;
     }
-  }
 
-  function _onGridPointerDown(e){
-    const pos = _cellFromPoint(e.clientX, e.clientY);
-    if (pos === null) return;
-    const hadPendingStart = (_rangeStartPos !== null);
-    handleSlotClick(pos);
-    // Only arm dragging if this press just BEGAN a fresh selection — if
-    // it just finished one (hadPendingStart was true), there's nothing
-    // left to drag.
-    if (!hadPendingStart && _rangeStartPos !== null) {
-      _dragActive = true;
-      _dragMoved = false;
-      _dragHoverPos = null;
+    const conflicts = checkRangeConflict(startPos, endPos, wraps);
+    if (conflicts.length) {
+      document.getElementById('resv-status-display').textContent = 'Not Available';
+      document.getElementById('resv-status-display').className = 'status-blocked';
+      errEl.textContent = "This time range isn't available — please pick a different start time or duration.";
+      return;
     }
-  }
 
-  function _onGridPointerMove(e){
-    if (!_dragActive || _rangeStartPos === null) return;
-    const pos = _cellFromPoint(e.clientX, e.clientY);
-    if (pos === null) return;
-    if (pos !== _rangeStartPos) _dragMoved = true;
-    if (pos === _dragHoverPos) return;
-    _dragHoverPos = pos;
-    _showDragBubble(e.clientX, e.clientY, _timeAtPos(pos));
-    _paintDragPreview(_rangeStartPos, pos);
+    document.getElementById('resv-status-display').textContent = 'Available';
+    document.getElementById('resv-status-display').className = 'status-available';
+    document.getElementById('resv-reserve-btn').disabled = false;
+    _selRange = { start: startPos, end: endPos, wraps, sport: sportSel.value };
+    _renderPriceBox(startPos, endPos, wraps);
   }
+  window.updateReservationMenu = updateReservationMenu;
 
-  function _onGridPointerUp(e){
-    if (!_dragActive) return;
-    _dragActive = false;
-    _hideDragBubble();
-    if (_dragMoved && _dragHoverPos !== null && _rangeStartPos !== null) {
-      finalizeRange(_rangeStartPos, _dragHoverPos);
-    }
-    // If nothing moved, this was a plain tap — _rangeStartPos is already
-    // correctly set from pointerdown, and the person taps again
-    // (possibly after switching tabs) to finish, same as before.
-    _dragHoverPos = null;
-  }
-
-  (function _wireUpDragHandlers(){
-    const grid = document.getElementById('avail-grid');
-    if (!grid) return;
-    grid.addEventListener('pointerdown', _onGridPointerDown);
-    grid.addEventListener('pointermove', _onGridPointerMove);
-    window.addEventListener('pointerup', _onGridPointerUp);
-    window.addEventListener('pointercancel', _onGridPointerUp);
-  })();
 
   // ----- Customer details (Name + Mobile), asked once before WhatsApp,
   // remembered locally for next time -----
@@ -1717,7 +1440,7 @@
       ? `${startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' })} → ${new Date(_nextDateStr(_availSelectedDate) + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' })}`
       : startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
 
-    const message = `DD Turf Zone Booking Request\n\nName: ${name}\nMobile: ${mobile}\n\nDate: ${dateLabel}\nTime: ${fromTime} - ${toTime}${_selRange.wraps ? ' (next day)' : ''}\nDuration: ${duration}\n\nPlease confirm my booking.`;
+    const message = `DD Turf Zone Booking Request\n\nName: ${name}\nMobile: ${mobile}\n\nSport: ${_selRange.sport}\nDate: ${dateLabel}\nTime: ${fromTime} - ${toTime}${_selRange.wraps ? ' (next day)' : ''}\nDuration: ${duration}\n\nPlease confirm my booking.`;
     window.open(`https://wa.me/${RESERVE_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
   }
 
@@ -1730,7 +1453,6 @@
     // moments between selecting it and tapping Reserve.
     const conflicts = checkRangeConflict(_selRange.start, _selRange.end, _selRange.wraps);
     if (conflicts.length) {
-      resetSelection();
       errEl.textContent = 'Selected time range is no longer available — someone may have just booked it. Please choose another time.';
       renderAvailabilityGrid();
       return;
@@ -1992,6 +1714,7 @@
   initCounters();
   renderGoogleReviews(GOOGLE_REVIEWS);
   buildAvailDateTabs();
+  _populateStartTimeSelect();
   renderAvailabilityGrid();
   injectStructuredData(_effectiveImages);
   loadAdminManagedPricing();
@@ -2000,24 +1723,41 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncLiveSiteConfig(); });
 
   // ----- AI Assistant Hub -----
-  // No paid AI API, no backend — this just prepares a well-formed prompt
-  // (with real DD Turf Zone facts baked in, so the external AI doesn't
-  // have to guess/hallucinate specifics) and hands it to whichever AI
-  // platform the visitor already uses.
-  const AI_BASE_CONTEXT = `You are the official AI Assistant for DD Turf Zone, a 24-hour football & cricket turf with football, cricket and taekwondo coaching in Madambakkam, Chennai. Help customers with football turf booking, cricket booking, coaching schedules, pricing, facilities, location, rules, FAQs, and general guidance. Be friendly and professional.
-
-Key facts to use when answering:
-- Open 24 hours, floodlit turf, located in Madambakkam, Chennai. Contact: 7305123765.
-- Turf rates: Happy Hours (10:00 AM–3:00 PM, every day) ₹600/hour. Weekdays (Mon–Thu, other hours) ₹1,500 per 2 hours. Weekends (Fri–Sun, other hours) ₹1,800 per 2 hours.
-- Football Coaching: 5:00–6:00 PM, Monday–Saturday. Under 8 batch: Mon, Wed & Fri. Above 8 batch: Tue, Thu & Sat.
-- Cricket Coaching: Weekend batches only, Saturday & Sunday, 5:30–7:00 AM.
-- Taekwondo Coaching: Thursday 6:00–7:00 PM, Saturday 4:00–5:00 PM, Sunday 4:00–5:00 PM & 5:00–6:00 PM.
-- Bookings are requested via the website's live availability widget, then confirmed over WhatsApp.`;
+  // Answers instantly from a local knowledge base of real DD Turf Zone
+  // facts — no external API call, so there's nothing that can be "down".
+  // This replaces the old Gemini/Apps Script integration, which depended
+  // on a backend action (aiChat) that was never actually deployed.
+  const AI_FAQ = [
+    { keys: ['whatsapp','book','reserve','how do i book'],
+      answer: "Booking is simple: scroll up to 'Check & Reserve a Slot', pick a date, then choose your sport, start time and duration from the menu. The rate is shown instantly, and tapping 'Reserve on WhatsApp' opens a pre-filled message to us — nothing is confirmed until we approve it on WhatsApp." },
+    { keys: ['price','pricing','rate','cost','fee','charges','happy hour'],
+      answer: "Turf rates: Happy Hours (10:00 AM–3:00 PM, every day) ₹600/hour. Weekdays (Mon–Thu, other hours) ₹750/hour. Weekends (Fri–Sun, other hours) ₹900/hour. Coaching academies start from ₹2,000/month. Use the reservation menu above to see the exact amount for your chosen slot." },
+    { keys: ['football coach','football academy','football training'],
+      answer: "Football Academy: 5:00–6:00 PM, Monday–Saturday. Under 8 batch trains Mon, Wed & Fri; Above 8 batch trains Tue, Thu & Sat. Fees start from ₹2,000/month. Tap 'Join Now' on the Football Academy card to enquire on WhatsApp." },
+    { keys: ['cricket coach','cricket academy','cricket training'],
+      answer: "Cricket Academy runs weekend batches only — Saturday & Sunday, 5:30–7:00 AM. Fees start from ₹2,000/month. Tap 'Join Now' on the Cricket Academy card to enquire on WhatsApp." },
+    { keys: ['taekwondo'],
+      answer: "Taekwondo Academy: Thursday 6:00–7:00 PM, Saturday 4:00–5:00 PM, and Sunday 4:00–5:00 PM & 5:00–6:00 PM, with regular grading and belt tests. Fees start from ₹2,000/month." },
+    { keys: ['cricket turf','cricket box','cricket pitch','cricket net'],
+      answer: "We have a synthetic box cricket pitch with practice nets, a bowling machine on request, and floodlit night slots. Book a time through the reservation menu above." },
+    { keys: ['football turf','football ground','football box'],
+      answer: "Our floodlit football turf is open 24 hours. Pick a date and time in the reservation menu above to see live availability and pricing." },
+    { keys: ['tournament'],
+      answer: "For tournament bookings or group events, please WhatsApp us directly with your preferred dates and format so we can check ground availability and quote you." },
+    { keys: ['facility','facilities','amenities','parking','washroom','cafe','canteen'],
+      answer: "DD Turf Zone has a floodlit turf, changing area, parking, and DD Café on-site for snacks and drinks after your game." },
+    { keys: ['location','address','where','madambakkam','directions'],
+      answer: "DD Turf Zone is located in Madambakkam, Chennai, and is open 24 hours. You can find the exact map location and directions lower down on this page." },
+    { keys: ['contact','phone','number','call'],
+      answer: "You can reach DD Turf Zone on WhatsApp/phone at 7305123765 for any booking questions or confirmations." },
+    { keys: ['open','timing','hours','24'],
+      answer: "DD Turf Zone is open 24 hours, every day of the week." }
+  ];
 
   const AI_SUGGESTIONS = [
-    'Book a Football Turf', 'Cricket Coaching Details', 'Football Coaching Timings',
-    'Taekwondo Classes', 'Turf Pricing', 'Happy Hour Offers', 'Tournament Information',
-    'Turf Facilities', 'Contact DD Turf Zone', 'How do I book through WhatsApp?'
+    'What slots are available today?', 'Book a Football Turf', 'Cricket Coaching Details',
+    'Football Coaching Timings', 'Taekwondo Classes', 'Turf Pricing', 'Happy Hour Offers',
+    'Tournament Information', 'Turf Facilities', 'Contact DD Turf Zone'
   ];
 
   function _renderAIChips(){
@@ -2034,76 +1774,66 @@ Key facts to use when answering:
     if (box) { box.value = text; box.focus(); }
   };
 
-  // Clipboard API needs a secure context and can silently fail in some
-  // browsers/WebViews — falls back to the old execCommand trick, and if
-  // even that fails, the caller reveals a manual-copy textarea instead.
-  async function _copyToClipboard(text){
-    if (navigator.clipboard && window.isSecureContext) {
-      try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
+  // Walks the same live _availSlotsCache the reservation menu and the
+  // booked/blocked list use, and collapses it into contiguous open /
+  // booked / blocked time ranges for the currently selected date — so
+  // the AI Assistant can quote real, current slot timings, not guesses.
+  function _buildAvailabilitySummary(){
+    if (!_availSelectedDate || _availSlotsCache === null) return null;
+    const openRanges = [];
+    let i = 0;
+    while (i < 48) {
+      const match = _slotStatusAt(AVAIL_SLOT_TIMES[i], _availSlotsCache);
+      const status = match ? match.status : 'open';
+      let j = i;
+      while (j < 48) {
+        const m2 = _slotStatusAt(AVAIL_SLOT_TIMES[j], _availSlotsCache);
+        const s2 = m2 ? m2.status : 'open';
+        if (s2 !== status) break;
+        j++;
+      }
+      if (status === 'open') openRanges.push(`${AVAIL_SLOT_TIMES[i]}–${AVAIL_SLOT_TIMES[j % 48]}`);
+      i = j;
     }
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.focus(); ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    } catch (e) { return false; }
+    return openRanges;
   }
 
-  function _showAIToast(msg){
-    const toast = document.getElementById('ai-toast');
-    if (!toast) return;
-    toast.textContent = msg;
-    toast.style.display = 'block';
-    clearTimeout(window._aiToastTimer);
-    window._aiToastTimer = setTimeout(() => { toast.style.display = 'none'; }, 6000);
+  // Simple keyword match against the local FAQ — always resolves, no
+  // network round-trip, so it can never be "not working" the way a
+  // dependent-on-a-missing-backend call could be. Availability questions
+  // are answered from the live data the page already has, rather than a
+  // canned line, so the public gets the real open slot timings.
+  function _localAIAnswer(question){
+    const q = question.toLowerCase();
+    const dateLabel = _availSelectedDate
+      ? new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' })
+      : 'today';
+
+    if (/(availab|free slot|open slot|vacant|slot timing|which slots)/.test(q)) {
+      const openRanges = _buildAvailabilitySummary();
+      if (openRanges === null) {
+        return `Live availability isn't connected right now, so I can't confirm open slots for ${dateLabel} — please WhatsApp us at 7305123765 to check.`;
+      }
+      if (!openRanges.length) {
+        return `Every slot on ${dateLabel} is currently booked or blocked. WhatsApp us at 7305123765 to check another date, or pick a different date above.`;
+      }
+      return `Open slots for ${dateLabel}: ${openRanges.join(', ')}. Use the reservation menu above to pick your sport, start time and duration — the rate shows instantly.`;
+    }
+
+    for (const entry of AI_FAQ) {
+      if (entry.keys.some(k => q.includes(k))) return entry.answer;
+    }
+    return "I don't have a specific answer for that yet — but our team will! Please tap 'Reserve on WhatsApp' above or WhatsApp us directly at 7305123765 and we'll help right away.";
   }
 
-  window.askGemini = async function(){
+  window.askAIAssistant = function(){
     const input = document.getElementById('ai-question-input');
     const question = (input && input.value.trim()) || 'What are your turf timings and pricing?';
-    const btn = document.getElementById('ai-ask-btn');
     const answerBox = document.getElementById('ai-answer-box');
-    const manualBox = document.getElementById('ai-manual-copy');
-    const manualText = document.getElementById('ai-manual-copy-text');
-
-    btn.disabled = true;
     answerBox.style.display = 'flex';
-    answerBox.className = 'ai-answer-box loading';
-    answerBox.innerHTML = '<span class="ai-spinner"></span> Asking Gemini…';
-    if (manualBox) manualBox.style.display = 'none';
-
-    try {
-      // Same Apps Script Web App already used for availability — this
-      // just adds one more action to it. The Gemini API key lives in
-      // that script's Script Properties, server-side, never sent to the
-      // browser — see the setup notes for the Apps Script snippet.
-      const url = `${PUBLIC_APPS_SCRIPT_URL}?action=aiChat&question=${encodeURIComponent(question)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      answerBox.className = 'ai-answer-box';
-      answerBox.textContent = data.answer || "Sorry, I didn't get a clear answer — please try rephrasing, or reach us on WhatsApp.";
-    } catch (err) {
-      // Backend not set up yet (or Gemini call failed) — don't leave the
-      // visitor with a dead end, offer the manual copy-paste path instead.
-      answerBox.style.display = 'none';
-      const fullPrompt = `${AI_BASE_CONTEXT}\n\nCustomer's question: ${question}`;
-      const copied = await _copyToClipboard(fullPrompt);
-      if (manualBox && manualText) { manualText.value = fullPrompt; manualBox.style.display = 'block'; }
-      _showAIToast(copied
-        ? "⚠️ Gemini isn't connected yet — prompt copied instead, paste it at gemini.google.com."
-        : "⚠️ Gemini isn't connected yet — copy the prompt below and paste it at gemini.google.com.");
-    } finally {
-      btn.disabled = false;
-    }
+    answerBox.className = 'ai-answer-box';
+    answerBox.textContent = _localAIAnswer(question);
   };
-
 </script>
 
 </body>
