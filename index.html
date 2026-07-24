@@ -274,6 +274,11 @@
   @media (max-width:800px){ .resv-summary-grid{grid-template-columns:repeat(2,1fr)} }
   .resv-summary-cell label{display:block;font-size:11px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
   .resv-summary-cell > div{padding:11px 13px;border-radius:10px;background:var(--paper);font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--ink);text-align:center;font-size:13px}
+  .resv-summary-cell{position:relative}
+  .resv-summary-cell input[type="time"]{width:100%;padding:11px 13px;border-radius:10px;background:var(--paper);border:1.5px solid transparent;font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--ink);text-align:center;font-size:13px;cursor:pointer;transition:border-color .15s ease}
+  .resv-summary-cell input[type="time"]:hover{border-color:var(--pitch-2)}
+  .resv-summary-cell input[type="time"]:focus{outline:none;border-color:var(--pitch);box-shadow:0 0 0 3px rgba(31,175,90,.15)}
+  .resv-nextday-badge{position:absolute;top:-8px;right:6px;background:var(--pitch);color:white;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:999px}
   #resv-status-display.status-available{color:#15803d}
   #resv-status-display.status-blocked{color:#b91c1c}
   .resv-error{color:#dc2626;font-size:13px;font-weight:600;margin-bottom:12px;min-height:18px}
@@ -557,8 +562,8 @@
     <div class="resv-form" id="resv-form">
       <div class="resv-title">Your Reservation</div>
       <div class="resv-summary-grid">
-        <div class="resv-summary-cell"><label>From</label><div id="resv-from-display">—</div></div>
-        <div class="resv-summary-cell"><label>To</label><div id="resv-to-display">—</div></div>
+        <div class="resv-summary-cell"><label>From</label><input type="time" id="resv-from-display" step="1800" onchange="editReservationTime()"></div>
+        <div class="resv-summary-cell"><label>To</label><input type="time" id="resv-to-display" step="1800" onchange="editReservationTime()"><span id="resv-to-nextday-badge" class="resv-nextday-badge" style="display:none">Next day</span></div>
         <div class="resv-summary-cell"><label>Duration</label><div id="resv-duration">—</div></div>
         <div class="resv-summary-cell"><label>Booking Date</label><div id="resv-date-display">—</div></div>
         <div class="resv-summary-cell"><label>Status</label><div id="resv-status-display">—</div></div>
@@ -1336,8 +1341,9 @@
   function resetSelection(){
     _rangeStartPos = null;
     _selRange = null;
-    document.getElementById('resv-from-display').textContent = '—';
-    document.getElementById('resv-to-display').textContent = '—';
+    document.getElementById('resv-from-display').value = '';
+    document.getElementById('resv-to-display').value = '';
+    document.getElementById('resv-to-nextday-badge').style.display = 'none';
     document.getElementById('resv-duration').textContent = '—';
     document.getElementById('resv-status-display').textContent = '—';
     document.getElementById('resv-status-display').className = '';
@@ -1394,6 +1400,22 @@
 
   function _timeAtPos(rawIdx){ return AVAIL_SLOT_TIMES[rawIdx]; }
 
+  // Editable From/To fields use native <input type="time"> (24-hour
+  // "HH:MM" values), which is a different format from the human-readable
+  // AVAIL_SLOT_TIMES labels ("5:30 AM") used for display text and the
+  // WhatsApp message — these two helpers convert between a slot index
+  // and that HH:MM form specifically for the input fields.
+  function _hhmmFromPos(pos){
+    const h = Math.floor(pos / 2), m = (pos % 2) * 30;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  function _posFromHHMM(hhmm){
+    if (!hhmm) return null;
+    const parts = hhmm.split(':').map(Number);
+    if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return null;
+    return parts[0] * 2 + (parts[1] >= 30 ? 1 : 0);
+  }
+
   function handleSlotClick(pos){
     const errEl = document.getElementById('resv-error');
 
@@ -1401,8 +1423,9 @@
       // First tap of a fresh selection: mark the start, wait for the end.
       _rangeStartPos = pos;
       errEl.textContent = '';
-      document.getElementById('resv-from-display').textContent = _timeAtPos(pos);
-      document.getElementById('resv-to-display').textContent = '—';
+      document.getElementById('resv-from-display').value = _hhmmFromPos(pos);
+      document.getElementById('resv-to-display').value = '';
+      document.getElementById('resv-to-nextday-badge').style.display = 'none';
       document.getElementById('resv-duration').textContent = '—';
       document.getElementById('resv-status-display').textContent = 'Pick an end time';
       document.getElementById('resv-status-display').className = '';
@@ -1416,7 +1439,7 @@
       // new selection rather than confusingly editing the old one.
       resetSelection();
       _rangeStartPos = pos;
-      document.getElementById('resv-from-display').textContent = _timeAtPos(pos);
+      document.getElementById('resv-from-display').value = _hhmmFromPos(pos);
       document.getElementById('resv-status-display').textContent = 'Pick an end time';
       reapplySelectionHighlight();
       return;
@@ -1463,7 +1486,6 @@
 
     _selRange = { start, end, wraps };
     errEl.textContent = '';
-    const fromTime = _timeAtPos(start), toTime = _timeAtPos(end);
     const totalMinutes = ((end - start) * 30) + (wraps ? 24 * 60 : 0);
     const durationLabel = totalMinutes % 60 === 0
       ? `${totalMinutes / 60} Hour${totalMinutes === 60 ? '' : 's'}`
@@ -1472,8 +1494,9 @@
     const dateLabel = wraps
       ? `${startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'short' })} → ${new Date(_nextDateStr(_availSelectedDate) + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}`
       : startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
-    document.getElementById('resv-from-display').textContent = fromTime;
-    document.getElementById('resv-to-display').textContent = toTime + (wraps ? ' (next day)' : '');
+    document.getElementById('resv-from-display').value = _hhmmFromPos(start);
+    document.getElementById('resv-to-display').value = _hhmmFromPos(end);
+    document.getElementById('resv-to-nextday-badge').style.display = wraps ? 'inline-block' : 'none';
     document.getElementById('resv-duration').textContent = durationLabel;
     document.getElementById('resv-date-display').textContent = dateLabel;
     document.getElementById('resv-status-display').textContent = 'Available';
@@ -1483,6 +1506,27 @@
     reapplySelectionHighlight();
     document.getElementById('resv-form')?.scrollIntoView({ behavior:'smooth', block:'center' });
   }
+
+  // Lets a visitor type/adjust times directly in the From/To fields
+  // instead of only tapping the grid — goes through the exact same
+  // finalizeRange() validation (conflict-checking, pricing, overnight
+  // handling) as a tap or drag, so a manually-typed range can't bypass
+  // any of those checks.
+  window.editReservationTime = function(){
+    const fromEl = document.getElementById('resv-from-display');
+    const toEl = document.getElementById('resv-to-display');
+    const errEl = document.getElementById('resv-error');
+    const start = _posFromHHMM(fromEl.value);
+    const end = _posFromHHMM(toEl.value);
+    if (start === null || end === null) return; // one field still empty — wait for both
+    if (start === end) {
+      errEl.textContent = 'Start and end time can\'t be the same — please pick a different end time.';
+      document.getElementById('resv-reserve-btn').disabled = true;
+      return;
+    }
+    _rangeStartPos = null; // manual edits always resolve as a complete, fresh range
+    finalizeRange(start, end);
+  };
 
   // Re-paints the dark-green start/end + light-green in-between styling
   // on whatever timeline is currently rendered (called after every
