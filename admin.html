@@ -62,6 +62,14 @@ body{font-family:'Inter',sans-serif;background:var(--gray);color:var(--text);min
 .nav-item.active{background:linear-gradient(90deg,var(--green) 0%,var(--green-light) 100%);color:white;box-shadow:0 2px 8px rgba(22,163,74,.35)}
 .nav-item.active::before{content:'';position:absolute;left:-12px;top:50%;transform:translateY(-50%);width:3px;height:60%;background:var(--yellow);border-radius:0 3px 3px 0}
 .nav-item .nav-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0}
+.nav-badge{margin-left:auto;background:var(--red,#dc2626);color:#fff;font-size:11px;font-weight:800;line-height:1;padding:4px 7px;border-radius:999px;flex-shrink:0}
+.req-card{background:white;border:1.5px solid var(--gray2);border-radius:14px;padding:16px 18px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.req-card .req-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.req-card .req-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px 16px;margin-bottom:14px}
+.req-card .req-field label{display:block;font-size:11px;color:var(--gray3);text-transform:uppercase;letter-spacing:.3px;font-weight:700;margin-bottom:2px}
+.req-card .req-field div{font-size:14px;font-weight:600;color:var(--dark)}
+.req-card .req-actions{display:flex;gap:10px}
+.req-card .req-actions .btn{flex:1;justify-content:center}
 .sidebar-footer{padding:12px 8px;border-top:1px solid rgba(255,255,255,.08)}
 .main-content{margin-left:240px;min-height:100vh;display:flex;flex-direction:column}
 .topbar{background:white;padding:10px 24px;min-height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--gray2);position:sticky;top:0;z-index:50;gap:16px;flex-wrap:wrap;row-gap:10px}
@@ -316,6 +324,7 @@ tr:hover td{background:#f8fffe}
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Turf</div>
+        <button class="nav-item" data-page-nav="requests" onclick="showPage('requests')"><span class="nav-icon">🔔</span>Pending Reservations<span id="nav-requests-badge" class="nav-badge" style="display:none">0</span></button>
         <button class="nav-item" data-page-nav="bookings" onclick="showPage('bookings')"><span class="nav-icon">📅</span>Slot Bookings</button>
         <button class="nav-item" data-page-nav="customers" onclick="showPage('customers')"><span class="nav-icon">👥</span>Customers</button>
       </div>
@@ -404,6 +413,18 @@ tr:hover td{background:#f8fffe}
             <button class="btn btn-secondary" style="justify-content:center;padding:14px" data-page-nav-action="reports" onclick="showPage('reports')">📈 Reports</button>
           </div>
         </div>
+      </div>
+
+      <!-- PENDING RESERVATIONS -->
+      <div class="page" id="page-requests">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:var(--dark)">Pending Reservations</div>
+            <div style="color:var(--gray3);font-size:13px">Requests submitted by customers on the public website — confirm to book the slot, or reject to keep it open.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="fetchPendingRequestsFromSheet(true)">🔄 Refresh</button>
+        </div>
+        <div id="requests-list"></div>
       </div>
 
       <!-- BOOKINGS -->
@@ -1682,7 +1703,7 @@ tr:hover td{background:#f8fffe}
 // depends on this single URL being stable.
 const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-r5r_r2SffFNjbeQDYJ9VmHloAze2FNwnDqV7XE2Y4DzG2nyFaZjEQb250_k0I0Twhw/exec';
 
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -1727,6 +1748,35 @@ function nextSeqId(col) {
 }
 
 // ===== LOCAL STORAGE DB LAYER =====
+/* =====================================================================
+   ⚠️ DATA PRESERVATION POLICY — READ BEFORE EDITING THIS FILE ⚠️
+   -----------------------------------------------------------------
+   All booking/customer/coaching/café data lives in THIS BROWSER's
+   localStorage (namespaced 'ddtz_*'), independent of this HTML file.
+   Redeploying/replacing admin.html or index.html on the server does
+   NOT touch localStorage on anyone's device — only code that actually
+   RUNS in the browser can do that.
+
+   Hard rule for every future change to this file:
+     - Never call localStorage.clear().
+     - Never call LS.set(col, []) or LS.set(col, <a hardcoded default
+       array>) directly — always go through LS.add/LS.update/LS.delete,
+       which read the existing array first and only ever append to it,
+       patch one record by id, or remove one record by id.
+     - Never write default/seed/sample records into 'ddtz_bookings',
+       'ddtz_blockedSlots', 'ddtz_bookingRequests', 'ddtz_customers',
+       'ddtz_students', 'ddtz_fees', or any other real data collection
+       on load. (seedUsersIfEmpty() below is fine — it seeds LOGIN
+       accounts only, and only if none exist yet, guarded by
+       getUsers(). It never touches booking data.)
+     - loadAllData() below is read-only: it copies existing localStorage
+       into window.DB in memory. It must stay that way — it should
+       never be the place new default data gets written.
+     - The Google Sheet (via Apps Script) is the permanent backup/
+       source of truth across devices. Nothing in this file should ever
+       push an empty dataset to it in a way that could overwrite real
+       rows there either.
+   ===================================================================== */
 const LS = {
   _key: (col) => 'ddtz_' + col,
   get: (col) => { try { return JSON.parse(localStorage.getItem(LS._key(col)) || '[]'); } catch(e){ return []; } },
@@ -1767,6 +1817,7 @@ const ROLE_LABELS = { [ROLES.SUPER_ADMIN]: 'Super Admin', [ROLES.ADMIN]: 'Manage
 // Which pages each role may open at all
 const PAGE_PERMISSIONS = {
   dashboard:  [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
+  requests:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   bookings:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   customers:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   students:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
@@ -1787,6 +1838,8 @@ const PAGE_PERMISSIONS = {
 // stale DOM, etc.) the function itself refuses to run for an unauthorized role.
 const ACTION_PERMISSIONS = {
   deleteBooking:        [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  confirmRequest:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  rejectRequest:        [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   editBooking:          [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   createBooking:        [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   recordBalancePayment: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
@@ -2007,7 +2060,10 @@ window.logoutUser = doLogout;
 
 // ===== LOAD ALL DATA =====
 async function loadAllData() {
-  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance'];
+  // Read-only: copies whatever already exists in localStorage into memory.
+  // Must never write a default/empty dataset here — see the DATA
+  // PRESERVATION POLICY banner above the LS helper.
+  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests'];
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
@@ -2017,6 +2073,31 @@ async function loadAllData() {
   // Pre-populate report month/year selectors
   initReportSelectors();
   updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
+  updateRequestsBadge();
+  _checkDataIntegrityOnLoad();
+  // Pull in any reservation requests customers submitted from the public
+  // site (a different device/browser) since this admin was last online.
+  fetchPendingRequestsFromSheet();
+}
+
+// Purely diagnostic — never modifies or restores data itself. Flags a
+// browser-storage-key so that if this device previously had real booking
+// data and a later load finds none, staff get a visible warning instead of
+// silently seeing an empty dashboard and assuming there was never anything
+// to lose. The Google Sheet backup remains the place to recover from if
+// this ever fires unexpectedly (e.g. browser storage was manually cleared).
+const DATA_SEEN_FLAG_KEY = 'ddtz_data_seen_flag';
+function _checkDataIntegrityOnLoad() {
+  try {
+    const hadDataBefore = localStorage.getItem(DATA_SEEN_FLAG_KEY) === '1';
+    const hasDataNow = (window.DB.bookings || []).length || (window.DB.blockedSlots || []).length || (window.DB.bookingRequests || []).length;
+    if (hasDataNow) {
+      localStorage.setItem(DATA_SEEN_FLAG_KEY, '1');
+    } else if (hadDataBefore) {
+      console.warn('⚠️ DDTZ data integrity check: this browser previously had booking data, but localStorage now appears empty. This app never clears data on its own — check Settings → Google Sheet backup if this is unexpected.');
+      setTimeout(() => showToast('⚠️ No local booking data found on this device. If you expected existing bookings, check your Google Sheet backup — this app never deletes data automatically.', 'error'), 900);
+    }
+  } catch (e) {}
 }
 
 function buildCustomers() {
@@ -2048,14 +2129,15 @@ window.showPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  const titles = {dashboard:'Dashboard',bookings:'Turf Bookings',customers:'Customers',students:'Students',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
+  if (page === 'requests') fetchPendingRequestsFromSheet();
 };
 
 // ===== WEBSITE CONTENT (Photos + Pricing for the public site) =====
@@ -3386,6 +3468,243 @@ function autoSyncBooking(data) {
   };
   return queuedSync(payload);
 }
+
+// =====================================================================
+// PENDING RESERVATIONS (customer-submitted requests from the public site)
+// =====================================================================
+// A customer on index.html submits a request that is only ever written
+// locally as `status:'PENDING'` — the slot is NOT blocked yet. That
+// request also gets POSTed (type:'booking_request') to the Apps Script
+// backend so it can reach THIS admin browser, which may be on a totally
+// different device. This admin panel polls `action=pendingRequests` to
+// pull those in, the same way the public site polls `action=availability`.
+//
+// Confirming a request creates a real booking (through the exact same
+// saveDoc('bookings', …) + autoSyncBooking() path a manually-created
+// booking uses) and only THEN blocks the slot. Rejecting a request never
+// touches the bookings collection at all, so the slot stays open.
+//
+// NOTE: `action=pendingRequests` (GET) and the `booking_request` /
+// `booking_request_update` payload types (POST) are NOT yet endpoints in
+// every deployment of DDTZ_Apps_Script_Code.gs — if your Apps Script
+// doesn't already handle them, pending requests submitted from a
+// different device than this admin panel won't sync across until the
+// script is updated to add them (see the companion .gs snippet).
+
+function updateRequestsBadge() {
+  const count = (window.DB.bookingRequests || []).filter(r => r.status === 'PENDING').length;
+  const badge = document.getElementById('nav-requests-badge');
+  if (badge) {
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+  }
+}
+
+// GET the latest pending requests from the Sheet backend and merge them
+// into local storage. Merge, not replace: a request this admin already
+// confirmed/rejected locally (but hasn't finished syncing that update
+// back up yet) must not be silently reset back to PENDING by an older
+// row still sitting in the sheet.
+async function fetchPendingRequestsFromSheet(showFeedback) {
+  const SHEET_URL = window.DDTZ_SHEET_URL || '';
+  if (!SHEET_URL) { if (showFeedback) showToast('Add a Google Sheet Web App URL in Settings first.', 'error'); return; }
+  try {
+    if (showFeedback) showToast('Checking for new reservation requests…', 'info');
+    const res = await fetch(`${SHEET_URL}?action=pendingRequests&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok || !Array.isArray(data.requests)) {
+      if (showFeedback) showToast('Could not reach the Sheet for reservation requests.', 'error');
+      return;
+    }
+    const local = window.DB.bookingRequests || [];
+    let addedCount = 0;
+    data.requests.forEach(remote => {
+      const existing = local.find(r => r.requestId === remote.requestId);
+      if (!existing) {
+        const localId = LS.add('bookingRequests', { ...remote, status: remote.status || 'PENDING' });
+        local.unshift({ ...remote, status: remote.status || 'PENDING', id: localId });
+        addedCount++;
+      } else if (existing.status === 'PENDING' && remote.status && remote.status !== 'PENDING') {
+        // Sheet shows a status change this device hasn't seen (e.g. confirmed
+        // from another admin device) — adopt it.
+        LS.update('bookingRequests', existing.id, { status: remote.status, bookingId: remote.bookingId });
+        existing.status = remote.status;
+        existing.bookingId = remote.bookingId;
+      }
+    });
+    window.DB.bookingRequests = local;
+    updateRequestsBadge();
+    if (document.getElementById('page-requests')?.classList.contains('active')) renderBookingRequests();
+    if (showFeedback) showToast(addedCount ? `📥 ${addedCount} new reservation request(s) received.` : 'No new reservation requests.');
+  } catch (e) {
+    if (showFeedback) showToast('⚠️ Could not reach Google Sheets to check reservation requests.', 'error');
+  }
+}
+
+// Push a status change (CONFIRMED/REJECTED) for one request back to the
+// Sheet, so other admin devices' next poll picks it up too.
+function syncBookingRequestUpdate(req) {
+  return queuedSync({
+    type: 'booking_request_update',
+    requestId: req.requestId || req.id,
+    status: req.status,
+    bookingId: req.bookingId || '',
+    updatedBy: CURRENT_USER?.name || '',
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function _requestStatusBadge(status) {
+  const map = {
+    PENDING:   '<span class="badge badge-yellow">⏳ Pending</span>',
+    CONFIRMED: '<span class="badge badge-green">✅ Confirmed</span>',
+    REJECTED:  '<span class="badge badge-red">❌ Rejected</span>'
+  };
+  return map[status] || `<span class="badge badge-gray">${status}</span>`;
+}
+
+window.renderBookingRequests = () => {
+  const list = document.getElementById('requests-list');
+  if (!list) return;
+  const all = [...(window.DB.bookingRequests || [])].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+  const pending = all.filter(r => r.status === 'PENDING');
+  const history = all.filter(r => r.status !== 'PENDING').slice(0, 20);
+
+  if (!pending.length && !history.length) {
+    list.innerHTML = `<div class="empty-state" style="padding:40px"><div class="empty-icon">🔔</div><p>No reservation requests yet. New requests from the public website will show up here.</p></div>`;
+    return;
+  }
+
+  const cardHtml = (r) => `
+    <div class="req-card">
+      <div class="req-top">
+        <div>
+          <div style="font-weight:700;font-size:16px;color:var(--dark)">${r.name || 'Unknown'}</div>
+          <div style="font-size:13px;color:var(--gray3)">${r.phone || ''}</div>
+        </div>
+        ${_requestStatusBadge(r.status)}
+      </div>
+      <div class="req-grid">
+        <div class="req-field"><label>Date</label><div>${formatDate(r.date)}</div></div>
+        <div class="req-field"><label>Time</label><div>${formatTime(r.start)} – ${formatTime(r.end)}</div></div>
+        <div class="req-field"><label>Sport / Ground</label><div>${r.sport || '—'}</div></div>
+        <div class="req-field"><label>Amount</label><div>₹${Number(r.amount||0).toLocaleString('en-IN')}</div></div>
+      </div>
+      ${r.status === 'PENDING' ? `
+        <div class="req-actions">
+          <button class="btn btn-success" onclick="confirmBookingRequest('${r.id}')">✅ Confirm</button>
+          <button class="btn btn-secondary" style="background:#fee2e2;color:#991b1b" onclick="rejectBookingRequest('${r.id}')">❌ Reject</button>
+        </div>` : `<div style="font-size:12px;color:var(--gray3)">${r.status === 'CONFIRMED' ? `Confirmed${r.bookingId ? ' · Booking ' + r.bookingId : ''}` : `Rejected${r.rejectedBy ? ' by ' + r.rejectedBy : ''}`}</div>`}
+    </div>`;
+
+  let html = '';
+  if (pending.length) html += pending.map(cardHtml).join('');
+  if (history.length) html += `<div style="margin:22px 0 10px;font-size:13px;font-weight:700;color:var(--gray3);text-transform:uppercase;letter-spacing:.4px">Recent History</div>` + history.map(cardHtml).join('');
+  list.innerHTML = html;
+};
+
+// Ground defaults mirror GROUNDS/SLOTS above — the public site only asks
+// for Sport (Football/Cricket), so we map that to this facility's single
+// "Full Ground" slot per sport, same as a manually-created booking would.
+function _groundForRequestSport(sport) {
+  const s = (sport || '').toLowerCase();
+  if (s === 'cricket') return 'Cricket Ground';
+  return 'Football Ground';
+}
+
+window.confirmBookingRequest = async (id) => {
+  if (!can('confirmRequest')) { denyAccess('Only Admins and the Super Admin can confirm reservation requests.'); return; }
+  const req = (window.DB.bookingRequests || []).find(r => r.id === id);
+  if (!req || req.status !== 'PENDING') return;
+
+  const ground = _groundForRequestSport(req.sport);
+  // Authoritative re-check right before booking — the request may have sat
+  // pending while another booking/reservation took the same slot.
+  const conflict = findOverlappingBooking(req.date, ground, 'Full Ground', req.start, req.end, null);
+  if (conflict) {
+    showToast(`⛔ This slot is already booked for ${conflict.name}. Reject this request instead, or pick a different one to confirm.`, 'error');
+    return;
+  }
+  const blockConflict = findBlockingConflict(req.date, req.start, req.end, null);
+  if (blockConflict) {
+    showToast(`⛔ This time is blocked (${blockConflict.reason}${blockConflict.notes ? ': ' + blockConflict.notes : ''}). Reject this request instead.`, 'error');
+    return;
+  }
+
+  const bookingId = generateBookingId();
+  const total = Number(req.amount) || 0;
+  const data = {
+    bookingId, name: req.name, phone: req.phone, date: req.date, start: req.start, end: req.end,
+    sport: req.sport || '', ground, slot: 'Full Ground', duration: req.duration || '',
+    total, advance: 0, pending: total, advanceAmount: 0, balanceAmountTotal: 0,
+    payments: [], payment: 'Cash', balancePayment: null, balancePaidAt: null,
+    notes: `Confirmed from public reservation request${req.requestId ? ' (' + req.requestId + ')' : ''}`,
+    status: 'unpaid', bookingType: 'confirmed',
+    createdAt: new Date().toISOString(), createdBy: CURRENT_USER?.name || ''
+  };
+
+  const newId = await saveDoc('bookings', data, null);
+  data.id = newId;
+  window.DB.bookings.unshift(data);
+  autoSyncBooking(data);
+
+  const updatedReq = { ...req, status: 'CONFIRMED', bookingId, confirmedAt: new Date().toISOString(), confirmedBy: CURRENT_USER?.name || '' };
+  await saveDoc('bookingRequests', updatedReq, req.id);
+  const idx = window.DB.bookingRequests.findIndex(r => r.id === req.id);
+  if (idx >= 0) window.DB.bookingRequests[idx] = updatedReq;
+  syncBookingRequestUpdate(updatedReq);
+
+  autoRejectConflictingRequests(updatedReq);
+
+  buildCustomers();
+  renderBookingRequests();
+  renderBookings();
+  renderDashboard();
+  renderBookingCalendar();
+  updateRequestsBadge();
+  showToast(`✅ Reservation confirmed! Booking ID: ${bookingId}`);
+};
+
+// If confirming one request fills a slot that other still-PENDING requests
+// also asked for, those others can never be honored — auto-reject them so
+// staff don't have to hunt them down manually, and the customer isn't left
+// waiting on a request that's already impossible.
+function autoRejectConflictingRequests(confirmedReq) {
+  const others = (window.DB.bookingRequests || []).filter(r =>
+    r.id !== confirmedReq.id &&
+    r.status === 'PENDING' &&
+    r.date === confirmedReq.date &&
+    _groundForRequestSport(r.sport) === _groundForRequestSport(confirmedReq.sport) &&
+    timeRangesOverlap(r.start, r.end, confirmedReq.start, confirmedReq.end)
+  );
+  others.forEach(r => {
+    const updated = { ...r, status: 'REJECTED', rejectedAt: new Date().toISOString(), rejectedBy: 'Auto — slot confirmed for another request' };
+    saveDoc('bookingRequests', updated, r.id);
+    const idx = window.DB.bookingRequests.findIndex(x => x.id === r.id);
+    if (idx >= 0) window.DB.bookingRequests[idx] = updated;
+    syncBookingRequestUpdate(updated);
+  });
+  if (others.length) showToast(`ℹ️ ${others.length} other pending request(s) for that same time were automatically rejected.`, 'info');
+}
+
+window.rejectBookingRequest = async (id) => {
+  if (!can('rejectRequest')) { denyAccess('You do not have permission to reject reservation requests.'); return; }
+  const req = (window.DB.bookingRequests || []).find(r => r.id === id);
+  if (!req || req.status !== 'PENDING') return;
+  const updated = { ...req, status: 'REJECTED', rejectedAt: new Date().toISOString(), rejectedBy: CURRENT_USER?.name || '' };
+  await saveDoc('bookingRequests', updated, req.id);
+  const idx = window.DB.bookingRequests.findIndex(r => r.id === req.id);
+  if (idx >= 0) window.DB.bookingRequests[idx] = updated;
+  syncBookingRequestUpdate(updated);
+  renderBookingRequests();
+  updateRequestsBadge();
+  showToast('❌ Reservation request rejected — slot remains available.');
+};
+
+// Poll for new requests the same way the public site polls availability —
+// every 30s, plus instantly whenever this tab regains focus.
+setInterval(() => { if (CURRENT_USER) fetchPendingRequestsFromSheet(); }, 30000);
+window.addEventListener('focus', () => { if (CURRENT_USER) fetchPendingRequestsFromSheet(); });
 
 // Same backup pattern as autoSyncBooking, tagged type:'cafe_sale' so an
 // Apps Script endpoint can route café sales to their own sheet/tab
@@ -5163,12 +5482,17 @@ window.renderDashboard = () => {
   const bookedHoursToday = todayBks.reduce((s,b) => s + calcBookingHours(b.start,b.end), 0);
   const availableSlotsToday = Math.max(0, Math.round((OPERATING_HOURS_PER_DAY - bookedHoursToday) * 10) / 10);
 
+  const pendingRequestsCount = (window.DB.bookingRequests || []).filter(r => r.status === 'PENDING').length;
+
   const cards = [
     { cls:'green',  icon:'📅', val:todayBks.length, label:"Today's Bookings" },
     { cls:'blue',   icon:'🎓', val:coachingSessionsToday, label:"Today's Coaching" },
     { cls:'orange', icon:'🟢', val:`${availableSlotsToday}h`, label:'Available Slots Today' },
     { cls:'red',    icon:'⏳', val:`₹${pendingPayments.toLocaleString()}`, label:'Pending Payments' },
   ];
+  if (pendingRequestsCount > 0) {
+    cards.unshift({ cls:'red', icon:'🔔', val:pendingRequestsCount, label:'Pending Reservations', onclick:"showPage('requests')" });
+  }
   if (CURRENT_USER?.role === ROLES.SUPER_ADMIN) {
     cards.splice(1, 0, { cls:'purple', icon:'💵', val:`₹${todayCollection.toLocaleString()}`, label:"Today's Collection" });
   }

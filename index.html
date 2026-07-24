@@ -556,7 +556,8 @@
         <div class="resv-price-row"><span>Estimated Amount</span><span id="resv-price-amount">₹0</span></div>
       </div>
       <div class="resv-error" id="resv-error"></div>
-      <button class="btn btn-cta" style="width:100%;justify-content:center" id="resv-reserve-btn" onclick="reserveTimeRange()" disabled>Reserve on WhatsApp</button>
+      <div id="resv-request-status" style="display:none;margin-bottom:12px;padding:12px 14px;background:#eafbf1;border:1.5px solid var(--pitch-2);border-radius:12px;color:var(--pitch-dark);font-size:13.5px;font-weight:600;text-align:center"></div>
+      <button class="btn btn-cta" style="width:100%;justify-content:center" id="resv-reserve-btn" onclick="reserveTimeRange()" disabled>Send Reservation Request</button>
     </div>
 
     <div class="avail-note">✅ Reservation is confirmed only after DD Turf Zone approves your request.</div>
@@ -852,6 +853,19 @@
 <button class="ai-fab" onclick="document.getElementById('ai-assistant')?.scrollIntoView({behavior:'smooth',block:'start'})" aria-label="Ask AI Assistant" title="Ask AI Assistant">🤖</button>
 
 <script>
+  /* =====================================================================
+     ⚠️ DATA PRESERVATION POLICY — READ BEFORE EDITING THIS FILE ⚠️
+     This public page never stores booking/reservation data locally as
+     the source of truth — it only ever POSTs new reservation requests
+     onward to the Apps Script backend (the permanent store) and caches
+     small, non-critical, per-visitor convenience values in this browser's
+     own localStorage: the visitor's own name/mobile ('ddtz_cust_*', so
+     they don't retype it) and a same-origin mirror of published site
+     photos/pricing ('ddtz_public_images' / 'ddtz_public_pricing'). None
+     of that is booking data, and nothing in this file ever clears,
+     resets, or overwrites the backend's records — it only ever adds a
+     new PENDING request. Keep it that way in any future edit here.
+  ===================================================================== */
   /* =====================================================================
      LIVE BACKEND — paste your Apps Script Web App URL here (the exact
      same URL already saved in Admin Panel → Settings → Apps Script Web
@@ -1364,6 +1378,8 @@
     errEl.textContent = '';
     document.getElementById('resv-price-box').style.display = 'none';
     document.getElementById('resv-reserve-btn').disabled = true;
+    const statusEl = document.getElementById('resv-request-status');
+    if (statusEl) statusEl.style.display = 'none';
     _selRange = null;
 
     const fromTime = _timeAtPos(startPos), toTime = _timeAtPos(endPos);
@@ -1419,7 +1435,7 @@
   }
   window.closeCustomerModal = closeCustomerModal;
 
-  function confirmCustomerDetails(){
+  async function confirmCustomerDetails(){
     const name = document.getElementById('cust-name-input').value.trim();
     const mobile = document.getElementById('cust-mobile-input').value.trim();
     const errEl = document.getElementById('cust-modal-error');
@@ -1428,11 +1444,110 @@
     localStorage.setItem('ddtz_cust_name', name);
     localStorage.setItem('ddtz_cust_mobile', mobile);
     closeCustomerModal();
-    _sendReservationToWhatsApp(name, mobile);
+    await _submitReservationRequest(name, mobile);
   }
   window.confirmCustomerDetails = confirmCustomerDetails;
 
-  function _sendReservationToWhatsApp(name, mobile){
+  // Unique per-request ID — this is what ties this browser's request to the
+  // row the admin panel sees, and to the WhatsApp message sent alongside it.
+  function _genRequestId(){
+    return 'REQ' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,6).toUpperCase();
+  }
+
+  // Same "text/plain to dodge CORS preflight" POST pattern the admin panel
+  // uses for its own Apps Script sync — no queue/retry here since this is a
+  // single one-shot page visit, not a persistent app session.
+  async function postBookingRequestToSheet(payload){
+    const sheetUrl = getLiveSheetUrl();
+    if (!sheetUrl) return { ok:false, skipped:true };
+    try {
+      const res = await fetch(sheetUrl, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      let result = null;
+      try { result = await res.json(); } catch(e) { /* fall through */ }
+      if (result) return result.ok === false ? { ok:false, error: result.error, conflict: !!result.conflict } : { ok:true, result };
+      return { ok:false, error: `HTTP ${res.status}` };
+    } catch (e) {
+      return { ok:false, error: String(e) };
+    }
+  }
+
+  function _showRequestSentBanner(requestId, total, delivered){
+    const el = document.getElementById('resv-request-status');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = delivered
+      ? `✅ Request sent! DD Turf Zone will confirm your ₹${total.toLocaleString('en-IN')} reservation shortly. Reference: ${requestId}`
+      : `📩 Request opened in WhatsApp — DD Turf Zone will confirm it manually. Reference: ${requestId}`;
+  }
+
+  // Submits the reservation as a PENDING request — this does NOT book the
+  // slot. It's created with status:'PENDING' and only becomes an actual,
+  // slot-blocking booking once an admin taps Confirm in the admin panel
+  // (see admin.html → confirmBookingRequest). Rejecting it, or an admin
+  // never acting on it, leaves the slot open the whole time.
+  async function _submitReservationRequest(name, mobile){
+    if (!_selRange) return;
+    const errEl = document.getElementById('resv-error');
+    errEl.textContent = '';
+
+    // Defensive re-check against the freshest availability right before
+    // sending — the moment between opening the customer-details modal and
+    // submitting is exactly when someone else's request could just have
+    // been CONFIRMED for this same slot.
+    _availSlotsCache = await fetchLiveSlotStatus(_availSelectedDate);
+    if (_selRange.wraps) _availSlotsCacheNextDay = await fetchLiveSlotStatus(_nextDateStr(_availSelectedDate));
+    const conflicts = checkRangeConflict(_selRange.start, _selRange.end, _selRange.wraps);
+    if (conflicts.length) {
+      errEl.textContent = 'This slot was just confirmed for someone else. Please choose another time.';
+      renderAvailabilityGrid();
+      return;
+    }
+
+    const fromTime = _timeAtPos(_selRange.start), toTime = _timeAtPos(_selRange.end);
+    const duration = document.getElementById('resv-duration').textContent;
+    const { total } = _computeRangeCost(_selRange.start, _selRange.end, _selRange.wraps);
+    const requestId = _genRequestId();
+
+    const btn = document.getElementById('resv-reserve-btn');
+    const originalLabel = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Sending request…';
+
+    const payload = {
+      type: 'booking_request',
+      requestId,
+      status: 'PENDING',
+      name, phone: mobile,
+      date: _availSelectedDate,
+      start: fromTime, end: toTime,
+      sport: _selRange.sport,
+      duration,
+      amount: total,
+      createdAt: new Date().toISOString()
+    };
+
+    const res = await postBookingRequestToSheet(payload);
+    btn.disabled = false; btn.textContent = originalLabel;
+
+    if (res.ok) {
+      _showRequestSentBanner(requestId, total, true);
+    } else {
+      // Backend unreachable/unconfigured — the request was NOT recorded
+      // anywhere the admin panel can see it yet, so say so plainly and lean
+      // on WhatsApp as the fallback channel instead of pretending it worked.
+      errEl.textContent = "Couldn't send your request automatically — opening WhatsApp so DD Turf Zone can confirm it manually.";
+      _showRequestSentBanner(requestId, total, false);
+    }
+
+    _sendReservationToWhatsApp(name, mobile, requestId);
+    renderAvailabilityGrid();
+  }
+
+  function _sendReservationToWhatsApp(name, mobile, requestId){
     const fromTime = _timeAtPos(_selRange.start), toTime = _timeAtPos(_selRange.end);
     const duration = document.getElementById('resv-duration').textContent;
     const startDateObj = new Date(_availSelectedDate + 'T00:00:00');
@@ -1440,7 +1555,7 @@
       ? `${startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' })} → ${new Date(_nextDateStr(_availSelectedDate) + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' })}`
       : startDateObj.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
 
-    const message = `DD Turf Zone Booking Request\n\nName: ${name}\nMobile: ${mobile}\n\nSport: ${_selRange.sport}\nDate: ${dateLabel}\nTime: ${fromTime} - ${toTime}${_selRange.wraps ? ' (next day)' : ''}\nDuration: ${duration}\n\nPlease confirm my booking.`;
+    const message = `DD Turf Zone Booking Request\n\nName: ${name}\nMobile: ${mobile}\n\nSport: ${_selRange.sport}\nDate: ${dateLabel}\nTime: ${fromTime} - ${toTime}${_selRange.wraps ? ' (next day)' : ''}\nDuration: ${duration}\n\nThis is a reservation REQUEST (Ref: ${requestId}) — pending your confirmation. The slot has not been blocked yet.`;
     window.open(`https://wa.me/${RESERVE_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
   }
 
