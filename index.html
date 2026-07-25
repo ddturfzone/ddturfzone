@@ -165,6 +165,14 @@
   .ai-toast{margin-top:14px;padding:12px 16px;background:rgba(31,175,90,.12);border:1px solid rgba(31,175,90,.3);border-radius:12px;color:var(--pitch-dark);font-size:13px;font-weight:600;text-align:center;position:relative;z-index:1}
   .ai-answer-box{margin-top:14px;padding:16px 18px;background:rgba(255,255,255,.85);border:1.5px solid rgba(31,175,90,.25);border-radius:16px;font-size:14.5px;line-height:1.7;color:var(--ink);white-space:pre-wrap;position:relative;z-index:1}
   .ai-answer-box.loading{display:flex;align-items:center;gap:10px;color:var(--gray3);font-style:italic}
+  .ai-chat-log{max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:14px;padding-right:2px;position:relative;z-index:1;scroll-behavior:smooth}
+  .ai-chat-log:empty{display:none}
+  .ai-msg{max-width:88%;padding:12px 16px;border-radius:16px;font-size:14.5px;line-height:1.6;white-space:pre-wrap}
+  .ai-msg-user{align-self:flex-end;background:var(--pitch);color:var(--white);border-bottom-right-radius:4px}
+  .ai-msg-bot{align-self:flex-start;background:rgba(255,255,255,.9);border:1.5px solid rgba(31,175,90,.2);color:var(--ink);border-bottom-left-radius:4px}
+  .ai-msg-btn{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:8px 14px;border-radius:999px;background:var(--pitch-dark);color:var(--white);font-size:13px;font-weight:700;text-decoration:none}
+  .ai-btn-send{background:var(--pitch)}
+  .ai-gemini-row{position:relative;z-index:1}
   .ai-spinner{width:16px;height:16px;border:2.5px solid rgba(31,175,90,.25);border-top-color:var(--pitch);border-radius:50%;animation:aiSpin .7s linear infinite;flex-shrink:0}
   @keyframes aiSpin{to{transform:rotate(360deg)}}
   .ai-disclaimer{text-align:center;font-size:12.5px;color:var(--gray3);margin-top:18px;line-height:1.7}
@@ -268,6 +276,16 @@
   .reviews-meta .count{font-size:13px;color:var(--gray3)}
   .review-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:30px}
   @media (max-width:900px){ .review-grid{grid-template-columns:1fr} }
+  .video-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  @media (max-width:900px){ .video-grid{grid-template-columns:1fr 1fr} }
+  @media (max-width:640px){ .video-grid{grid-template-columns:1fr} }
+  .video-card{background:var(--white);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);transition:transform .2s ease, box-shadow .2s ease}
+  .video-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+  .video-card .video-embed-wrap{position:relative;width:100%;padding-top:56.25%;background:var(--ink)}
+  .video-card .video-embed-wrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .video-card .body{padding:16px 18px}
+  .video-card h3{font-size:17px;margin:0 0 6px;color:var(--ink)}
+  .video-card p{font-size:13.5px;color:var(--gray3);margin:0}
   .review-card{background:var(--white);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow)}
   .review-card .stars{color:var(--flood);font-size:13px;margin-bottom:10px}
   .review-card .txt{font-size:14px;color:var(--ink);margin-bottom:12px}
@@ -648,14 +666,17 @@
       <p>Get instant answers about booking, coaching, pricing and more.</p>
     </div>
     <div class="ai-hub-card">
+      <div id="ai-chat-log" class="ai-chat-log"></div>
       <div class="ai-prompt-box">
-        <textarea id="ai-question-input" placeholder="Type your question... e.g. Is the turf available tomorrow?"></textarea>
+        <textarea id="ai-question-input" placeholder="Type your question... e.g. Is the turf available tomorrow?" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendAIMessage();}"></textarea>
       </div>
       <div class="ai-chips" id="ai-suggestion-chips"></div>
       <div class="ai-platform-buttons">
-        <button class="ai-btn ai-btn-gemini" id="ai-ask-btn" onclick="askAIAssistant()">✨ Ask AI Assistant</button>
+        <button class="ai-btn ai-btn-send" id="ai-send-btn" onclick="sendAIMessage()">Send</button>
       </div>
-      <div id="ai-answer-box" class="ai-answer-box" style="display:none"></div>
+      <div class="ai-gemini-row" id="ai-gemini-row" style="display:none">
+        <button class="ai-btn ai-btn-gemini" id="ai-gemini-btn" onclick="askGemini()">✨ Ask Gemini</button>
+      </div>
       <div class="ai-toast" id="ai-toast" style="display:none"></div>
     </div>
     <div class="ai-disclaimer">AI Assistant provides general information and guidance. Live slot availability and confirmed bookings are managed through the DD Turf Zone Booking System and WhatsApp.</div>
@@ -677,6 +698,18 @@
       <div class="gallery-slide"><img data-img-key="gallery5" alt="Cricket player focused on the turf field"></div>
       <div class="gallery-dots" id="gallery-dots"></div>
     </div>
+  </div>
+</section>
+
+<!-- VIDEO SHOTS / HIGHLIGHTS — hidden entirely if the admin hasn't added
+     any videos yet, or none are currently enabled for public display. -->
+<section id="video-shots" class="reveal" style="display:none">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow">HIGHLIGHTS</div>
+      <h2>Video Shots</h2>
+    </div>
+    <div class="video-grid" id="video-shots-grid"></div>
   </div>
 </section>
 
@@ -808,6 +841,7 @@
         <div class="row"><div class="ic">📞</div><div><a href="tel:+917305123765">+91 73051 23765</a></div></div>
         <div class="row"><div class="ic">💬</div><div><a href="https://wa.me/917305123765" target="_blank" rel="noopener">Chat on WhatsApp</a></div></div>
         <div class="row"><div class="ic">🕐</div><div>Open 24 Hours, Every Day</div></div>
+        <a href="https://share.google/SkDrxpPFEHpURXXGy" target="_blank" rel="noopener" class="btn btn-cta" style="margin-top:8px;width:100%;justify-content:center">📍 Get Directions</a>
         <a href="#availability" class="btn btn-primary" style="margin-top:8px;width:100%;justify-content:center">Check Availability &amp; Reserve</a>
       </div>
       <div class="map-frame">
@@ -938,6 +972,60 @@
     academy: '🎓 Coaching', gallery1: '📷 Gallery', gallery2: '📷 Gallery', gallery3: '📷 Gallery', gallery4: '📷 Gallery', gallery5: '📷 Gallery',
     about: '🏢 DD Turf Zone', reviewsBanner: '⭐ Reviews', cafe: '☕ DD Café'
   };
+
+  // Same "paste any normal YouTube link, get the right embeddable ID"
+  // logic as the admin panel — duplicated rather than shared, since this
+  // is a standalone static page with no build step. Handles
+  // watch?v=, youtu.be/, /embed/, and /shorts/ links.
+  function extractYouTubeId(url){
+    if (!url) return '';
+    const m = String(url).match(/(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    try {
+      const u = new URL(url);
+      const v = u.searchParams.get('v');
+      if (v && v.length === 11) return v;
+    } catch(e) { /* not a valid absolute URL — ignore */ }
+    return '';
+  }
+
+  // Reads the admin-managed video list (same 'ddtz_public_videos' key the
+  // Admin Panel's Website Content → Video Shots section writes to) and
+  // renders only the videos currently marked enabled, in the order the
+  // admin arranged them. Hides the whole section — not just an empty
+  // grid — when there's nothing to show, per spec.
+  function renderVideoShots(){
+    const section = document.getElementById('video-shots');
+    const grid = document.getElementById('video-shots-grid');
+    if (!section || !grid) return;
+    let videos = [];
+    try { videos = JSON.parse(localStorage.getItem('ddtz_public_videos') || '[]'); } catch(e) { videos = []; }
+    const visible = (Array.isArray(videos) ? videos : []).filter(v => v && v.enabled !== false && (v.embedUrl || v.videoId || v.url));
+
+    if (!visible.length) {
+      section.style.display = 'none';
+      grid.innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = visible.map(v => {
+      const id = v.videoId || extractYouTubeId(v.url);
+      if (!id) return '';
+      const embed = v.embedUrl || `https://www.youtube.com/embed/${id}`;
+      const title = (v.title || 'DD Turf Zone highlight').replace(/</g, '&lt;');
+      const desc = (v.description || '').replace(/</g, '&lt;');
+      return `
+        <div class="video-card">
+          <div class="video-embed-wrap"><iframe src="${embed}" title="${title}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
+          <div class="body">
+            <h3>${title}</h3>
+            ${desc ? `<p>${desc}</p>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    section.style.display = grid.innerHTML.trim() ? '' : 'none';
+  }
 
   function applyWebsiteImages(images){
     buildHeroSlideshow(images);
@@ -1454,9 +1542,51 @@
     return 'REQ' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,6).toUpperCase();
   }
 
+  // ---------------------------------------------------------------------
+  // THE ACTUAL DATABASE WRITE.
+  // This app's real "backend" — for bookings, customers, blocked slots,
+  // everything — has always been localStorage under the 'ddtz_*' keys,
+  // with Google Sheets as an async backup/cross-device sync layer on top
+  // (see admin.html's LS helper). Pending reservation requests must live
+  // in that exact same place, under the exact same key admin.html's
+  // `LS.get('bookingRequests')` reads (`ddtz_bookingRequests`) — NOT a
+  // separate key, and NOT only inside the Sheets round-trip. Writing here
+  // is what makes the request real and immediately visible the moment the
+  // customer's browser and the admin's browser are the same origin
+  // (typically true — this page and admin.html are served from the same
+  // site). It also means the request is guaranteed to be saved even if
+  // the Apps Script POST below fails or the backend URL isn't configured.
+  const BOOKING_REQUESTS_KEY = 'ddtz_bookingRequests';
+  function _saveBookingRequestToLocalDb(payload){
+    try {
+      const list = JSON.parse(localStorage.getItem(BOOKING_REQUESTS_KEY) || '[]');
+      list.unshift({
+        id: 'req_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+        requestId: payload.requestId,
+        name: payload.name,
+        phone: payload.phone,
+        date: payload.date,
+        start: payload.start,
+        end: payload.end,
+        sport: payload.sport,
+        ground: payload.ground,
+        duration: payload.duration,
+        amount: payload.amount,
+        status: 'PENDING',
+        createdAt: payload.createdAt
+      });
+      localStorage.setItem(BOOKING_REQUESTS_KEY, JSON.stringify(list));
+      return true;
+    } catch (e) {
+      console.error('DDTZ: failed to save reservation request to local database', e);
+      return false;
+    }
+  }
+
   // Same "text/plain to dodge CORS preflight" POST pattern the admin panel
-  // uses for its own Apps Script sync — no queue/retry here since this is a
-  // single one-shot page visit, not a persistent app session.
+  // uses for its own Apps Script sync. This is the CROSS-DEVICE path (a
+  // customer's own phone → an admin's separate device/browser) — best
+  // effort on top of the local save above, not a replacement for it.
   async function postBookingRequestToSheet(payload){
     const sheetUrl = getLiveSheetUrl();
     if (!sheetUrl) return { ok:false, skipped:true };
@@ -1472,17 +1602,16 @@
       if (result) return result.ok === false ? { ok:false, error: result.error, conflict: !!result.conflict } : { ok:true, result };
       return { ok:false, error: `HTTP ${res.status}` };
     } catch (e) {
+      console.error('DDTZ: reservation request Sheet sync failed (local save is unaffected)', e);
       return { ok:false, error: String(e) };
     }
   }
 
-  function _showRequestSentBanner(requestId, total, delivered){
+  function _showRequestSentBanner(requestId, total){
     const el = document.getElementById('resv-request-status');
     if (!el) return;
     el.style.display = 'block';
-    el.textContent = delivered
-      ? `✅ Request sent! DD Turf Zone will confirm your ₹${total.toLocaleString('en-IN')} reservation shortly. Reference: ${requestId}`
-      : `📩 Request opened in WhatsApp — DD Turf Zone will confirm it manually. Reference: ${requestId}`;
+    el.textContent = `✅ Request sent! DD Turf Zone will confirm your ₹${total.toLocaleString('en-IN')} reservation shortly. Reference: ${requestId}`;
   }
 
   // Submits the reservation as a PENDING request — this does NOT book the
@@ -1512,6 +1641,10 @@
     const duration = document.getElementById('resv-duration').textContent;
     const { total } = _computeRangeCost(_selRange.start, _selRange.end, _selRange.wraps);
     const requestId = _genRequestId();
+    // Same Sport → Ground mapping admin.html uses when it later confirms
+    // this request into a real booking (kept in sync with
+    // _groundForRequestSport() in admin.html).
+    const ground = _selRange.sport === 'Cricket' ? 'Cricket Ground' : 'Football Ground';
 
     const btn = document.getElementById('resv-reserve-btn');
     const originalLabel = btn.textContent;
@@ -1525,22 +1658,30 @@
       date: _availSelectedDate,
       start: fromTime, end: toTime,
       sport: _selRange.sport,
+      ground,
       duration,
       amount: total,
       createdAt: new Date().toISOString()
     };
 
-    const res = await postBookingRequestToSheet(payload);
+    // Primary save — guaranteed local, no network required. This is what
+    // actually makes the request "real" in this app's database.
+    const savedLocally = _saveBookingRequestToLocalDb(payload);
+    // Secondary save — best-effort, for admins on a different device.
+    const sheetRes = await postBookingRequestToSheet(payload);
+
     btn.disabled = false; btn.textContent = originalLabel;
 
-    if (res.ok) {
-      _showRequestSentBanner(requestId, total, true);
+    if (savedLocally) {
+      _showRequestSentBanner(requestId, total);
+      if (!sheetRes.ok && !sheetRes.skipped) {
+        console.warn('DDTZ: request saved locally but could not reach the Sheet backend yet — it will still appear on this device.');
+      }
     } else {
-      // Backend unreachable/unconfigured — the request was NOT recorded
-      // anywhere the admin panel can see it yet, so say so plainly and lean
-      // on WhatsApp as the fallback channel instead of pretending it worked.
-      errEl.textContent = "Couldn't send your request automatically — opening WhatsApp so DD Turf Zone can confirm it manually.";
-      _showRequestSentBanner(requestId, total, false);
+      // Both the local write and the network attempt failed — this
+      // genuinely was not recorded anywhere. Say so plainly rather than
+      // showing a false success banner.
+      errEl.textContent = "Couldn't save your request in this browser — please try again, or contact us directly on WhatsApp below.";
     }
 
     _sendReservationToWhatsApp(name, mobile, requestId);
@@ -1695,6 +1836,10 @@
         localStorage.setItem('ddtz_public_pricing', JSON.stringify(data.config.pricing));
         changed = true;
       }
+      if (Array.isArray(data.config.videos)) {
+        localStorage.setItem('ddtz_public_videos', JSON.stringify(data.config.videos));
+        renderVideoShots();
+      }
       if (changed) {
         applyWebsiteImages(getEffectiveWebsiteImages());
         loadAdminManagedPricing();
@@ -1833,46 +1978,106 @@
   renderAvailabilityGrid();
   injectStructuredData(_effectiveImages);
   loadAdminManagedPricing();
+  renderVideoShots();
   syncLiveSiteConfig();
   setInterval(syncLiveSiteConfig, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncLiveSiteConfig(); });
 
   // ----- AI Assistant Hub -----
   // Answers instantly from a local knowledge base of real DD Turf Zone
-  // facts — no external API call, so there's nothing that can be "down".
-  // This replaces the old Gemini/Apps Script integration, which depended
-  // on a backend action (aiChat) that was never actually deployed.
+  // facts — no external API call for the in-page chat, so there's nothing
+  // that can be "down". The same knowledge base is handed to Gemini
+  // (via the ✨ Ask Gemini button) for a deeper answer when needed.
+  const OFFICIAL_MAPS_LINK = 'https://share.google/SkDrxpPFEHpURXXGy';
+
+  // Every fact the assistant is allowed to state, grouped by topic. This
+  // is both (a) the source for local keyword-matched replies and (b) the
+  // full text sent to Gemini, so Gemini answers from DD Turf Zone's real
+  // facts rather than guessing.
+  const AI_KB = {
+    booking: "Booking: scroll to 'Check & Reserve a Slot', pick a date, then choose sport, start time and duration — the rate shows instantly. Tapping 'Send Reservation Request' creates a PENDING request and opens WhatsApp; the slot is only officially booked once DD Turf Zone confirms it.",
+    pricing: "Pricing: Happy Hours (10:00 AM–3:00 PM, every day) ₹600/hour. Weekdays (Mon–Thu, other hours) ₹750/hour. Weekends (Fri–Sun, other hours) ₹900/hour. Coaching academies start from ₹2,000/month. Prices include floodlights and are subject to slot availability.",
+    footballCoaching: "Football Academy: 5:00–6:00 PM, Monday–Saturday. Under-8 batch trains Mon/Wed/Fri; Above-8 batch trains Tue/Thu/Sat. Fees start from ₹2,000/month.",
+    cricketCoaching: "Cricket Academy: weekend batches only — Saturday & Sunday, 5:30–7:00 AM. Fees start from ₹2,000/month.",
+    taekwondo: "Taekwondo Academy: Thursday 6:00–7:00 PM, Saturday 4:00–5:00 PM, and Sunday 4:00–5:00 PM & 5:00–6:00 PM, with regular grading and belt tests. Fees start from ₹2,000/month.",
+    summerCamp: "Summer camps and holiday programs are announced seasonally — WhatsApp us at 7305123765 to ask about the next upcoming camp and its dates.",
+    tournaments: "For tournament bookings or group events, WhatsApp us with your preferred dates and format so we can check ground availability and quote you.",
+    footballTurf: "Our floodlit football turf is open 24 hours. Pick a date and time in the reservation menu above to see live availability and pricing.",
+    cricketTurf: "We have a synthetic box cricket pitch with practice nets, a bowling machine on request, and floodlit night slots. Book a time through the reservation menu above.",
+    facilities: "Facilities: floodlit football turf (24 hours), synthetic box cricket pitch with practice nets and a bowling machine on request, changing area, parking, and DD Café on-site for snacks and drinks after your game.",
+    location: "DD Turf Zone is located in Madambakkam, Chennai, Tamil Nadu, and is open 24 hours.",
+    contact: "You can reach DD Turf Zone on WhatsApp/phone at 7305123765 for booking questions or confirmations.",
+    timings: "DD Turf Zone is open 24 hours, every day of the week.",
+    bookingRules: "Booking rules: a reservation is only a request until DD Turf Zone confirms it (status moves from Pending to Confirmed). We recommend booking in advance, especially for evening and weekend slots, since a confirmed slot can't be double-booked.",
+    cancellation: "For cancellations or rescheduling, please contact us directly on WhatsApp at 7305123765 as early as possible — this is handled case-by-case with our team.",
+    payment: "Cash, GPay and Card payments are accepted at the venue."
+  };
+
+  function _fullKnowledgeBaseText(){
+    return Object.values(AI_KB).map(v => '- ' + v).join('\n') + `\n- Official Google Maps location: ${OFFICIAL_MAPS_LINK}`;
+  }
+
+  // Keyword groups mapped to a KB answer. Multiple differently-worded
+  // phrasings map to the same entry so the assistant understands natural
+  // language, not just one exact keyword.
   const AI_FAQ = [
-    { keys: ['whatsapp','book','reserve','how do i book'],
-      answer: "Booking is simple: scroll up to 'Check & Reserve a Slot', pick a date, then choose your sport, start time and duration from the menu. The rate is shown instantly, and tapping 'Reserve on WhatsApp' opens a pre-filled message to us — nothing is confirmed until we approve it on WhatsApp." },
-    { keys: ['price','pricing','rate','cost','fee','charges','happy hour'],
-      answer: "Turf rates: Happy Hours (10:00 AM–3:00 PM, every day) ₹600/hour. Weekdays (Mon–Thu, other hours) ₹750/hour. Weekends (Fri–Sun, other hours) ₹900/hour. Coaching academies start from ₹2,000/month. Use the reservation menu above to see the exact amount for your chosen slot." },
-    { keys: ['football coach','football academy','football training'],
-      answer: "Football Academy: 5:00–6:00 PM, Monday–Saturday. Under 8 batch trains Mon, Wed & Fri; Above 8 batch trains Tue, Thu & Sat. Fees start from ₹2,000/month. Tap 'Join Now' on the Football Academy card to enquire on WhatsApp." },
-    { keys: ['cricket coach','cricket academy','cricket training'],
-      answer: "Cricket Academy runs weekend batches only — Saturday & Sunday, 5:30–7:00 AM. Fees start from ₹2,000/month. Tap 'Join Now' on the Cricket Academy card to enquire on WhatsApp." },
-    { keys: ['taekwondo'],
-      answer: "Taekwondo Academy: Thursday 6:00–7:00 PM, Saturday 4:00–5:00 PM, and Sunday 4:00–5:00 PM & 5:00–6:00 PM, with regular grading and belt tests. Fees start from ₹2,000/month." },
-    { keys: ['cricket turf','cricket box','cricket pitch','cricket net'],
-      answer: "We have a synthetic box cricket pitch with practice nets, a bowling machine on request, and floodlit night slots. Book a time through the reservation menu above." },
-    { keys: ['football turf','football ground','football box'],
-      answer: "Our floodlit football turf is open 24 hours. Pick a date and time in the reservation menu above to see live availability and pricing." },
-    { keys: ['tournament'],
-      answer: "For tournament bookings or group events, please WhatsApp us directly with your preferred dates and format so we can check ground availability and quote you." },
-    { keys: ['facility','facilities','amenities','parking','washroom','cafe','canteen'],
-      answer: "DD Turf Zone has a floodlit turf, changing area, parking, and DD Café on-site for snacks and drinks after your game." },
-    { keys: ['location','address','where','madambakkam','directions'],
-      answer: "DD Turf Zone is located in Madambakkam, Chennai, and is open 24 hours. You can find the exact map location and directions lower down on this page." },
-    { keys: ['contact','phone','number','call'],
-      answer: "You can reach DD Turf Zone on WhatsApp/phone at 7305123765 for any booking questions or confirmations." },
-    { keys: ['open','timing','hours','24'],
-      answer: "DD Turf Zone is open 24 hours, every day of the week." }
+    { keys: ['whatsapp','book','reserve','how do i book','how to book','make a booking','slot booking','turf booking','want to play'], answer: AI_KB.booking },
+    { keys: ['price','pricing','rate','cost','fee','fees','charges','how much','happy hour'], answer: AI_KB.pricing },
+    { keys: ['football coach','football academy','football training','football class','football camp'], answer: AI_KB.footballCoaching },
+    { keys: ['cricket coach','cricket academy','cricket training','cricket class','cricket camp'], answer: AI_KB.cricketCoaching },
+    { keys: ['taekwondo','karate','martial art','self defense','self-defense'], answer: AI_KB.taekwondo },
+    { keys: ['summer camp','holiday camp','vacation camp','kids camp'], answer: AI_KB.summerCamp },
+    { keys: ['tournament','event','league','competition','group booking'], answer: AI_KB.tournaments },
+    { keys: ['cricket turf','cricket box','cricket pitch','cricket net'], answer: AI_KB.cricketTurf },
+    { keys: ['football turf','football ground','football box','5 a side','7 a side','5-a-side','7-a-side'], answer: AI_KB.footballTurf },
+    { keys: ['facility','facilities','amenities','parking','washroom','cafe','canteen','changing room'], answer: AI_KB.facilities },
+    { keys: ['contact','phone number','call','number','reach you'], answer: AI_KB.contact },
+    { keys: ['open','timing','hours','24','what time','when are you open','closing time','opening time'], answer: AI_KB.timings },
+    { keys: ['cancel','cancellation','reschedule','refund'], answer: AI_KB.cancellation },
+    { keys: ['payment','pay','gpay','upi','cash','card accepted'], answer: AI_KB.payment },
+    { keys: ['rule','policy','terms','booking rule'], answer: AI_KB.bookingRules }
   ];
+
+  // Location questions get a special reply with an actual "Open in Google
+  // Maps" button attached, using the official share link — never the old
+  // embed-only URL.
+  const AI_LOCATION_RE = /(location|address|where.*(you|it|turf|place)|madambakkam|direction|navigate|find us|how (do|to) (i |we )?reach|nearby landmark|\blandmark\b|\bmap\b)/;
+  const AI_AVAILABILITY_RE = /(availab|free slot|open slot|vacant|slot timing|which slot)/;
+
+  // Greetings and small talk — always answered warmly, NEVER with the
+  // "I don't have a specific answer" / contact fallback.
+  const AI_GREETINGS = [
+    { test: /good\s*morning/, reply: "Good morning! ☀️ How can I help — booking a slot, checking pricing, or coaching info?" },
+    { test: /good\s*afternoon/, reply: "Good afternoon! 👋 What can I help with — availability, pricing, or coaching details?" },
+    { test: /good\s*evening/, reply: "Good evening! 🌆 Looking to book a slot, or have a question about pricing or coaching?" },
+    { test: /^(thanks|thank you|thankyou|thnx|tq)\b/, reply: "You're most welcome! 😊 Let me know if there's anything else about DD Turf Zone I can help with." },
+    { test: /^(bye|goodbye|see ya|see you|cya|talk later)\b/, reply: "Thanks for stopping by! 👋 Come back anytime — see you on the turf!" },
+    { test: /^(ok|okay|k|cool|great|nice|got it|alright|sure)\b\.?$/, reply: "Great! Anything else you'd like to know — availability, pricing, or coaching timings?" },
+    { test: /^(hi|hello|hey|yo|hii+|helloo+|hola)\b/, reply: "Hey there! 👋 Welcome to DD Turf Zone. Ask me about slot booking, pricing, coaching, or anything else — happy to help!" }
+  ];
+  function _greetingReply(q){
+    const trimmed = q.trim().toLowerCase();
+    for (const g of AI_GREETINGS) if (g.test.test(trimmed)) return g.reply;
+    return null;
+  }
+
+  // Light natural-language normalization: collapses a few common
+  // rewordings onto the vocabulary AI_FAQ's keys are written in, so
+  // "how much does it cost" matches the same entry as "pricing".
+  const AI_SYNONYMS = [
+    [/\breserv(e|ing|ed)\b/g, 'book'], [/\bhow much\b/g, 'cost'], [/\bavailability|available|free\b/g, 'availab'],
+    [/\bwhat time\b/g, 'timing'], [/\bwhen (is|are) (you|it)\b/g, 'timing']
+  ];
+  function _normalize(q){
+    let n = q.toLowerCase().trim();
+    AI_SYNONYMS.forEach(([re, rep]) => { n = n.replace(re, rep); });
+    return n;
+  }
 
   const AI_SUGGESTIONS = [
     'What slots are available today?', 'Book a Football Turf', 'Cricket Coaching Details',
     'Football Coaching Timings', 'Taekwondo Classes', 'Turf Pricing', 'Happy Hour Offers',
-    'Tournament Information', 'Turf Facilities', 'Contact DD Turf Zone'
+    'Tournament Information', 'Turf Facilities', 'Where are you located?'
   ];
 
   function _renderAIChips(){
@@ -1892,7 +2097,9 @@
   // Walks the same live _availSlotsCache the reservation menu and the
   // booked/blocked list use, and collapses it into contiguous open /
   // booked / blocked time ranges for the currently selected date — so
-  // the AI Assistant can quote real, current slot timings, not guesses.
+  // the AI Assistant (and the Gemini prompt) can quote real, current slot
+  // timings pulled from the live Apps Script / Google Sheet data, never
+  // a static guess.
   function _buildAvailabilitySummary(){
     if (!_availSelectedDate || _availSlotsCache === null) return null;
     const openRanges = [];
@@ -1913,41 +2120,134 @@
     return openRanges;
   }
 
-  // Simple keyword match against the local FAQ — always resolves, no
-  // network round-trip, so it can never be "not working" the way a
-  // dependent-on-a-missing-backend call could be. Availability questions
-  // are answered from the live data the page already has, rather than a
-  // canned line, so the public gets the real open slot timings.
+  // Keeps the whole session's back-and-forth in memory (this session
+  // only — nothing is persisted) so short follow-ups like "and on
+  // weekends?" can be resolved against the previous topic, and so the
+  // Gemini handoff carries real conversational context, not just the
+  // single latest line.
+  let _aiChatHistory = [];
+  let _aiLastTopicIdx = -1;
+
+  // Resolves ONE reply for the given question. Order: greeting/small-talk
+  // (never falls through to the contact fallback) → live availability →
+  // location (gets a Maps button) → keyword FAQ match → short follow-up
+  // reusing the last matched topic → only THEN the honest "I don't know
+  // yet" fallback, which points to Gemini/WhatsApp rather than pretending.
   function _localAIAnswer(question){
-    const q = question.toLowerCase();
+    const greet = _greetingReply(question);
+    if (greet) { _aiLastTopicIdx = -1; return { text: greet }; }
+
+    const q = _normalize(question);
     const dateLabel = _availSelectedDate
       ? new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' })
       : 'today';
 
-    if (/(availab|free slot|open slot|vacant|slot timing|which slots)/.test(q)) {
+    if (AI_AVAILABILITY_RE.test(q)) {
+      _aiLastTopicIdx = -1;
       const openRanges = _buildAvailabilitySummary();
-      if (openRanges === null) {
-        return `Live availability isn't connected right now, so I can't confirm open slots for ${dateLabel} — please WhatsApp us at 7305123765 to check.`;
-      }
-      if (!openRanges.length) {
-        return `Every slot on ${dateLabel} is currently booked or blocked. WhatsApp us at 7305123765 to check another date, or pick a different date above.`;
-      }
-      return `Open slots for ${dateLabel}: ${openRanges.join(', ')}. Use the reservation menu above to pick your sport, start time and duration — the rate shows instantly.`;
+      if (openRanges === null) return { text: `Live availability isn't connected right now, so I can't confirm open slots for ${dateLabel} — please WhatsApp us at 7305123765 to check.` };
+      if (!openRanges.length) return { text: `Every slot on ${dateLabel} is currently booked or blocked. WhatsApp us at 7305123765 to check another date, or pick a different date above.` };
+      return { text: `Open slots for ${dateLabel}: ${openRanges.join(', ')}. Use the reservation menu above to pick your sport, start time and duration — the rate shows instantly.` };
     }
 
-    for (const entry of AI_FAQ) {
-      if (entry.keys.some(k => q.includes(k))) return entry.answer;
+    if (AI_LOCATION_RE.test(q)) {
+      _aiLastTopicIdx = -1;
+      return { text: AI_KB.location, mapsButton: true };
     }
-    return "I don't have a specific answer for that yet — but our team will! Please tap 'Reserve on WhatsApp' above or WhatsApp us directly at 7305123765 and we'll help right away.";
+
+    for (let idx = 0; idx < AI_FAQ.length; idx++) {
+      const entry = AI_FAQ[idx];
+      if (entry.keys.some(k => q.includes(k))) { _aiLastTopicIdx = idx; return { text: entry.answer }; }
+    }
+
+    // Short follow-up with no keyword match of its own — reuse the last
+    // topic ("and weekends?" right after a pricing answer) instead of
+    // immediately giving up.
+    if (_aiLastTopicIdx >= 0 && q.split(/\s+/).length <= 6) {
+      return { text: AI_FAQ[_aiLastTopicIdx].answer };
+    }
+
+    _aiLastTopicIdx = -1;
+    return { text: "I don't have a specific answer for that yet — tap ✨ Ask Gemini below for a fuller answer, or WhatsApp us directly at 7305123765 and our team will help right away." };
   }
 
-  window.askAIAssistant = function(){
+  function _escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function _scrollAIChatToBottom(){
+    // Scrolls only the chat log itself, not the page — this is what keeps
+    // the Send / ✨ Ask Gemini buttons directly below it in view without
+    // the visitor ever needing to scroll the page.
+    const log = document.getElementById('ai-chat-log');
+    if (log) log.scrollTop = log.scrollHeight;
+  }
+
+  function _renderAIChat(){
+    const log = document.getElementById('ai-chat-log');
+    if (!log) return;
+    log.innerHTML = _aiChatHistory.map(m => {
+      if (m.role === 'user') return `<div class="ai-msg ai-msg-user">${_escapeHtml(m.text)}</div>`;
+      const btn = m.mapsButton ? `<br><a class="ai-msg-btn" href="${OFFICIAL_MAPS_LINK}" target="_blank" rel="noopener">📍 Open in Google Maps</a>` : '';
+      return `<div class="ai-msg ai-msg-bot">${_escapeHtml(m.text)}${btn}</div>`;
+    }).join('');
+    _scrollAIChatToBottom();
+  }
+
+  // Sends the typed question, gets an immediate local reply, and reveals
+  // the ✨ Ask Gemini button right below the chat — the one tap needed
+  // after Send whenever a deeper answer is wanted.
+  window.sendAIMessage = function(){
     const input = document.getElementById('ai-question-input');
-    const question = (input && input.value.trim()) || 'What are your turf timings and pricing?';
-    const answerBox = document.getElementById('ai-answer-box');
-    answerBox.style.display = 'flex';
-    answerBox.className = 'ai-answer-box';
-    answerBox.textContent = _localAIAnswer(question);
+    const question = input && input.value.trim();
+    if (!question) return;
+    _aiChatHistory.push({ role: 'user', text: question });
+    const result = _localAIAnswer(question);
+    _aiChatHistory.push({ role: 'bot', text: result.text, mapsButton: !!result.mapsButton });
+    input.value = '';
+    _renderAIChat();
+    const geminiRow = document.getElementById('ai-gemini-row');
+    if (geminiRow) geminiRow.style.display = 'block';
+  };
+  // Back-compat alias — nothing else in this file calls the old name, but
+  // kept in case of an external/bookmarked reference.
+  window.askAIAssistant = window.sendAIMessage;
+
+  // Opens Gemini pre-filled with: the full DD Turf Zone knowledge base,
+  // the recent conversation for context, live slot info when the question
+  // was about availability, and the official Maps link when it was about
+  // location — all in one tap. The prompt is also copied to the
+  // clipboard as a fallback, since Gemini's own UI (not DD Turf Zone's)
+  // decides whether a URL query actually pre-fills the box.
+  window.askGemini = async function(){
+    const lastUser = [..._aiChatHistory].reverse().find(m => m.role === 'user');
+    const question = lastUser ? lastUser.text : 'Tell me about DD Turf Zone.';
+    const recentContext = _aiChatHistory.slice(-8).map(m => `${m.role === 'user' ? 'Customer' : 'Assistant'}: ${m.text}`).join('\n');
+
+    let liveInfo = '';
+    const qNorm = _normalize(question);
+    if (AI_AVAILABILITY_RE.test(qNorm)) {
+      const openRanges = _buildAvailabilitySummary();
+      liveInfo = openRanges && openRanges.length
+        ? `\nLive open slots right now for the selected date: ${openRanges.join(', ')}.`
+        : '\nLive slot data is not available right now — advise the customer to check the website\'s reservation menu or WhatsApp DD Turf Zone directly.';
+    }
+    if (AI_LOCATION_RE.test(qNorm)) {
+      liveInfo += `\nAlways give this exact Google Maps link for directions: ${OFFICIAL_MAPS_LINK}`;
+    }
+
+    const prompt = `You are answering as DD Turf Zone's customer assistant. Use ONLY the facts below — do not invent details not listed here.\n\nDD TURF ZONE KNOWLEDGE BASE:\n${_fullKnowledgeBaseText()}${liveInfo}\n\nRecent conversation:\n${recentContext}\n\nCustomer's question: ${question}\n\nAnswer helpfully and concisely.`;
+
+    try { await navigator.clipboard.writeText(prompt); } catch (e) { /* clipboard may be blocked by the browser — the URL param below still carries the prompt */ }
+
+    window.open(`https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`, '_blank');
+
+    const toast = document.getElementById('ai-toast');
+    if (toast) {
+      toast.style.display = 'block';
+      toast.textContent = "✨ Opening Gemini with your question and DD Turf Zone info pre-filled. If it doesn't appear, just paste (Ctrl+V) — it's already copied.";
+      setTimeout(() => { toast.style.display = 'none'; }, 6000);
+    }
   };
 </script>
 

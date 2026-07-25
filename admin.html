@@ -966,11 +966,21 @@ tr:hover td{background:#f8fffe}
           <button class="btn btn-primary btn-sm" onclick="saveWebsiteImages()">Save Photos to Website</button>
         </div>
 
-        <div class="card">
+        <div class="card mb-16" style="margin-bottom:16px">
           <div class="card-title">💰 Pricing Cards</div>
           <div style="font-size:12px;color:var(--gray3);margin-bottom:12px">Edit the three rate cards shown on the public Pricing section.</div>
           <div id="website-pricing-list" style="display:flex;flex-direction:column;gap:14px;margin-bottom:12px"></div>
           <button class="btn btn-primary btn-sm" onclick="saveWebsitePricing()">Save Pricing to Website</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🎥 Video Shots / Highlights</div>
+          <div style="font-size:12px;color:var(--gray3);margin-bottom:12px">Paste any normal YouTube link — it's automatically converted for playback on the website. Untick "Show on site" to hide a video without deleting it. Use the arrows to reorder how they appear.</div>
+          <div id="website-videos-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="addVideoRow()">+ Add Video</button>
+            <button class="btn btn-primary btn-sm" onclick="saveWebsiteVideos()">Save Videos to Website</button>
+          </div>
         </div>
       </div>
 
@@ -2174,11 +2184,31 @@ const DEFAULT_PUBLIC_PRICING = [
 
 function _getWebsiteImages(){ try { return JSON.parse(localStorage.getItem('ddtz_public_images')) || {}; } catch(e){ return {}; } }
 function _getWebsitePricing(){ try { return JSON.parse(localStorage.getItem('ddtz_public_pricing')) || DEFAULT_PUBLIC_PRICING; } catch(e){ return DEFAULT_PUBLIC_PRICING; } }
+function _getWebsiteVideos(){ try { return JSON.parse(localStorage.getItem('ddtz_public_videos')) || []; } catch(e){ return []; } }
 
-let _websiteImagesDraft = null, _websitePricingDraft = null;
+// Same "accept any normal YouTube link" parsing used on the public site —
+// watch?v=, youtu.be/, /embed/, and /shorts/ links all resolve to the
+// 11-character video ID needed to build an embeddable URL.
+function extractYouTubeId(url){
+  if (!url) return '';
+  const m = String(url).match(/(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  try {
+    const u = new URL(url);
+    const v = u.searchParams.get('v');
+    if (v && v.length === 11) return v;
+  } catch(e) { /* not a valid absolute URL — ignore */ }
+  return '';
+}
+function youtubeEmbedUrl(id){ return `https://www.youtube.com/embed/${id}`; }
+
+let _websiteImagesDraft = null, _websitePricingDraft = null, _websiteVideosDraft = null;
 function _ensureDrafts(){
   if (!_websiteImagesDraft) _websiteImagesDraft = { ..._getWebsiteImages() };
   if (!_websitePricingDraft) _websitePricingDraft = _getWebsitePricing().slice();
+}
+function _ensureVideoDraft(){
+  if (!_websiteVideosDraft) _websiteVideosDraft = _getWebsiteVideos().map(v => ({ ...v }));
 }
 
 function _renderImageRow(slot, url){
@@ -2205,6 +2235,82 @@ window.renderWebsiteContent = () => {
       <input type="text" value="${(p.amount||'').replace(/"/g,'&quot;')}" placeholder="₹ amount" oninput="updatePricingRow(${i},'amount',this.value)">
       <input type="text" value="${(p.per||'').replace(/"/g,'&quot;')}" placeholder="e.g. per hour" oninput="updatePricingRow(${i},'per',this.value)">
     </div>`).join('');
+
+  _renderVideoList(_getWebsiteVideos());
+};
+
+function _renderVideoList(videos){
+  const el = document.getElementById('website-videos-list');
+  if (!el) return;
+  el.innerHTML = videos.length
+    ? videos.map((v,i) => _renderVideoRow(v, i, videos.length)).join('')
+    : `<div class="empty-state" style="padding:24px"><div class="empty-icon">🎬</div><p>No videos added yet — click "+ Add Video" below.</p></div>`;
+}
+function _renderVideosFromDraft(){ _renderVideoList(_websiteVideosDraft); }
+
+function _renderVideoRow(v, i, total){
+  const id = v.videoId || extractYouTubeId(v.url || '');
+  const thumb = id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : '';
+  const urlLooksInvalid = (v.url || '').trim() && !id;
+  return `
+    <div style="border:1.5px solid var(--gray2);border-radius:12px;padding:14px">
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div style="width:120px;height:68px;border-radius:8px;overflow:hidden;background:var(--gray);flex-shrink:0;display:flex;align-items:center;justify-content:center">
+          ${thumb ? `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">` : `<span style="color:var(--gray3);font-size:22px">🎬</span>`}
+        </div>
+        <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:8px">
+          <input type="text" value="${(v.url||'').replace(/"/g,'&quot;')}" placeholder="Paste YouTube link — e.g. https://www.youtube.com/watch?v=..." oninput="updateVideoRow(${i},'url',this.value)">
+          <input type="text" value="${(v.title||'').replace(/"/g,'&quot;')}" placeholder="Title (optional)" oninput="updateVideoRow(${i},'title',this.value)">
+          <textarea placeholder="Short description (optional)" rows="2" oninput="updateVideoRow(${i},'description',this.value)" style="resize:vertical;width:100%">${(v.description||'')}</textarea>
+          ${urlLooksInvalid ? `<div style="color:var(--red);font-size:12px">⚠️ Doesn't look like a valid YouTube link.</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;min-width:130px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--gray3);cursor:pointer">
+            <input type="checkbox" ${v.enabled !== false ? 'checked' : ''} onchange="toggleVideoEnabled(${i},this.checked)"> Show on site
+          </label>
+          <button class="btn btn-secondary btn-sm" onclick="moveVideoRow(${i},-1)" ${i===0 ? 'disabled' : ''}>⬆️ Move Up</button>
+          <button class="btn btn-secondary btn-sm" onclick="moveVideoRow(${i},1)" ${i===total-1 ? 'disabled' : ''}>⬇️ Move Down</button>
+          <button class="btn btn-secondary btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteVideoRow(${i})">🗑️ Delete</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+window.updateVideoRow = (i, field, val) => {
+  _ensureVideoDraft();
+  _websiteVideosDraft[i][field] = val;
+  if (field === 'url') {
+    const id = extractYouTubeId(val);
+    _websiteVideosDraft[i].videoId = id;
+    _websiteVideosDraft[i].embedUrl = id ? youtubeEmbedUrl(id) : '';
+  }
+};
+window.toggleVideoEnabled = (i, checked) => { _ensureVideoDraft(); _websiteVideosDraft[i].enabled = checked; };
+
+window.addVideoRow = () => {
+  _ensureVideoDraft();
+  _websiteVideosDraft.push({
+    id: 'vid_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+    url: '', videoId: '', embedUrl: '', title: '', description: '', enabled: true
+  });
+  _renderVideosFromDraft();
+};
+
+window.moveVideoRow = (i, dir) => {
+  _ensureVideoDraft();
+  const j = i + dir;
+  if (j < 0 || j >= _websiteVideosDraft.length) return;
+  [_websiteVideosDraft[i], _websiteVideosDraft[j]] = [_websiteVideosDraft[j], _websiteVideosDraft[i]];
+  _renderVideosFromDraft();
+};
+
+// Deletes only this one row from the in-memory draft — never touches any
+// other collection, and nothing is written to localStorage/the Sheet until
+// "Save Videos to Website" is clicked (see DATA PRESERVATION POLICY above).
+window.deleteVideoRow = (i) => {
+  _ensureVideoDraft();
+  _websiteVideosDraft.splice(i, 1);
+  _renderVideosFromDraft();
 };
 
 function _renderImagesFromDraft(){
@@ -2245,6 +2351,7 @@ async function _pushSiteConfigToSheet(){
     type: 'siteConfig',
     images: _getWebsiteImages(),
     pricing: _getWebsitePricing(),
+    videos: _getWebsiteVideos(),
     updatedAt: new Date().toISOString(),
     updatedBy: CURRENT_USER?.name || ''
   });
@@ -2283,6 +2390,37 @@ window.saveWebsitePricing = () => {
   _pushSiteConfigToSheet();
 };
 
+// Only Save publishes anything — adding/editing/reordering/deleting rows
+// above only ever touches the in-memory _websiteVideosDraft array, never
+// localStorage or the Sheet, until this runs.
+window.saveWebsiteVideos = () => {
+  _ensureVideoDraft();
+  // Re-derive videoId/embedUrl for every row from its current URL text, so
+  // a row that was typed but never re-triggered oninput is still correct.
+  _websiteVideosDraft.forEach(v => {
+    const id = extractYouTubeId(v.url || '');
+    v.videoId = id;
+    v.embedUrl = id ? youtubeEmbedUrl(id) : '';
+  });
+  const invalid = _websiteVideosDraft.filter(v => (v.url || '').trim() && !v.videoId);
+  if (invalid.length) {
+    showToast(`⚠️ ${invalid.length} video link(s) don't look like valid YouTube URLs — fix or delete them before saving.`, 'error');
+    return;
+  }
+  try {
+    localStorage.setItem('ddtz_public_videos', JSON.stringify(_websiteVideosDraft));
+    showToast('Videos saved — publishing to the live website…', 'info');
+  } catch (e) {
+    showToast('Could not save videos.', 'error');
+    _websiteVideosDraft = null;
+    renderWebsiteContent();
+    return;
+  }
+  _websiteVideosDraft = null;
+  renderWebsiteContent();
+  _pushSiteConfigToSheet();
+};
+
 // When the Website Content page opens, pull the latest published config
 // from the Sheet too — so if another admin/device published a change,
 // this browser's local cache doesn't silently show stale data.
@@ -2294,6 +2432,7 @@ async function _pullSiteConfigFromSheet(){
     if (data && data.ok && data.config) {
       if (data.config.images) localStorage.setItem('ddtz_public_images', JSON.stringify(data.config.images));
       if (data.config.pricing) localStorage.setItem('ddtz_public_pricing', JSON.stringify(data.config.pricing));
+      if (Array.isArray(data.config.videos)) localStorage.setItem('ddtz_public_videos', JSON.stringify(data.config.videos));
       renderWebsiteContent();
     }
   } catch (e) { /* keep showing the local cache if the sheet can't be reached */ }
@@ -3472,24 +3611,64 @@ function autoSyncBooking(data) {
 // =====================================================================
 // PENDING RESERVATIONS (customer-submitted requests from the public site)
 // =====================================================================
-// A customer on index.html submits a request that is only ever written
-// locally as `status:'PENDING'` — the slot is NOT blocked yet. That
-// request also gets POSTed (type:'booking_request') to the Apps Script
-// backend so it can reach THIS admin browser, which may be on a totally
-// different device. This admin panel polls `action=pendingRequests` to
-// pull those in, the same way the public site polls `action=availability`.
+// The public site (index.html) writes a new request with status:'PENDING'
+// DIRECTLY into localStorage under the exact same key this admin panel
+// reads — 'ddtz_bookingRequests' — the same "local storage IS the
+// database, Sheets is the backup/cross-device layer" pattern every other
+// collection here already uses (bookings, customers, blockedSlots, ...).
+// The slot is NOT blocked yet.
+//
+// That means: whenever the customer and this admin panel share a browser
+// (same device, or admin.html/index.html open in two tabs of the same
+// browser — the common case for the same venue/staff), the request is
+// visible immediately, with zero dependency on the network or Apps
+// Script. `_syncBookingRequestsFromLocalStorage()` below is what notices
+// it landed and refreshes the UI, via the `storage` event (fires in
+// other tabs of the same browser the instant it's written) plus a short
+// poll as a fallback for browsers that throttle that event.
+//
+// For a genuinely different device (a customer's own phone, away from
+// the venue), reaching this admin panel also requires the Apps Script
+// backend: `fetchPendingRequestsFromSheet()` below still polls
+// `action=pendingRequests` and merges anything it finds into this same
+// local collection. If your Apps Script doesn't yet implement that
+// endpoint (see DDTZ_Apps_Script_ADDENDUM.gs), only same-device requests
+// will show up until it's added — but same-device requests, and any
+// request from the public site full stop, are now always saved
+// correctly regardless of that.
 //
 // Confirming a request creates a real booking (through the exact same
 // saveDoc('bookings', …) + autoSyncBooking() path a manually-created
 // booking uses) and only THEN blocks the slot. Rejecting a request never
 // touches the bookings collection at all, so the slot stays open.
-//
-// NOTE: `action=pendingRequests` (GET) and the `booking_request` /
-// `booking_request_update` payload types (POST) are NOT yet endpoints in
-// every deployment of DDTZ_Apps_Script_Code.gs — if your Apps Script
-// doesn't already handle them, pending requests submitted from a
-// different device than this admin panel won't sync across until the
-// script is updated to add them (see the companion .gs snippet).
+
+// Refreshes window.DB.bookingRequests from localStorage — the single
+// source of truth — and re-renders if anything actually changed. Never
+// writes anything itself; purely a read + UI refresh.
+function _syncBookingRequestsFromLocalStorage() {
+  const fresh = LS.get('bookingRequests');
+  const prevIds = new Set((window.DB.bookingRequests || []).map(r => r.id));
+  const isNew = fresh.some(r => !prevIds.has(r.id));
+  const countChanged = fresh.length !== (window.DB.bookingRequests || []).length;
+  if (!isNew && !countChanged) return;
+  window.DB.bookingRequests = fresh;
+  updateRequestsBadge();
+  if (document.getElementById('page-requests')?.classList.contains('active')) renderBookingRequests();
+  renderDashboard();
+  if (isNew) {
+    const newPending = fresh.filter(r => !prevIds.has(r.id) && r.status === 'PENDING');
+    if (newPending.length) showToast(`🔔 New reservation request from ${newPending[0].name || 'a customer'}${newPending.length > 1 ? ` (+${newPending.length - 1} more)` : ''}.`);
+  }
+}
+// Fires the instant another tab in this same browser writes to
+// 'ddtz_bookingRequests' — e.g. the public site open in a second tab.
+window.addEventListener('storage', (e) => {
+  if (e.key === LS._key('bookingRequests')) _syncBookingRequestsFromLocalStorage();
+});
+// Fallback poll: the `storage` event never fires in the SAME tab that
+// wrote the data, and some browsers throttle background tabs — this
+// catches both, independent of the Sheet poll below.
+setInterval(_syncBookingRequestsFromLocalStorage, 5000);
 
 function updateRequestsBadge() {
   const count = (window.DB.bookingRequests || []).filter(r => r.status === 'PENDING').length;
@@ -3587,7 +3766,8 @@ window.renderBookingRequests = () => {
       <div class="req-grid">
         <div class="req-field"><label>Date</label><div>${formatDate(r.date)}</div></div>
         <div class="req-field"><label>Time</label><div>${formatTime(r.start)} – ${formatTime(r.end)}</div></div>
-        <div class="req-field"><label>Sport / Ground</label><div>${r.sport || '—'}</div></div>
+        <div class="req-field"><label>Sport</label><div>${r.sport || '—'}</div></div>
+        <div class="req-field"><label>Ground</label><div>${r.ground || _groundForRequestSport(r.sport)}</div></div>
         <div class="req-field"><label>Amount</label><div>₹${Number(r.amount||0).toLocaleString('en-IN')}</div></div>
       </div>
       ${r.status === 'PENDING' ? `
@@ -3617,7 +3797,7 @@ window.confirmBookingRequest = async (id) => {
   const req = (window.DB.bookingRequests || []).find(r => r.id === id);
   if (!req || req.status !== 'PENDING') return;
 
-  const ground = _groundForRequestSport(req.sport);
+  const ground = req.ground || _groundForRequestSport(req.sport);
   // Authoritative re-check right before booking — the request may have sat
   // pending while another booking/reservation took the same slot.
   const conflict = findOverlappingBooking(req.date, ground, 'Full Ground', req.start, req.end, null);
@@ -3674,7 +3854,7 @@ function autoRejectConflictingRequests(confirmedReq) {
     r.id !== confirmedReq.id &&
     r.status === 'PENDING' &&
     r.date === confirmedReq.date &&
-    _groundForRequestSport(r.sport) === _groundForRequestSport(confirmedReq.sport) &&
+    (r.ground || _groundForRequestSport(r.sport)) === (confirmedReq.ground || _groundForRequestSport(confirmedReq.sport)) &&
     timeRangesOverlap(r.start, r.end, confirmedReq.start, confirmedReq.end)
   );
   others.forEach(r => {
