@@ -1747,6 +1747,24 @@ const ID_PREFIXES = {
   bookings: 'B', attendance: 'A', fees: 'F', enquiries: 'E', cafeSales: 'C',
   students: 'CO', blockedSlots: 'BL', coaches: 'CH', expenses: 'EX', cafeItems: 'CI'
 };
+// A short, stable, per-browser tag generated once and reused for every ID
+// this device ever creates. FIX (Issue #6/#9 — never overwrite existing
+// rows): without this, two different admin devices independently count
+// from 1 (B0001, BL0001, ...), and since the Sheet backend upserts by this
+// exact ID, the SECOND device's first booking/block would silently
+// overwrite the FIRST device's row in Google Sheets the moment both
+// synced — invisible data loss with no error shown anywhere. This makes
+// every ID globally unique the moment it's created, so an upsert can only
+// ever match a real update of that same record, never a stranger.
+function _deviceTag() {
+  let tag = null;
+  try { tag = localStorage.getItem('ddtz_device_tag'); } catch (e) {}
+  if (!tag) {
+    tag = Math.random().toString(36).slice(2, 5).toUpperCase();
+    try { localStorage.setItem('ddtz_device_tag', tag); } catch (e) {}
+  }
+  return tag;
+}
 function nextSeqId(col) {
   const prefix = ID_PREFIXES[col] || col.slice(0, 2).toUpperCase();
   let seq = {};
@@ -1754,7 +1772,7 @@ function nextSeqId(col) {
   const n = (seq[col] || 0) + 1;
   seq[col] = n;
   try { localStorage.setItem('ddtz_id_seq', JSON.stringify(seq)); } catch (e) {}
-  return prefix + String(n).padStart(4, '0'); // 4 digits (B0001…B9999), rolls to 5 digits automatically past 9999
+  return prefix + String(n).padStart(4, '0') + _deviceTag(); // e.g. B0001K3F — unique per device AND globally
 }
 
 // ===== LOCAL STORAGE DB LAYER =====
@@ -1776,9 +1794,10 @@ function nextSeqId(col) {
      - Never write default/seed/sample records into 'ddtz_bookings',
        'ddtz_blockedSlots', 'ddtz_bookingRequests', 'ddtz_customers',
        'ddtz_students', 'ddtz_fees', or any other real data collection
-       on load. (seedUsersIfEmpty() below is fine — it seeds LOGIN
-       accounts only, and only if none exist yet, guarded by
-       getUsers(). It never touches booking data.)
+       on load. Login accounts are a deliberate exception — they live in
+       the Sheet's "Users" tab now (see loginViaSheet()/refreshUsersCache()
+       below), never in this localStorage collection store, and never
+       touch booking data.)
      - loadAllData() below is read-only: it copies existing localStorage
        into window.DB in memory. It must stay that way — it should
        never be the place new default data gets written.
@@ -1818,7 +1837,6 @@ window.deleteDoc2 = async (col, id) => {
 // ===== AUTH =====
 // Session key stored in localStorage so refresh keeps user logged in
 const SESSION_KEY = 'ddtz_session';
-const USERS_KEY = 'ddtz_users';
 
 // ===== ROLES & PERMISSIONS =====
 const ROLES = { SUPER_ADMIN: 'superadmin', ADMIN: 'admin', STAFF: 'staff' };
@@ -1863,36 +1881,78 @@ const ACTION_PERMISSIONS = {
 
 let CURRENT_USER = null; // { email, name, role }
 
-// ===== USER STORE (100% localStorage — no external backend) =====
-// NOTE ON SECURITY: this is a single, offline HTML file with no server, so
-// there is nowhere secure to hash/verify passwords server-side — they are
-// stored in this browser's localStorage only (never transmitted anywhere).
-// Anyone with access to this device's browser storage or the page source
-// could read them, same as any other purely client-side app. That's an
-// inherent limit of "no backend," not something a client-side change can
-// fully close — real secret-worthy deployments need a real backend.
-function getUsers() {
+// ===== USER STORE — Google Sheet is the single source of truth =====
+// FIX (Issue #1): admin accounts used to live ONLY in this browser's
+// localStorage, so an account created/enabled on one device simply didn't
+// exist on any other device or browser — every login there failed with
+// "No account found", while the Super Admin worked everywhere because it
+// was re-seeded fresh on every device. Login now always asks the Apps
+// Script backend (which reads the "Users" tab in the Sheet), so any admin
+// account works from any device the moment it's created.
+//
+// USERS_CACHE_KEY holds a password-free copy of the directory (email,
+// name, role, active) so a page reload can restore a session and show the
+// right name/role instantly, without waiting on a network round trip.
+// Passwords are never cached locally and never leave the Sheet except at
+// the moment of a login attempt itself.
+const USERS_CACHE_KEY = 'ddtz_users_cache';
+function _getUsersCache() {
+  try { return JSON.parse(localStorage.getItem(USERS_CACHE_KEY) || '[]'); } catch (e) { return []; }
+}
+function _setUsersCache(list) {
+  try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(list || [])); } catch (e) {}
+}
+function findUserInCache(email) {
+  return _getUsersCache().find(u => u.email.toLowerCase() === (email || '').toLowerCase()) || null;
+}
+
+// Raw fetch helpers dedicated to auth/user-management — deliberately NOT
+// routed through postToGoogleSheet()/queuedSync(), since those are built
+// for the offline-queue data-collection pattern (bookings, students, etc.)
+// and would show the wrong toasts/queue a login attempt for later retry,
+// which makes no sense for an interactive sign-in.
+async function _authFetch(payload) {
+  if (!window.DDTZ_SHEET_URL) return { ok: false, error: 'Google Sheet URL is not configured in Settings.' };
+  if (window.DDTZ_SHEET_TOKEN) payload = { ...payload, token: window.DDTZ_SHEET_TOKEN };
   try {
-    const raw = JSON.parse(localStorage.getItem(USERS_KEY) || 'null');
-    if (raw && raw.length) return raw;
+    const res = await fetch(window.DDTZ_SHEET_URL, {
+      method: 'POST', redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!data) return { ok: false, error: `HTTP ${res.status}` };
+    return data;
+  } catch (e) {
+    return { ok: false, networkError: true, error: String(e) };
+  }
+}
+
+async function loginViaSheet(email, password) {
+  const result = await _authFetch({ type: 'login', email, password });
+  if (result.ok) refreshUsersCache(); // opportunistically warm the cache
+  return result;
+}
+
+async function postUserAction(action, fields) {
+  return _authFetch({ type: 'user', action, ...fields });
+}
+
+// GET action=users — pulls the live, password-free directory from the
+// Sheet and refreshes the local cache. Called after login, after every
+// User Management change, and in the background during session restore.
+async function refreshUsersCache() {
+  if (!window.DDTZ_SHEET_URL) return null;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=users&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (data && data.ok && Array.isArray(data.users)) {
+      _setUsersCache(data.users);
+      return data.users;
+    }
   } catch (e) {}
   return null;
-}
-function saveUsers(list) {
-  try { localStorage.setItem(USERS_KEY, JSON.stringify(list)); } catch (e) {}
-}
-// First-run seed: three starter accounts so the app is usable immediately.
-// Change these passwords from User Management before real use.
-function seedUsersIfEmpty() {
-  if (getUsers()) return;
-  saveUsers([
-    { email: 'ddturfzone@gmail.com',   password: 'DDturfzone@321', name: 'Owner',   role: ROLES.SUPER_ADMIN, active: true },
-    { email: 'manager@ddturfzone.com', password: 'Manager@321',    name: 'Manager', role: ROLES.ADMIN,       active: true },
-    { email: 'staff@ddturfzone.com',   password: 'Staff@321',      name: 'Staff',   role: ROLES.STAFF,       active: true },
-  ]);
-}
-function findUserByEmail(email) {
-  return (getUsers() || []).find(u => u.email.toLowerCase() === (email || '').toLowerCase()) || null;
 }
 
 function hasPageAccess(page) {
@@ -2003,7 +2063,7 @@ function _toggleLoginPw() {
   else { pw.type = 'password'; btn.textContent = '👁️'; }
 }
 
-function doLogin() {
+async function doLogin() {
   const email = _cleanInput(document.getElementById('login-email').value).toLowerCase();
   const pass  = _cleanInput(document.getElementById('login-password').value);
   _clearAuthError();
@@ -2011,13 +2071,28 @@ function doLogin() {
   if (!email) { _showAuthError('Please enter your email address.'); return; }
   if (!pass)  { _showAuthError('Please enter your password.'); return; }
 
-  const user = findUserByEmail(email);
+  if (!window.DDTZ_SHEET_URL) {
+    _showAuthError('Google Sheet URL is not configured — admin accounts can\'t be verified. Ask the Super Admin to set it up in Settings.');
+    return;
+  }
 
-  if (!user) { _showAuthError('No account found with this email.'); return; }
-  if (user.password !== pass) { _showAuthError('Incorrect password. Please try again.'); return; }
-  if (user.active === false) { _showAuthError('This account has been disabled. Contact the Super Admin.'); return; }
+  const loginBtn = document.getElementById('login-submit-btn');
+  if (loginBtn) { loginBtn.disabled = true; loginBtn.dataset.origLabel = loginBtn.dataset.origLabel || loginBtn.textContent; loginBtn.textContent = 'Signing in…'; }
 
-  const sessionUser = { email: user.email, name: user.name, role: user.role };
+  const result = await loginViaSheet(email, pass);
+
+  if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = loginBtn.dataset.origLabel; }
+
+  if (!result.ok) {
+    if (result.networkError) {
+      _showAuthError('Could not reach the server to verify your account — check your internet connection and try again.');
+    } else {
+      _showAuthError(result.error || 'Login failed. Please try again.');
+    }
+    return;
+  }
+
+  const sessionUser = { email: result.user.email, name: result.user.name, role: result.user.role };
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ ...sessionUser, ts: Date.now() }));
   } catch (e) {}
@@ -2037,11 +2112,11 @@ function doLogout() {
 window.logoutUser = doLogout;
 
 // ===== SESSION RESTORE (on page load) =====
-// Re-validates against the live user store (not just the cached session) so
-// a role change or a disable/delete that happened after the session was
-// created is enforced immediately on the next load, not just at next login.
+// Restores optimistically from the local (password-free) cache so reload
+// is instant, then re-validates against the live Sheet in the background —
+// a role change, disable, or delete made on another device is enforced
+// within moments instead of only at the next full login.
 (function restoreSession() {
-  seedUsersIfEmpty();
   const localSession = (() => {
     try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch(e) { return null; }
   })();
@@ -2049,17 +2124,40 @@ window.logoutUser = doLogout;
   if (localSession && localSession.ts && localSession.role) {
     const ageMs = Date.now() - localSession.ts;
     const stillFresh = ageMs < 30 * 24 * 60 * 60 * 1000; // 30 days
-    const liveUser = findUserByEmail(localSession.email);
+    const cached = findUserInCache(localSession.email);
+    const blockedByCache = cached && cached.active === false;
 
-    if (stillFresh && liveUser && liveUser.active !== false) {
-      // Restore using the LIVE role/name (not the cached one), in case an
-      // admin changed it since this session was created.
-      const sessionUser = { email: liveUser.email, name: liveUser.name, role: liveUser.role };
+    if (stillFresh && !blockedByCache) {
+      const sessionUser = {
+        email: localSession.email,
+        name: cached ? cached.name : localSession.name,
+        role: cached ? cached.role : localSession.role
+      };
       _enterApp(sessionUser);
       loadAllData().then(() => renderDashboard());
+
+      // Background re-check against the live Sheet — never blocks the UI.
+      refreshUsersCache().then(() => {
+        const fresh = findUserInCache(localSession.email);
+        if (!fresh) return; // Sheet unreachable or not yet configured — keep the session as-is
+        if (fresh.active === false) {
+          showToast('Your account has been disabled. Signing out.', 'error');
+          doLogout();
+          return;
+        }
+        if (fresh.role !== CURRENT_USER.role || fresh.name !== CURRENT_USER.name) {
+          CURRENT_USER.role = fresh.role;
+          CURRENT_USER.name = fresh.name;
+          try { localStorage.setItem(SESSION_KEY, JSON.stringify({ ...CURRENT_USER, ts: Date.now() })); } catch(e) {}
+          applyRolePermissionsToUI();
+          document.getElementById('user-badge').textContent = fresh.name;
+          const roleBadge = document.getElementById('user-role-badge');
+          if (roleBadge) roleBadge.textContent = ROLE_LABELS[fresh.role] || fresh.role;
+        }
+      });
       return;
     }
-    // Session stale, or the account was disabled/deleted since login — force
+    // Session stale, or the cache says it was disabled since login — force
     // a fresh login rather than silently keeping them signed in.
     try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
   }
@@ -2088,7 +2186,101 @@ async function loadAllData() {
   // Pull in any reservation requests customers submitted from the public
   // site (a different device/browser) since this admin was last online.
   fetchPendingRequestsFromSheet();
+  // Pull in any bookings/blocks created on a DIFFERENT admin device since
+  // this one was last online — see syncBookingsAndBlocksFromSheet() below.
+  syncBookingsAndBlocksFromSheet();
 }
+
+// Appends a record to a localStorage collection while KEEPING the id it
+// already has, instead of minting a new one via LS.add(). Only safe/used
+// for collections (blockedSlots) where the local `id` doubles as the
+// exact business key already synced to the Sheet as e.g. BlockId — for
+// those, generating a fresh local id on merge would desync this device
+// from the Sheet's row forever and re-create the same block on every
+// future sync. Bookings don't need this: their business key is the
+// separate `bookingId` field, so plain LS.add() (which only mints the
+// internal `id`) is correct for them.
+function _lsAddPreservingId(col, rec) {
+  const data = LS.get(col);
+  data.unshift({ ...rec, createdAt: rec.createdAt || new Date().toISOString() });
+  LS.set(col, data);
+}
+
+// FIX (Requirements #5–#8 — Sheets as the real, only database): every
+// write already flowed INTO the Sheet, but nothing ever flowed back OUT
+// for bookings/blocked slots — the admin dashboard only ever showed
+// whatever happened to already be in THIS browser's localStorage. That's
+// the actual root cause behind "data missing" reports: the data was never
+// lost from the Sheet, it just was never a different device's problem to
+// display. This pulls the live Sheet state and merges anything this
+// device hasn't seen yet — never overwriting a full local record (which
+// may carry local-only detail, like an itemized payments ledger, the
+// Sheet's flattened columns don't carry), only adding missing records and
+// adopting a status change (e.g. a booking cancelled on another device).
+let _fullSyncInFlight = false;
+async function syncBookingsAndBlocksFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _fullSyncInFlight) return;
+  _fullSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=fullSync&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+
+    (data.bookings || []).forEach(remote => {
+      if (!remote.bookingId) return;
+      const local = window.DB.bookings.find(b => b.bookingId === remote.bookingId);
+      if (!local) {
+        const id = LS.add('bookings', remote);
+        window.DB.bookings.unshift({ ...remote, id });
+        changed = true;
+      } else if (remote.status && remote.status !== local.status) {
+        LS.update('bookings', local.id, { status: remote.status });
+        local.status = remote.status;
+        changed = true;
+      }
+    });
+
+    const remoteBlocks = data.blockedSlots || [];
+    const remoteBlockIds = new Set(remoteBlocks.map(b => b.id));
+    remoteBlocks.forEach(remote => {
+      if (!remote.id) return;
+      const exists = window.DB.blockedSlots.some(b => b.id === remote.id);
+      if (!exists) {
+        _lsAddPreservingId('blockedSlots', remote);
+        window.DB.blockedSlots.unshift(remote);
+        changed = true;
+      }
+    });
+    // A block this device still has locally but the Sheet no longer lists
+    // (soft-deleted on another device) — drop it here too, but ONLY for
+    // blocks that came from a sync/are old enough to trust the Sheet's
+    // absence over a write this device queued seconds ago and hasn't
+    // flushed yet.
+    const stillPending = new Set(_getSyncQueue().filter(p => p.type === 'blocked_slot').map(p => p.blockId));
+    const beforeCount = window.DB.blockedSlots.length;
+    window.DB.blockedSlots = window.DB.blockedSlots.filter(b => remoteBlockIds.has(b.id) || stillPending.has(b.id));
+    if (window.DB.blockedSlots.length !== beforeCount) changed = true;
+    LS.set('blockedSlots', window.DB.blockedSlots);
+
+    if (changed) {
+      buildCustomers();
+      if (document.getElementById('page-bookings')?.classList.contains('active')) renderBookingCalendar();
+      renderDashboard();
+    }
+  } catch (e) {
+    // Network hiccup — local data (and the offline sync queue) is
+    // unaffected; the next periodic call or focus event will retry.
+  } finally {
+    _fullSyncInFlight = false;
+  }
+}
+// Same cadence as the reservation-request poll: every 30s, plus instantly
+// on tab focus, so a booking/block made on another device shows up here
+// without anyone needing to manually refresh (Requirement #8).
+setInterval(() => { if (CURRENT_USER) syncBookingsAndBlocksFromSheet(); }, 30000);
+window.addEventListener('focus', () => { if (CURRENT_USER) syncBookingsAndBlocksFromSheet(); });
 
 // Purely diagnostic — never modifies or restores data itself. Flags a
 // browser-storage-key so that if this device previously had real booking
@@ -3014,7 +3206,12 @@ function generateBookingId() {
       if (!isNaN(seqNum) && seqNum > maxSeq) maxSeq = seqNum;
     }
   });
-  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+  // Device tag suffix — same fix and same reason as nextSeqId() above:
+  // two devices booking on the same day would otherwise both compute
+  // "highest existing + 1" from their OWN local list only and could both
+  // produce DDTZ-20260725-001, which the Sheet backend would then treat
+  // as the same row and silently overwrite one with the other.
+  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}-${_deviceTag()}`;
 }
 
 // ===== BOOKING CALC =====
@@ -6040,11 +6237,18 @@ window.saveCafeSale = async () => {
   showToast('Sale logged ✅');
 };
 
-// ===== USER MANAGEMENT (Super Admin only, pure localStorage) =====
+// ===== USER MANAGEMENT (Super Admin only — reads/writes the Sheet's Users tab) =====
 window.renderUserManagement = () => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   const tbody = document.getElementById('users-tbody');
-  const users = getUsers() || [];
+  if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="color:var(--gray3)">Loading users…</td></tr>`;
+  refreshUsersCache().then(users => _renderUsersTable(users || _getUsersCache()));
+};
+
+function _renderUsersTable(users) {
+  if (!can('manageUsers')) return;
+  const tbody = document.getElementById('users-tbody');
+  if (!tbody) return;
 
   tbody.innerHTML = users.length ? users.map(u => `
     <tr style="${u.active === false ? 'opacity:.5' : ''}">
@@ -6071,68 +6275,55 @@ window.renderUserManagement = () => {
       </td>
     </tr>
   `).join('') : `<tr><td colspan="5" class="text-center" style="color:var(--gray3)">No users found</td></tr>`;
-};
+}
 
-window.renameUser = (email, newName) => {
+window.renameUser = async (email, newName) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   newName = (newName || '').trim();
   if (!newName) return;
-  const users = getUsers() || [];
-  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
-  if (idx === -1) return;
-  users[idx].name = newName;
-  saveUsers(users);
-  showToast('Name updated ✅');
+  const res = await postUserAction('setName', { email, name: newName });
+  if (res.ok) { showToast('Name updated ✅'); refreshUsersCache(); }
+  else showToast(res.error || 'Could not update name.', 'error');
 };
 
-window.changeUserRole = (email, newRole) => {
+window.changeUserRole = async (email, newRole) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
-  const users = getUsers() || [];
-  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
-  if (idx === -1) return;
-  users[idx].role = newRole;
-  saveUsers(users);
-  showToast(`Role updated for ${email} ✅`);
-  renderUserManagement();
+  const res = await postUserAction('setRole', { email, role: newRole });
+  if (res.ok) { showToast(`Role updated for ${email} ✅`); const users = await refreshUsersCache(); _renderUsersTable(users || _getUsersCache()); }
+  else showToast(res.error || 'Could not update role.', 'error');
 };
 
-window.toggleUserActive = (email, nextActive) => {
+window.toggleUserActive = async (email, nextActive) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
-  const users = getUsers() || [];
-  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
-  if (idx === -1) return;
-  users[idx].active = nextActive;
-  saveUsers(users);
-  showToast(nextActive ? `${email} enabled ✅` : `${email} disabled — they can no longer sign in ✅`);
-  renderUserManagement();
+  const res = await postUserAction('setActive', { email, active: nextActive });
+  if (res.ok) {
+    showToast(nextActive ? `${email} enabled ✅` : `${email} disabled — they can no longer sign in ✅`);
+    const users = await refreshUsersCache(); _renderUsersTable(users || _getUsersCache());
+  } else showToast(res.error || 'Could not update status.', 'error');
 };
 
-window.resetUserPassword = (email) => {
+window.resetUserPassword = async (email) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   const newPass = prompt(`Set a new password for ${email} (min 6 characters):`);
   if (newPass === null) return; // cancelled
   if (newPass.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
-  const users = getUsers() || [];
-  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
-  if (idx === -1) return;
-  users[idx].password = newPass;
-  saveUsers(users);
-  showToast(`Password updated for ${email} ✅`);
+  const res = await postUserAction('setPassword', { email, password: newPass });
+  if (res.ok) showToast(`Password updated for ${email} ✅`);
+  else showToast(res.error || 'Could not update password.', 'error');
 };
 
-window.deleteUser = (email) => {
+window.deleteUser = async (email) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   if (email.toLowerCase() === CURRENT_USER?.email?.toLowerCase()) { denyAccess('You cannot delete your own account.'); return; }
   if (!confirm(`Delete ${email}? This immediately revokes their access.`)) return;
-  const users = (getUsers() || []).filter(u => u.email.toLowerCase() !== email.toLowerCase());
-  saveUsers(users);
-  renderUserManagement();
-  showToast(`${email} deleted`);
+  const res = await postUserAction('delete', { email });
+  if (res.ok) { showToast(`${email} deleted`); const users = await refreshUsersCache(); _renderUsersTable(users || _getUsersCache()); }
+  else showToast(res.error || 'Could not delete user.', 'error');
 };
 // Back-compat alias
 window.removeUserRole = window.deleteUser;
 
-window.saveNewUser = () => {
+window.saveNewUser = async () => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   const name = document.getElementById('user-name').value.trim();
   const email = document.getElementById('user-email').value.trim().toLowerCase();
@@ -6142,19 +6333,15 @@ window.saveNewUser = () => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address', 'error'); return; }
   if (!pass || pass.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
 
-  const users = getUsers() || [];
-  if (users.some(u => u.email.toLowerCase() === email)) {
-    showToast('A user with this email already exists', 'error');
-    return;
-  }
-  users.push({ name, email, password: pass, role, active: true });
-  saveUsers(users);
+  const res = await postUserAction('create', { name, email, password: pass, role });
+  if (!res.ok) { showToast(res.error || 'A user with this email already exists.', 'error'); return; }
 
   closeModal('user-modal');
   document.getElementById('user-name').value = '';
   document.getElementById('user-email').value = '';
   document.getElementById('user-password').value = '';
-  renderUserManagement();
+  const users = await refreshUsersCache();
+  _renderUsersTable(users || _getUsersCache());
   showToast(`User ${email} created ✅`);
 };
 

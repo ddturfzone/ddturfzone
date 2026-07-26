@@ -1187,7 +1187,13 @@
     if (!wrap) return;
     const today = new Date();
     let html = '';
-    for (let i = 0; i < 7; i++) {
+    // Rolling 12-month window (366 days covers a leap year), computed fresh
+    // from "today" on every page load — never a fixed end date, so this
+    // never needs a manual/monthly HTML update again. The strip itself is
+    // unchanged (.avail-dates already scrolls horizontally), so this is
+    // purely more of the exact same button, not a UI change.
+    const DAYS_AHEAD = 366;
+    for (let i = 0; i < DAYS_AHEAD; i++) {
       // Starts at today, going forward only — there is no path to a past
       // date here, so past dates are never selectable (spec #8).
       const d = new Date(today); d.setDate(today.getDate() + i);
@@ -2094,6 +2100,126 @@
     if (box) { box.value = text; box.focus(); }
   };
 
+  // ---------------------------------------------------------------------
+  // NATURAL-LANGUAGE DATE/TIME PARSING for availability questions.
+  // Lets the assistant answer "Is July 28 available?", "available this
+  // weekend?", "is 7 PM free on Friday?" etc. by resolving the actual
+  // date(s)/time being asked about and querying LIVE data for exactly
+  // that date via fetchLiveSlotStatus() — never just whatever date
+  // happens to be selected in the widget above (that's only the fallback
+  // when no date is mentioned at all).
+  // ---------------------------------------------------------------------
+  const MONTH_NAMES = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const WEEKDAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+  function _todayLocalDate(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
+  function _isoFromDate(d){
+    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+
+  // Returns an array of ISO dates resolved from the question, or null if
+  // no date was mentioned (caller falls back to the widget's selection).
+  function _parseDatesFromQuestion(q){
+    const today = _todayLocalDate();
+    const lower = q.toLowerCase();
+
+    if (/\btoday\b/.test(lower)) return [_isoFromDate(today)];
+    if (/day after tomorrow/.test(lower)) { const d = new Date(today); d.setDate(d.getDate()+2); return [_isoFromDate(d)]; }
+    if (/\btomorrow\b/.test(lower)) { const d = new Date(today); d.setDate(d.getDate()+1); return [_isoFromDate(d)]; }
+
+    if (/\bweekend\b/.test(lower)) {
+      // Nearest upcoming Saturday & Sunday — today counts if today IS the weekend.
+      const dow = today.getDay();
+      const toSat = (6 - dow + 7) % 7;
+      const sat = new Date(today); sat.setDate(sat.getDate() + toSat);
+      const sun = new Date(sat); sun.setDate(sat.getDate() + 1);
+      return [_isoFromDate(sat), _isoFromDate(sun)];
+    }
+
+    for (let i = 0; i < WEEKDAY_NAMES.length; i++) {
+      if (new RegExp('\\b' + WEEKDAY_NAMES[i] + '\\b').test(lower)) {
+        const dow = today.getDay();
+        let delta = (i - dow + 7) % 7;
+        if (delta === 0 && /\bnext\b/.test(lower)) delta = 7; // "next friday" when today IS friday
+        const d = new Date(today); d.setDate(d.getDate() + delta);
+        return [_isoFromDate(d)];
+      }
+    }
+
+    // "July 28" / "28 July" / "28th July"
+    let m = lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/)
+      || lower.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+    if (m) {
+      let day, monIdx;
+      if (/^\d/.test(m[1])) { day = parseInt(m[1],10); monIdx = MONTH_NAMES.indexOf(m[2].slice(0,3)); }
+      else { monIdx = MONTH_NAMES.indexOf(m[1].slice(0,3)); day = parseInt(m[2],10); }
+      if (monIdx >= 0 && day >= 1 && day <= 31) {
+        const year = today.getFullYear();
+        let d = new Date(year, monIdx, day); d.setHours(0,0,0,0);
+        if (d < today) d = new Date(year + 1, monIdx, day); // already passed this year -> next year
+        return [_isoFromDate(d)];
+      }
+    }
+
+    // "28/07" or "28-07" (day/month, no year)
+    m = lower.match(/\b(\d{1,2})[\/\-](\d{1,2})\b/);
+    if (m) {
+      const day = parseInt(m[1],10), mon = parseInt(m[2],10) - 1;
+      if (mon >= 0 && mon <= 11 && day >= 1 && day <= 31) {
+        const year = today.getFullYear();
+        let d = new Date(year, mon, day); d.setHours(0,0,0,0);
+        if (d < today) d = new Date(year + 1, mon, day);
+        return [_isoFromDate(d)];
+      }
+    }
+    return null;
+  }
+
+  // Extracts one specific time like "7 pm", "7:30am", "19:00" and snaps it
+  // to the same half-hour grid AVAIL_SLOT_TIMES uses, or null if none found.
+  function _parseTimeFromQuestion(q){
+    const lower = q.toLowerCase();
+    let m = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+    if (m) {
+      let h = parseInt(m[1],10) % 12;
+      if (m[3] === 'pm') h += 12;
+      const min = m[2] ? parseInt(m[2],10) : 0;
+      const h12 = (h % 12) || 12;
+      return `${h12}:${min < 30 ? '00' : '30'} ${h >= 12 ? 'PM' : 'AM'}`;
+    }
+    m = lower.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/); // 24h e.g. "19:00"
+    if (m) {
+      const h = parseInt(m[1],10), min = parseInt(m[2],10);
+      const h12 = (h % 12) || 12;
+      return `${h12}:${min < 30 ? '00' : '30'} ${h >= 12 ? 'PM' : 'AM'}`;
+    }
+    return null;
+  }
+
+  // Same contiguous-range collapsing _buildAvailabilitySummary() does, but
+  // parameterized on any slots array (not just the widget's current cache)
+  // so it can summarize a date the visitor asked about by name.
+  function _summarizeSlots(liveSlots){
+    if (liveSlots === null) return null;
+    const openRanges = [];
+    let i = 0;
+    while (i < 48) {
+      const match = _slotStatusAt(AVAIL_SLOT_TIMES[i], liveSlots);
+      const status = match ? match.status : 'open';
+      let j = i;
+      while (j < 48) {
+        const m2 = _slotStatusAt(AVAIL_SLOT_TIMES[j], liveSlots);
+        const s2 = m2 ? m2.status : 'open';
+        if (s2 !== status) break;
+        j++;
+      }
+      if (status === 'open') openRanges.push(`${AVAIL_SLOT_TIMES[i]}–${AVAIL_SLOT_TIMES[j % 48]}`);
+      i = j;
+    }
+    return openRanges;
+  }
+
   // Walks the same live _availSlotsCache the reservation menu and the
   // booked/blocked list use, and collapses it into contiguous open /
   // booked / blocked time ranges for the currently selected date — so
@@ -2128,26 +2254,57 @@
   let _aiChatHistory = [];
   let _aiLastTopicIdx = -1;
 
+  function _dateLabel(iso, withWeekday){
+    return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', withWeekday ? { weekday:'short', day:'numeric', month:'short' } : { day:'numeric', month:'short' });
+  }
+
   // Resolves ONE reply for the given question. Order: greeting/small-talk
   // (never falls through to the contact fallback) → live availability →
   // location (gets a Maps button) → keyword FAQ match → short follow-up
   // reusing the last matched topic → only THEN the honest "I don't know
   // yet" fallback, which points to Gemini/WhatsApp rather than pretending.
-  function _localAIAnswer(question){
+  // Async because a live availability question fetches real per-date data
+  // from the Apps Script/Sheet rather than reading only whatever's already
+  // cached for the widget's currently-selected date.
+  async function _localAIAnswer(question){
     const greet = _greetingReply(question);
     if (greet) { _aiLastTopicIdx = -1; return { text: greet }; }
 
     const q = _normalize(question);
-    const dateLabel = _availSelectedDate
-      ? new Date(_availSelectedDate + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' })
-      : 'today';
 
     if (AI_AVAILABILITY_RE.test(q)) {
       _aiLastTopicIdx = -1;
-      const openRanges = _buildAvailabilitySummary();
-      if (openRanges === null) return { text: `Live availability isn't connected right now, so I can't confirm open slots for ${dateLabel} — please WhatsApp us at 7305123765 to check.` };
-      if (!openRanges.length) return { text: `Every slot on ${dateLabel} is currently booked or blocked. WhatsApp us at 7305123765 to check another date, or pick a different date above.` };
-      return { text: `Open slots for ${dateLabel}: ${openRanges.join(', ')}. Use the reservation menu above to pick your sport, start time and duration — the rate shows instantly.` };
+      const parsedDates = _parseDatesFromQuestion(question);
+      const parsedTime = _parseTimeFromQuestion(question);
+      const targetDates = parsedDates || [_availSelectedDate || _isoFromDate(_todayLocalDate())];
+
+      const results = [];
+      for (const iso of targetDates) {
+        results.push({ iso, slots: await fetchLiveSlotStatus(iso) });
+      }
+
+      if (results.some(r => r.slots === null)) {
+        return { text: `Live availability isn't connected right now, so I can't confirm open slots — please WhatsApp us at 7305123765 to check.` };
+      }
+
+      const multi = results.length > 1;
+
+      if (parsedTime) {
+        const lines = results.map(r => {
+          const match = _slotStatusAt(parsedTime, r.slots);
+          const label = `${_dateLabel(r.iso, multi)}`;
+          if (!match) return `${label}: ${parsedTime} is available ✅`;
+          return `${label}: ${parsedTime} is ${match.status === 'blocked' ? 'blocked 🚫' : 'already booked ❌'}`;
+        });
+        return { text: `${lines.join('\n')}\nUse the reservation menu above to book it.` };
+      }
+
+      const lines = results.map(r => {
+        const openRanges = _summarizeSlots(r.slots);
+        const label = `${_dateLabel(r.iso, multi)}`;
+        return openRanges.length ? `${label}: ${openRanges.join(', ')}` : `${label}: fully booked/blocked.`;
+      });
+      return { text: `Open slots —\n${lines.join('\n')}\nUse the reservation menu above to pick your sport, date, start time and duration.` };
     }
 
     if (AI_LOCATION_RE.test(q)) {
@@ -2197,14 +2354,28 @@
   // Sends the typed question, gets an immediate local reply, and reveals
   // the ✨ Ask Gemini button right below the chat — the one tap needed
   // after Send whenever a deeper answer is wanted.
-  window.sendAIMessage = function(){
+  window.sendAIMessage = async function(){
     const input = document.getElementById('ai-question-input');
     const question = input && input.value.trim();
     if (!question) return;
     _aiChatHistory.push({ role: 'user', text: question });
-    const result = _localAIAnswer(question);
-    _aiChatHistory.push({ role: 'bot', text: result.text, mapsButton: !!result.mapsButton });
     input.value = '';
+
+    // Availability questions do a real network round-trip per date asked
+    // about — show a placeholder bubble so the wait isn't silent, then
+    // swap it for the real answer once it resolves.
+    const checkingLive = AI_AVAILABILITY_RE.test(_normalize(question));
+    let placeholderIdx = -1;
+    if (checkingLive) {
+      _aiChatHistory.push({ role: 'bot', text: '🔎 Checking live availability…' });
+      placeholderIdx = _aiChatHistory.length - 1;
+    }
+    _renderAIChat();
+
+    const result = await _localAIAnswer(question);
+    const finalMsg = { role: 'bot', text: result.text, mapsButton: !!result.mapsButton };
+    if (placeholderIdx >= 0) _aiChatHistory[placeholderIdx] = finalMsg;
+    else _aiChatHistory.push(finalMsg);
     _renderAIChat();
     const geminiRow = document.getElementById('ai-gemini-row');
     if (geminiRow) geminiRow.style.display = 'block';
