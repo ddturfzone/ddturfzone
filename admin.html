@@ -293,6 +293,10 @@ tr:hover td{background:#f8fffe}
       <p style="color:var(--gray3);font-size:13px;margin-top:4px">Management System — Madambakkam</p>
     </div>
     <div class="auth-form">
+      <div id="sheet-url-mismatch-banner" class="hidden" style="background:#fff3cd;border:1.5px solid #f0c36d;color:#7a5b00;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:10px;line-height:1.5">
+        ⚠️ This device is saved to point at a different Google Sheet link than the one built into this page. That mismatch is a common cause of login failing even though the account exists.
+        <button type="button" onclick="_resetSheetUrlToProduction()" style="display:block;margin-top:6px;background:#7a5b00;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">Use the correct link for this page</button>
+      </div>
       <input class="auth-input" type="email" id="login-email" placeholder="Email address" value="ddturfzone@gmail.com"
         autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
       <div style="position:relative">
@@ -1711,7 +1715,7 @@ tr:hover td{background:#f8fffe}
 // explicitly requested — every module (bookings, blocking, coaching,
 // students, attendance, café, website content, reports, audit log)
 // depends on this single URL being stable.
-const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxvX4R33lgSXbbip4XAEBtvecu10jMyxRWMSIQI4tbGB4fgZcgdskFHpdoB14lI7_kLA/exec';
+const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz66RF_ZPjUJV5qdKuUCl95uCcUVLd75Pnwl5uk37SLWOJwxfyu00lqaw1J3t9CLxp5/exec';
 
 window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[] };
 try {
@@ -1727,13 +1731,29 @@ try {
   // Safety net: if this device has a saved URL that differs from the
   // single production deployment baked into this file, it would
   // otherwise silently keep talking to the wrong endpoint forever
-  // (e.g. a leftover test URL from months ago) — flag it loudly in
-  // Settings instead of letting that happen quietly.
+  // (e.g. a leftover test URL from a previous deploy) — surface this
+  // VISIBLY on the login screen itself (a console.warn alone is invisible
+  // to anyone not already in DevTools, which is exactly how this kind of
+  // mismatch caused confusing "login failed" reports before).
   window.DDTZ_SHEET_URL_MISMATCH = !!(savedSheetUrl && savedSheetUrl !== PRODUCTION_APPS_SCRIPT_URL);
   if (window.DDTZ_SHEET_URL_MISMATCH) {
     console.warn('[DD Turf Zone] This device is using a DIFFERENT Apps Script URL than the one built into this file.\nActive:', savedSheetUrl, '\nProduction:', PRODUCTION_APPS_SCRIPT_URL);
+    document.addEventListener('DOMContentLoaded', _showSheetUrlMismatchBanner);
+    if (document.readyState !== 'loading') _showSheetUrlMismatchBanner();
   }
 } catch(e) {}
+
+function _showSheetUrlMismatchBanner() {
+  const banner = document.getElementById('sheet-url-mismatch-banner');
+  if (banner) banner.classList.remove('hidden');
+}
+function _resetSheetUrlToProduction() {
+  try {
+    localStorage.setItem('ddtz_sheet_url', PRODUCTION_APPS_SCRIPT_URL);
+    localStorage.removeItem('ddtz_sheet_token'); // an old URL's token is meaningless against the correct deployment
+  } catch (e) {}
+  location.reload();
+}
 
 // Short, sequential, human-readable IDs instead of the old long random
 // "DDTZ<base36 timestamp><random>" strings — e.g. B0001, B0002 for
@@ -1922,10 +1942,14 @@ async function _authFetch(payload) {
     });
     let data = null;
     try { data = await res.json(); } catch (e) {}
-    if (!data) return { ok: false, error: `HTTP ${res.status}` };
+    if (!data) {
+      console.warn('[DD Turf Zone] Unexpected (non-JSON) response from Apps Script:', res.status);
+      return { ok: false, error: 'Unexpected response from the server. Please try again.' };
+    }
     return data;
   } catch (e) {
-    return { ok: false, networkError: true, error: String(e) };
+    console.warn('[DD Turf Zone] Network error contacting Apps Script:', e);
+    return { ok: false, networkError: true, error: 'Could not reach the server. Check your internet connection and try again.' };
   }
 }
 
@@ -2050,10 +2074,22 @@ document.addEventListener('click', (e) => {
 // A bare .trim() only removes normal whitespace; it does NOT remove characters like
 // \u200B (zero-width space), \u00A0 (non-breaking space), or \uFEFF (BOM), any of
 // which will make a visually-identical password fail a strict === comparison.
-function _cleanInput(v) {
-  return (v || '')
-    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, ' ') // normalize invisible chars to a real space
-    .trim();
+// Strips invisible/zero-width characters OUTRIGHT (never replaces them
+// with a literal space) — a mobile keyboard or copy/paste can slip one of
+// these into the middle of an email or password, and turning it into a
+// visible space there would silently change the value instead of cleaning
+// it, causing a login that "looks right" to fail. Two separate functions
+// because email and password have different rules (PART 4 of the audit):
+// email is safe to lowercase and fully trim; a password's own internal
+// spaces (if the user genuinely set one with spaces) must be preserved.
+function _stripInvisibleChars(v) {
+  return (v || '').replace(/[\u200B-\u200D\uFEFF\u00A0\u2060]/g, '');
+}
+function _cleanEmailInput(v) {
+  return _stripInvisibleChars(v).trim().toLowerCase();
+}
+function _cleanPasswordInput(v) {
+  return _stripInvisibleChars(v).trim(); // trims only real leading/trailing whitespace
 }
 
 function _toggleLoginPw() {
@@ -2064,8 +2100,8 @@ function _toggleLoginPw() {
 }
 
 async function doLogin() {
-  const email = _cleanInput(document.getElementById('login-email').value).toLowerCase();
-  const pass  = _cleanInput(document.getElementById('login-password').value);
+  const email = _cleanEmailInput(document.getElementById('login-email').value);
+  const pass  = _cleanPasswordInput(document.getElementById('login-password').value);
   _clearAuthError();
 
   if (!email) { _showAuthError('Please enter your email address.'); return; }
@@ -2085,16 +2121,17 @@ async function doLogin() {
 
   if (!result.ok) {
     if (result.networkError) {
-      _showAuthError('Could not reach the server to verify your account — check your internet connection and try again.');
+      _showAuthError('Could not reach the server. Check your internet connection and try again.');
     } else {
-      _showAuthError(result.error || 'Login failed. Please try again.');
+      _showAuthError(result.error || 'Invalid email or password.');
     }
     return;
   }
 
   const sessionUser = { email: result.user.email, name: result.user.name, role: result.user.role };
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...sessionUser, ts: Date.now() }));
+    const newSession = { email: sessionUser.email, name: sessionUser.name, role: sessionUser.role, ts: Date.now() };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
   } catch (e) {}
   _enterApp(sessionUser);
   loadAllData().then(() => renderDashboard());
@@ -2116,54 +2153,79 @@ window.logoutUser = doLogout;
 // is instant, then re-validates against the live Sheet in the background —
 // a role change, disable, or delete made on another device is enforced
 // within moments instead of only at the next full login.
+//
+// The ENTIRE body is wrapped in try/catch: session restore must never be
+// able to throw an uncaught exception and halt the rest of this script
+// from running (e.g. every setInterval/event-listener registered further
+// down the file) just because of a malformed cached session or a missing
+// DOM element. Any unexpected failure here falls back to the login screen.
 (function restoreSession() {
-  const localSession = (() => {
-    try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch(e) { return null; }
-  })();
+  try {
+    const localSession = (() => {
+      try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch(e) { return null; }
+    })();
 
-  if (localSession && localSession.ts && localSession.role) {
-    const ageMs = Date.now() - localSession.ts;
-    const stillFresh = ageMs < 30 * 24 * 60 * 60 * 1000; // 30 days
-    const cached = findUserInCache(localSession.email);
-    const blockedByCache = cached && cached.active === false;
+    if (localSession && localSession.ts && localSession.role && localSession.email) {
+      const ageMs = Date.now() - localSession.ts;
+      const stillFresh = ageMs < 30 * 24 * 60 * 60 * 1000; // 30 days
+      const cached = findUserInCache(localSession.email);
+      const blockedByCache = cached && cached.active === false;
 
-    if (stillFresh && !blockedByCache) {
-      const sessionUser = {
-        email: localSession.email,
-        name: cached ? cached.name : localSession.name,
-        role: cached ? cached.role : localSession.role
-      };
-      _enterApp(sessionUser);
-      loadAllData().then(() => renderDashboard());
+      if (stillFresh && !blockedByCache) {
+        const sessionUser = {
+          email: localSession.email,
+          name: cached ? cached.name : localSession.name,
+          role: cached ? cached.role : localSession.role
+        };
+        _enterApp(sessionUser);
+        loadAllData().then(() => renderDashboard());
 
-      // Background re-check against the live Sheet — never blocks the UI.
-      refreshUsersCache().then(() => {
-        const fresh = findUserInCache(localSession.email);
-        if (!fresh) return; // Sheet unreachable or not yet configured — keep the session as-is
-        if (fresh.active === false) {
-          showToast('Your account has been disabled. Signing out.', 'error');
-          doLogout();
-          return;
-        }
-        if (fresh.role !== CURRENT_USER.role || fresh.name !== CURRENT_USER.name) {
-          CURRENT_USER.role = fresh.role;
-          CURRENT_USER.name = fresh.name;
-          try { localStorage.setItem(SESSION_KEY, JSON.stringify({ ...CURRENT_USER, ts: Date.now() })); } catch(e) {}
-          applyRolePermissionsToUI();
-          document.getElementById('user-badge').textContent = fresh.name;
-          const roleBadge = document.getElementById('user-role-badge');
-          if (roleBadge) roleBadge.textContent = ROLE_LABELS[fresh.role] || fresh.role;
-        }
-      });
-      return;
+        // Background re-check against the live Sheet — never blocks the UI,
+        // and its own failure (network down, Sheet unreachable) must never
+        // destroy a valid local session — see catch below.
+        refreshUsersCache().then(() => {
+          try {
+            const fresh = findUserInCache(localSession.email);
+            if (!fresh) return; // Sheet unreachable or not yet configured — keep the session as-is
+            if (fresh.active === false) {
+              showToast('Your account has been disabled. Signing out.', 'error');
+              doLogout();
+              return;
+            }
+            if (fresh.role !== CURRENT_USER.role || fresh.name !== CURRENT_USER.name) {
+              CURRENT_USER.role = fresh.role;
+              CURRENT_USER.name = fresh.name;
+              const updatedSession = { email: CURRENT_USER.email, name: CURRENT_USER.name, role: CURRENT_USER.role, ts: Date.now() };
+              try { localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSession)); } catch(e) {}
+              applyRolePermissionsToUI();
+              const badge = document.getElementById('user-badge');
+              if (badge) badge.textContent = fresh.name;
+              const roleBadge = document.getElementById('user-role-badge');
+              if (roleBadge) roleBadge.textContent = ROLE_LABELS[fresh.role] || fresh.role;
+            }
+          } catch (bgErr) {
+            // A failure in the background re-check (network hiccup, unexpected
+            // shape from the Sheet, etc.) must never destroy an otherwise
+            // valid local session — log it and leave the session as-is.
+            console.warn('[DD Turf Zone] Background session re-check failed (session kept as-is):', bgErr);
+          }
+        });
+        return;
+      }
+      // Session stale, or the cache says it was disabled since login — force
+      // a fresh login rather than silently keeping them signed in.
+      try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
     }
-    // Session stale, or the cache says it was disabled since login — force
-    // a fresh login rather than silently keeping them signed in.
-    try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
+  } catch (restoreErr) {
+    // Whatever went wrong, fall through to the login screen below rather
+    // than leaving the page in a half-initialized state.
+    console.warn('[DD Turf Zone] Session restore failed, showing login screen:', restoreErr);
   }
 
-  document.getElementById('auth-screen').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
+  const authScreen = document.getElementById('auth-screen');
+  const appScreen = document.getElementById('app');
+  if (authScreen) authScreen.style.display = 'flex';
+  if (appScreen) appScreen.style.display = 'none';
 })();
 
 // ===== LOAD ALL DATA =====
