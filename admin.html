@@ -4746,23 +4746,31 @@ function renderBkCalDayList(dateStr) {
     const statusLabel = isReservation ? '🔵 Reserved' : (isFullyPaid ? 'Fully Paid' : 'Partial Payment');
     const advance = Number(b.advance) || 0;
     return `
-    <button onclick="openBookingDetailModal('${b.id}')" style="text-align:left;background:${isReservation ? '#eff6ff' : 'white'};border:1px solid var(--gray2);border-left:4px solid ${statusColor};border-radius:12px;padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:8px;font-family:'Inter',sans-serif;width:100%">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-        <div style="min-width:0">
-          <div style="font-weight:700;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.name} ${sportBadge(b.sport)}</div>
-          <div style="font-size:12px;color:var(--gray3);margin-top:2px">${b.phone} · ${formatTime(b.start)}–${formatTime(b.end)}</div>
-          <div style="font-size:11px;color:var(--gray3);margin-top:2px;font-weight:600">${b.bookingId || b.id}</div>
+    <div style="background:${isReservation ? '#eff6ff' : 'white'};border:1px solid var(--gray2);border-left:4px solid ${statusColor};border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-family:'Inter',sans-serif;width:100%">
+      <div onclick="openBookingDetailModal('${b.id}')" style="cursor:pointer;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div style="min-width:0">
+            <div style="font-weight:700;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.name} ${sportBadge(b.sport)}</div>
+            <div style="font-size:12px;color:var(--gray3);margin-top:2px">${b.phone} · ${formatTime(b.start)}–${formatTime(b.end)}</div>
+            <div style="font-size:11px;color:var(--gray3);margin-top:2px;font-weight:600">${b.bookingId || b.id}</div>
+          </div>
+          <div style="flex-shrink:0;text-align:right">
+            <span style="font-size:11px;font-weight:800;color:${statusColor};background:${isReservation ? 'rgba(59,130,246,.1)' : (isFullyPaid ? 'rgba(22,163,74,.1)' : 'rgba(234,88,12,.1)')};padding:3px 8px;border-radius:20px;white-space:nowrap">${statusLabel}</span>
+          </div>
         </div>
-        <div style="flex-shrink:0;text-align:right">
-          <span style="font-size:11px;font-weight:800;color:${statusColor};background:${isReservation ? 'rgba(59,130,246,.1)' : (isFullyPaid ? 'rgba(22,163,74,.1)' : 'rgba(234,88,12,.1)')};padding:3px 8px;border-radius:20px;white-space:nowrap">${statusLabel}</span>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:12px;padding-top:8px;border-top:1px solid var(--gray)">
+          <div><div style="color:var(--gray3)">Total</div><div style="font-weight:700;color:var(--dark)">₹${(b.total||0).toLocaleString('en-IN')}</div></div>
+          <div><div style="color:var(--gray3)">Advance Paid</div><div style="font-weight:700;color:var(--green)">₹${advance.toLocaleString('en-IN')}</div></div>
+          <div><div style="color:var(--gray3)">Balance Due</div><div style="font-weight:700;color:${pending>0?statusColor:'var(--green)'}">₹${pending.toLocaleString('en-IN')}</div></div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:12px;padding-top:8px;border-top:1px solid var(--gray)">
-        <div><div style="color:var(--gray3)">Total</div><div style="font-weight:700;color:var(--dark)">₹${(b.total||0).toLocaleString('en-IN')}</div></div>
-        <div><div style="color:var(--gray3)">Advance Paid</div><div style="font-weight:700;color:var(--green)">₹${advance.toLocaleString('en-IN')}</div></div>
-        <div><div style="color:var(--gray3)">Balance Due</div><div style="font-weight:700;color:${pending>0?statusColor:'var(--green)'}">₹${pending.toLocaleString('en-IN')}</div></div>
+      <div style="display:flex;gap:6px;padding-top:8px;border-top:1px solid var(--gray)">
+        ${isReservation && can('deleteBooking') ? `<button onclick="confirmReservation('${b.id}')" style="flex:1;padding:8px 4px;border-radius:8px;border:none;background:#dcfce7;color:#166534;font-weight:700;font-size:12px;cursor:pointer">✅ Confirm</button>` : ''}
+        <button onclick="editBooking('${b.id}')" style="flex:1;padding:8px 4px;border-radius:8px;border:none;background:#e0e7ff;color:#3730a3;font-weight:700;font-size:12px;cursor:pointer">✏️ Edit</button>
+        ${pending>0 ? `<button onclick="quickPayFromCard('${b.id}')" style="flex:1;padding:8px 4px;border-radius:8px;border:none;background:#dbeafe;color:#1e40af;font-weight:700;font-size:12px;cursor:pointer">💰 Payment</button>` : ''}
+        ${can('deleteBooking') ? `<button onclick="deleteBooking('${b.id}')" style="flex:1;padding:8px 4px;border-radius:8px;border:none;background:#fee2e2;color:#991b1b;font-weight:700;font-size:12px;cursor:pointer">🗑️ Delete</button>` : ''}
       </div>
-    </button>`;
+    </div>`;
   });
 
   // Merge blocks and bookings back into one chronological list
@@ -5051,6 +5059,11 @@ window.deleteBlockSlot = async (wholeSeries) => {
 };
 
 let _bkdCurrentId = null;
+// Lets the calendar day-list card's inline "💰 Payment" button jump straight
+// into Add Payment without first opening the full Booking Details modal —
+// same underlying flow (openAddPaymentModal reads _bkdCurrentId), just a
+// faster entry point for the common "just log a payment" action.
+window.quickPayFromCard = (id) => { _bkdCurrentId = id; openAddPaymentModal(); };
 // True only while the booking modal is open via "+ Add Reservation" —
 // a Reservation is a full booking record (same array, same sync, same
 // conflict-checking) just tagged bookingType:'reservation' so it renders
