@@ -1715,7 +1715,7 @@ tr:hover td{background:#f8fffe}
 // explicitly requested — every module (bookings, blocking, coaching,
 // students, attendance, café, website content, reports, audit log)
 // depends on this single URL being stable.
-const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz66RF_ZPjUJV5qdKuUCl95uCcUVLd75Pnwl5uk37SLWOJwxfyu00lqaw1J3t9CLxp5/exec';
+const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZEOJliAUvz3bOAD804cdFYIKsIF1q0gu0xltintwonoigfrkMcAxAsEhRnEjYsaP/exec';
 
 window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[] };
 try {
@@ -6533,7 +6533,7 @@ window.renderSettings = () => {
   }).join('');
 };
 
-window.saveSheetUrlSetting = () => {
+window.saveSheetUrlSetting = async () => {
   if (!can('manageSettings')) { denyAccess('Only the Super Admin can change Settings.'); return; }
   let url = document.getElementById('settings-sheet-url').value.trim();
   const token = document.getElementById('settings-sheet-token').value.trim();
@@ -6542,6 +6542,23 @@ window.saveSheetUrlSetting = () => {
     document.getElementById('settings-sheet-url').value = url;
     showToast('URL field was empty — restored the production Apps Script URL instead of saving blank.', 'info');
   }
+
+  // Clean up the most common paste mistakes rather than silently accepting
+  // a broken URL: a trailing "?action=..." (people often copy a TEST link
+  // instead of the base URL), stray surrounding quotes/parentheses, and
+  // any accidental trailing slash.
+  const original = url;
+  url = url.replace(/\?.*$/, '');            // drop any "?action=..." query string
+  url = url.replace(/^["'(]+|["')]+$/g, '');  // strip stray quotes/parens from a bad copy-paste
+  url = url.replace(/\/$/, '');               // no trailing slash
+  if (url !== original) {
+    document.getElementById('settings-sheet-url').value = url;
+    showToast('Cleaned up the pasted URL (removed extra characters) before saving.', 'info');
+  }
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url)) {
+    showToast('⚠️ This doesn\'t look like a valid Apps Script Web App URL (should end in "/exec", no extra text). Saved anyway, but double-check it.', 'error');
+  }
+
   try { localStorage.setItem('ddtz_sheet_url', url); localStorage.setItem('ddtz_sheet_token', token); } catch(e) {}
   window.DDTZ_SHEET_URL = url;
   window.DDTZ_SHEET_TOKEN = token;
@@ -6549,7 +6566,22 @@ window.saveSheetUrlSetting = () => {
   const mismatchBanner = document.getElementById('sheet-url-mismatch-warning');
   if (mismatchBanner) mismatchBanner.style.display = window.DDTZ_SHEET_URL_MISMATCH ? 'block' : 'none';
   updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
-  showToast('Google Sheet URL saved ✅');
+
+  // Test it for real, right now, instead of leaving the admin to guess —
+  // this is the actual fix for "is my URL correct": no separate manual
+  // browser-tab test needed, the answer shows up right here.
+  showToast('Saved — testing connection…', 'info');
+  try {
+    const res = await fetch(`${url}?action=users&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (data && data.ok && Array.isArray(data.users)) {
+      showToast(`✅ Connected — found ${data.users.length} admin account${data.users.length===1?'':'s'} on this Sheet.`);
+    } else {
+      showToast(`⚠️ URL saved, but the server responded unexpectedly: ${data && data.error ? data.error : 'no valid response'}`, 'error');
+    }
+  } catch (e) {
+    showToast('⚠️ URL saved, but could not reach it just now — double-check the URL and that the Apps Script is deployed with "Anyone" access.', 'error');
+  }
 };
 
 // One click, undoes any drift — puts this device back on the single
