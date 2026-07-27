@@ -3343,12 +3343,14 @@ function generateBookingId() {
       if (!isNaN(seqNum) && seqNum > maxSeq) maxSeq = seqNum;
     }
   });
-  // Device tag suffix — same fix and same reason as nextSeqId() above:
-  // two devices booking on the same day would otherwise both compute
-  // "highest existing + 1" from their OWN local list only and could both
-  // produce DDTZ-20260725-001, which the Sheet backend would then treat
-  // as the same row and silently overwrite one with the other.
-  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}-${_deviceTag()}`;
+  // The FINAL id is now assigned by the server under its single write lock
+  // (see Code.gs's provisional-ID handling in handleBookingWrite) —
+  // guaranteed collision-free without needing an ugly per-device suffix
+  // tacked onto a clean, readable serial number. This value is only ever
+  // a PROVISIONAL local placeholder used for instant offline-capable UI;
+  // saveBooking()/confirmBookingRequest() reconcile it to the server's
+  // real ID as soon as the sync round-trip completes.
+  return `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
 }
 
 // ===== BOOKING CALC =====
@@ -3585,6 +3587,24 @@ window.saveBooking = async () => {
     }
 
     buildCustomers();
+
+    if (!existId) {
+      // New booking: wait for the server to assign the final, clean
+      // sequential Booking ID (Code.gs's provisional-ID handling) BEFORE
+      // showing it anywhere — the ID shown in the toast and sent via
+      // WhatsApp must already be final, never one that could silently
+      // change moments later once the sync round-trip completes.
+      const syncRes = await autoSyncBooking(data, { isNewBooking: true });
+      if (syncRes && syncRes.ok && syncRes.bookingId && syncRes.bookingId !== data.bookingId) {
+        data.bookingId = syncRes.bookingId;
+        LS.update('bookings', data.id, { bookingId: syncRes.bookingId });
+        const reconcileIdx = window.DB.bookings.findIndex(x => x.id === data.id);
+        if (reconcileIdx >= 0) window.DB.bookings[reconcileIdx].bookingId = syncRes.bookingId;
+      }
+    } else {
+      autoSyncBooking(data); // editing an existing booking never assigns a new ID — fire-and-forget as before
+    }
+
     closeModal('booking-modal');
     resetBookingForm();
     // Refresh every view live — no page reload needed anywhere
@@ -3596,19 +3616,16 @@ window.saveBooking = async () => {
     }
     renderBookingCalendar(); // Calendar is now the only booking view
 
-    // Auto-sync to Google Sheet backup
-    autoSyncBooking(data);
-
     if (existId) {
       showToast(balanceNow > 0 ? `Balance payment recorded ✅ Pending: ₹${pending.toLocaleString('en-IN')}` : (wasReservation ? 'Reservation updated ✅' : 'Booking updated ✅'));
     } else if (wasReservation) {
-      showToast(`Reservation held! ID: ${bookingId} 🔵`);
+      showToast(`Reservation held! ID: ${data.bookingId} 🔵`);
       // Deliberately no auto-WhatsApp here — a Reservation is a tentative
       // hold, not a confirmed booking, so we don't want the customer
       // getting a "Booking confirmed" message before an admin actually
       // confirms it via confirmReservation().
     } else {
-      showToast(`Booking confirmed! ID: ${bookingId} ✅`);
+      showToast(`Booking confirmed! ID: ${data.bookingId} ✅`);
       // Auto-trigger WhatsApp only for brand-new bookings — not on every edit
       setTimeout(() => {
         sendBookingWhatsApp({ ...data, id: id || existId });
@@ -3849,13 +3866,26 @@ async function flushSyncQueue() {
   updateSyncStatus('syncing');
   const remaining = [];
   const rejected = [];
+  let idsReconciled = false;
   for (const payload of q) {
     const res = await postToGoogleSheet(payload);
     if (!res.ok) {
       if (res.retry === false) rejected.push({ payload, res }); // definitively rejected — don't keep retrying
       else remaining.push(payload); // transient failure — keep queued, try again next flush
+    } else if (payload.type === 'booking' && payload.provisional && res.bookingId && res.bookingId !== payload.bookingId) {
+      // This booking was created offline with only a local placeholder ID
+      // and has now actually reached the server, which assigned the real
+      // final one — reconcile it into local storage so this device's
+      // display matches the Sheet instead of drifting apart permanently.
+      const local = (window.DB.bookings || []).find(b => b.bookingId === payload.bookingId);
+      if (local) {
+        LS.update('bookings', local.id, { bookingId: res.bookingId });
+        local.bookingId = res.bookingId;
+        idsReconciled = true;
+      }
     }
   }
+  if (idsReconciled) { renderBookings(); renderBookingCalendar(); }
   _setSyncQueue(remaining);
   _syncQueueFlushing = false;
   updateSyncStatus(remaining.length ? 'offline' : 'synced');
@@ -3914,6 +3944,10 @@ function autoSyncBooking(data, opts) {
   const payload = {
     type:           'booking',
     bookingId:      data.bookingId || data.id,
+    // Tells Code.gs this is a brand-new booking whose bookingId is only a
+    // local placeholder — the server assigns the real, final, clean
+    // sequential ID under its write lock rather than trusting this one.
+    provisional:    !!(opts && opts.isNewBooking),
     name:           data.name,
     phone:          data.phone,
     date:           data.date,
@@ -4184,7 +4218,7 @@ async function _confirmBookingRequestInner(req, id) {
   // moments ago and not synced here yet. The server (Code.gs) re-checks
   // against the live Sheet under a lock before accepting the write, so we
   // wait for that answer before treating this as truly confirmed.
-  const syncRes = await autoSyncBooking(data, { silentConflict: true });
+  const syncRes = await autoSyncBooking(data, { silentConflict: true, isNewBooking: true });
   if (syncRes && syncRes.ok === false && syncRes.conflict) {
     // Roll back: the server is the source of truth and it said no —
     // don't leave a phantom "confirmed" booking sitting only on this device.
@@ -4197,8 +4231,17 @@ async function _confirmBookingRequestInner(req, id) {
     showToast(`⛔ Could not confirm — ${syncRes.error || 'this slot was just taken on another device'}. Reject this request instead, or pick a different one.`, 'error');
     return;
   }
+  // The server assigns the final, clean sequential Booking ID under its
+  // write lock (guaranteed collision-free) — adopt it here rather than
+  // keeping the provisional one generateBookingId() produced locally.
+  if (syncRes && syncRes.ok && syncRes.bookingId && syncRes.bookingId !== data.bookingId) {
+    data.bookingId = syncRes.bookingId;
+    LS.update('bookings', newId, { bookingId: syncRes.bookingId });
+    const reconcileIdx = window.DB.bookings.findIndex(b => b.id === newId);
+    if (reconcileIdx >= 0) window.DB.bookings[reconcileIdx].bookingId = syncRes.bookingId;
+  }
 
-  const updatedReq = { ...req, status: 'CONFIRMED', bookingId, confirmedAt: new Date().toISOString(), confirmedBy: CURRENT_USER?.name || '' };
+  const updatedReq = { ...req, status: 'CONFIRMED', bookingId: data.bookingId, confirmedAt: new Date().toISOString(), confirmedBy: CURRENT_USER?.name || '' };
   await saveDoc('bookingRequests', updatedReq, req.id);
   const idx = window.DB.bookingRequests.findIndex(r => r.id === req.id);
   if (idx >= 0) window.DB.bookingRequests[idx] = updatedReq;
@@ -4212,7 +4255,7 @@ async function _confirmBookingRequestInner(req, id) {
   renderDashboard();
   renderBookingCalendar();
   updateRequestsBadge();
-  showToast(`✅ Reservation confirmed! Booking ID: ${bookingId}`);
+  showToast(`✅ Reservation confirmed! Booking ID: ${data.bookingId}`);
 };
 
 // If confirming one request fills a slot that other still-PENDING requests
@@ -4893,9 +4936,11 @@ window.saveBlockSlot = async () => {
   // on each other or failing outright, and since the LOCAL save always
   // succeeds instantly regardless, the calendar on THIS device looked
   // completely fine while other devices/the public site silently never
-  // received a chunk of the range. Going one at a time is slower for a
-  // big range but means every date's Sheet write is confirmed (or clearly
-  // reported as queued/failed) before moving to the next.
+  // received a chunk of the range. Syncing in small BATCHES (a handful of
+  // dates at a time, each batch awaited before starting the next) is the
+  // middle ground: much faster than one-at-a-time, while staying well
+  // under the concurrent-request ceiling that caused silent failures when
+  // everything fired at once.
   const seriesId = 'SER' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const createdBy = CURRENT_USER?.name || '';
   const skipped = [];
@@ -4908,20 +4953,28 @@ window.saveBlockSlot = async () => {
     toastEl.style.background = 'var(--blue)';
     toastEl.style.display = 'block';
   }
-  for (let i = 0; i < dates.length; i++) {
-    const date = dates[i];
+
+  const BATCH_SIZE = 5;
+  const toSync = []; // dates that passed the local conflict check, in order
+  for (const date of dates) {
     const bookingConflict = findOverlappingBooking(date, '', '', start, end, null);
     if (bookingConflict) { skipped.push(`${formatDate(date)} (already booked)`); continue; }
     const blockConflict = findBlockingConflict(date, start, end, null);
     if (blockConflict) { skipped.push(`${formatDate(date)} (already blocked)`); continue; }
+    toSync.push(date);
+  }
 
-    const data = { date, start, end, reason, notes, createdBy, seriesId };
-    const savedId = await saveDoc('blockedSlots', data, null);
-    window.DB.blockedSlots.unshift({ ...data, id: savedId });
-    const syncRes = await autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
-    if (syncRes && syncRes.ok === false && !syncRes.queued) syncFailed.push(formatDate(date));
-    createdCount++;
-    if (showProgress && toastEl) toastEl.textContent = `Blocking ${dates.length} dates… ${i + 1}/${dates.length}`;
+  for (let i = 0; i < toSync.length; i += BATCH_SIZE) {
+    const batch = toSync.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (date) => {
+      const data = { date, start, end, reason, notes, createdBy, seriesId };
+      const savedId = await saveDoc('blockedSlots', data, null);
+      window.DB.blockedSlots.unshift({ ...data, id: savedId });
+      const syncRes = await autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
+      if (syncRes && syncRes.ok === false && !syncRes.queued) syncFailed.push(formatDate(date));
+      createdCount++;
+    }));
+    if (showProgress && toastEl) toastEl.textContent = `Blocking ${dates.length} dates… ${Math.min(i + BATCH_SIZE, toSync.length)}/${toSync.length}`;
   }
 
   closeModal('block-slot-modal');
