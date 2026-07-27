@@ -2228,6 +2228,37 @@ window.logoutUser = doLogout;
   if (appScreen) appScreen.style.display = 'none';
 })();
 
+// FIX: a rapid double/triple-click on "Confirm" (before the in-flight
+// guard in confirmBookingRequest existed) could create several LOCAL
+// booking records that all ended up with the identical generated
+// bookingId — the Sheet itself stayed correct (writes are serialized
+// through one server-side lock, so only the first insert became a new
+// row; the rest were harmless no-op updates to that same row), but this
+// device's own local copy was left with several duplicate-looking entries
+// for the same booking. This runs on every load and silently collapses
+// any bookingId that appears more than once down to a single record
+// (keeping the earliest-created one), so old duplicates from before the
+// guard existed get cleaned up automatically — never touches Sheet data.
+function _dedupeBookingsByBookingId() {
+  const list = window.DB.bookings || [];
+  if (!list.length) return;
+  const seen = new Map();
+  const keep = [];
+  let removedCount = 0;
+  for (const b of list) {
+    const key = b.bookingId;
+    if (!key) { keep.push(b); continue; } // never collapse a record with no bookingId to key on
+    if (seen.has(key)) { removedCount++; continue; }
+    seen.set(key, true);
+    keep.push(b);
+  }
+  if (removedCount > 0) {
+    window.DB.bookings = keep;
+    LS.set('bookings', keep);
+    console.warn(`[DD Turf Zone] Removed ${removedCount} duplicate local booking record(s) sharing an existing bookingId (rapid double-click on Confirm before the in-flight guard existed). Google Sheet data was not touched.`);
+  }
+}
+
 // ===== LOAD ALL DATA =====
 async function loadAllData() {
   // Read-only: copies whatever already exists in localStorage into memory.
@@ -2237,6 +2268,7 @@ async function loadAllData() {
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
+  _dedupeBookingsByBookingId();
   buildCustomers();
   populateFeeStudentSelect();
   populateFeeMonthFilter();
@@ -4853,11 +4885,31 @@ window.saveBlockSlot = async () => {
   // block being created right now, never a temporary/loop-local copy). A
   // conflict on one date skips only that date; every other date in the
   // range is still blocked. Nothing is rolled back or cancelled wholesale.
+  //
+  // Each date's Sheet sync is AWAITED here, one at a time, rather than
+  // fired off all at once. For a large range (30+ days) firing every sync
+  // simultaneously sends that many near-instant requests at Apps Script's
+  // single server-side lock (see Code.gs's doPost) — most end up waiting
+  // on each other or failing outright, and since the LOCAL save always
+  // succeeds instantly regardless, the calendar on THIS device looked
+  // completely fine while other devices/the public site silently never
+  // received a chunk of the range. Going one at a time is slower for a
+  // big range but means every date's Sheet write is confirmed (or clearly
+  // reported as queued/failed) before moving to the next.
   const seriesId = 'SER' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const createdBy = CURRENT_USER?.name || '';
   const skipped = [];
+  const syncFailed = [];
   let createdCount = 0;
-  for (const date of dates) {
+  const toastEl = document.getElementById('toast');
+  const showProgress = dates.length > 5;
+  if (showProgress && toastEl) {
+    toastEl.textContent = `Blocking ${dates.length} dates… 0/${dates.length}`;
+    toastEl.style.background = 'var(--blue)';
+    toastEl.style.display = 'block';
+  }
+  for (let i = 0; i < dates.length; i++) {
+    const date = dates[i];
     const bookingConflict = findOverlappingBooking(date, '', '', start, end, null);
     if (bookingConflict) { skipped.push(`${formatDate(date)} (already booked)`); continue; }
     const blockConflict = findBlockingConflict(date, start, end, null);
@@ -4866,14 +4918,18 @@ window.saveBlockSlot = async () => {
     const data = { date, start, end, reason, notes, createdBy, seriesId };
     const savedId = await saveDoc('blockedSlots', data, null);
     window.DB.blockedSlots.unshift({ ...data, id: savedId });
-    autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
+    const syncRes = await autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
+    if (syncRes && syncRes.ok === false && !syncRes.queued) syncFailed.push(formatDate(date));
     createdCount++;
+    if (showProgress && toastEl) toastEl.textContent = `Blocking ${dates.length} dates… ${i + 1}/${dates.length}`;
   }
 
   closeModal('block-slot-modal');
   renderBookingCalendar();
   if (!createdCount) {
     showToast(`⛔ No dates blocked — all ${dates.length} date(s) conflicted: ${skipped.slice(0, 3).join('; ')}${skipped.length > 3 ? ` (+${skipped.length - 3} more)` : ''}`, 'error');
+  } else if (syncFailed.length) {
+    showToast(`⚠️ ${createdCount} date(s) blocked locally, but ${syncFailed.length} failed to save to Google Sheets and were NOT queued for retry: ${syncFailed.slice(0,3).join(', ')}${syncFailed.length>3?` (+${syncFailed.length-3} more)`:''}. Please try blocking those dates again.`, 'error');
   } else if (skipped.length) {
     showToast(`${createdCount} date${createdCount === 1 ? '' : 's'} blocked successfully. Skipped ${skipped.length}: ${skipped.slice(0, 3).join('; ')}${skipped.length > 3 ? ` (+${skipped.length - 3} more)` : ''}`, 'info');
   } else {
