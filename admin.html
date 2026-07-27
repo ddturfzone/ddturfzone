@@ -1488,6 +1488,19 @@ tr:hover td{background:#f8fffe}
       </div>
     </div>
     <div style="font-size:11px;color:var(--gray3);margin-top:-6px;margin-bottom:10px" id="blk-range-hint">Leave To Date same as From Date for a single-day block, or pick a later date to block that time across every day in between.</div>
+    <div class="form-group" id="blk-weekday-wrap">
+      <label>Repeat only on these days <span style="font-weight:400;color:var(--gray3)">(optional)</span></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="0" style="width:15px;height:15px">Sun</label>
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="1" style="width:15px;height:15px">Mon</label>
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="2" style="width:15px;height:15px">Tue</label>
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="3" style="width:15px;height:15px">Wed</label>
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="4" style="width:15px;height:15px">Thu</label>
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="5" style="width:15px;height:15px">Fri</label>
+        <label style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--gray3);cursor:pointer"><input type="checkbox" class="blk-weekday-cb" value="6" style="width:15px;height:15px">Sat</label>
+      </div>
+      <div style="font-size:11px;color:var(--gray3);margin-top:4px">Leave all unchecked to block every day in the range. Check specific days for a recurring closing-hours schedule — e.g. tick Mon/Wed/Sat/Sun for a 5:30–7:00 AM closure, then create a second block for Tue/Sat 4–6 PM.</div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0">
       <div class="bk-time-box">
         <div style="font-size:10px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">▶ Start</div>
@@ -4799,6 +4812,8 @@ window.openBlockSlotModal = () => {
   document.getElementById('blk-series-apply-wrap').style.display = 'none';
   document.getElementById('blk-series-apply').checked = false;
   document.getElementById('blk-range-hint').style.display = '';
+  document.querySelectorAll('.blk-weekday-cb').forEach(cb => cb.checked = false);
+  document.getElementById('blk-weekday-wrap').style.display = '';
   syncTimeDisplays();
   openModal('block-slot-modal');
 };
@@ -4824,6 +4839,7 @@ window.editBlockSlot = (id) => {
   document.getElementById('blk-reason').value = bl.reason;
   document.getElementById('blk-notes').value = bl.notes || '';
   document.getElementById('blk-range-hint').style.display = 'none';
+  document.getElementById('blk-weekday-wrap').style.display = 'none';
 
   const isSeries = !!bl.seriesId;
   const seriesCount = isSeries ? window.DB.blockedSlots.filter(x => x.seriesId === bl.seriesId).length : 0;
@@ -4899,13 +4915,22 @@ window.saveBlockSlot = async () => {
     return;
   }
 
-  // ----- CREATING a new block (single date, or a date range/series) -----
-  const dates = datesInRange(fromDate, toDate);
-  if (!dates.length) { showToast('⛔ Invalid date range.', 'error'); return; }
+  // ----- CREATING a new block (single date, a date range, or a weekday-
+  // repeat schedule like "Mon/Wed/Sat/Sun 5:30-7:00 AM") -----
+  const selectedWeekdays = Array.from(document.querySelectorAll('.blk-weekday-cb:checked')).map(cb => parseInt(cb.value, 10));
+  let dates = datesInRange(fromDate, toDate);
+  if (selectedWeekdays.length) dates = dates.filter(d => selectedWeekdays.includes(new Date(d + 'T00:00:00').getDay()));
+  if (!dates.length) {
+    showToast(selectedWeekdays.length ? '⛔ No matching days in that range for the days you selected.' : '⛔ Invalid date range.', 'error');
+    return;
+  }
 
   // Single date: behaves like before — a conflict simply blocks the save,
-  // since there's nothing else in the request to fall back to.
-  if (dates.length === 1) {
+  // since there's nothing else in the request to fall back to. A weekday
+  // repeat always goes through the series/batch path below instead, even
+  // if only one date matches right now, so it keeps a seriesId and can be
+  // managed as a recurring schedule later.
+  if (dates.length === 1 && !selectedWeekdays.length) {
     const date = dates[0];
     const bookingConflict = findOverlappingBooking(date, '', '', start, end, null);
     if (bookingConflict) { showToast(`⛔ Cannot block: ${formatDate(date)} already booked by ${bookingConflict.name}`, 'error'); return; }
@@ -4916,10 +4941,15 @@ window.saveBlockSlot = async () => {
     const data = { date, start, end, reason, notes, createdBy };
     const savedId = await saveDoc('blockedSlots', data, null);
     window.DB.blockedSlots.unshift({ ...data, id: savedId });
-    autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
     closeModal('block-slot-modal');
     renderBookingCalendar();
-    showToast('Time slot blocked ✅');
+    updateSyncStatus('syncing');
+    const syncRes = await autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
+    if (syncRes && syncRes.ok === false && !syncRes.queued) {
+      showToast(`⚠️ Blocked locally, but failed to save to Google Sheets: ${syncRes.error || 'unknown error'}. The public site won't see this block until it's retried.`, 'error');
+    } else {
+      showToast('Time slot blocked ✅');
+    }
     return;
   }
 
