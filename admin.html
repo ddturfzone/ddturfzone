@@ -2728,9 +2728,34 @@ function formatDate(d) {
   if (!d) return '';
   return new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
 }
+// ROOT CAUSE FIX: reservation requests (window.DB.bookingRequests) store
+// start/end as "H:MM AM/PM" text — that's exactly what index.html sends,
+// and it's never converted. Bookings/blocked slots store 24h "HH:MM"
+// (from <input type="time">). This function used to assume 24h input
+// only, so calling it on a request's ALREADY-12h value (e.g. "6:00 PM")
+// silently produced garbled output like "6:NaN AM" — that's the exact
+// "reservation time gets lost/wrong" bug. Now handles both formats
+// correctly, with no change in behavior for the many existing 24h call
+// sites (bookings/blocked slots) elsewhere in this file.
+// Converts "H:MM AM/PM" (how reservation requests store a time) back to
+// "HH:MM" 24h (how every booking/blocked slot stores one) — the inverse
+// of formatTime()'s 12h passthrough, used only when confirmBookingRequest
+// turns a request into a real booking.
+function _to24hFromDisplay(t) {
+  if (!t) return '';
+  const m = String(t).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return t; // already 24h or unrecognized — pass through as-is
+  let h = parseInt(m[1], 10) % 12;
+  if (/pm/i.test(m[3])) h += 12;
+  return String(h).padStart(2, '0') + ':' + m[2];
+}
+
 function formatTime(t) {
   if (!t) return '';
-  const [h,m] = t.split(':').map(Number);
+  const s = String(t).trim();
+  const ampm = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampm) return `${parseInt(ampm[1],10)}:${ampm[2]} ${ampm[3].toUpperCase()}`; // already 12h — normalize casing/spacing only
+  const [h,m] = s.split(':').map(Number);
   return `${h%12||12}:${m.toString().padStart(2,'0')} ${h>=12?'PM':'AM'}`;
 }
 function isWeekend(dateStr) {
@@ -3172,9 +3197,27 @@ window.selectFrequentTimeSlot = (start, end) => {
 };
 
 // ===== SLOT OVERLAP DETECTION =====
+// ROOT CAUSE FIX: this is the core comparison used by findOverlappingBooking,
+// findBlockingConflict, and autoRejectConflictingRequests. It used to
+// assume strict 24h "HH:MM" numeric input, which silently produced NaN
+// whenever it was fed a reservation request's "H:MM AM/PM" time — and
+// since a NaN vs NaN comparison in JS is always false, EVERY conflict
+// check that touched a reservation request (confirming a request against
+// existing bookings/blocks, or auto-rejecting other pending requests for
+// the same slot) silently reported "no conflict" even when one existed.
+// This is now format-agnostic so both sides of any comparison resolve
+// correctly regardless of which collection the time came from.
 function _toMinutes(t) {
-  const [h, m] = (t || '0:0').split(':').map(Number);
-  return h * 60 + m;
+  if (!t) return 0;
+  const s = String(t).trim();
+  const ampm = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampm) {
+    let h = parseInt(ampm[1], 10) % 12;
+    if (/pm/i.test(ampm[3])) h += 12;
+    return h * 60 + parseInt(ampm[2], 10);
+  }
+  const [h, m] = s.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
 }
 function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
   let as = _toMinutes(aStart), ae = _toMinutes(aEnd);
@@ -4072,8 +4115,14 @@ window.confirmBookingRequest = async (id) => {
 
   const bookingId = generateBookingId();
   const total = Number(req.amount) || 0;
+  // Reservation requests store start/end as "H:MM AM/PM" (exactly what
+  // index.html sends); every other booking stores 24h "HH:MM" (from
+  // <input type="time">). Converting here keeps the resulting confirmed
+  // booking consistent with the rest of the bookings collection — without
+  // this, editing a confirmed-from-request booking later would show a
+  // blank time picker (a 12h value isn't valid for <input type="time">).
   const data = {
-    bookingId, name: req.name, phone: req.phone, date: req.date, start: req.start, end: req.end,
+    bookingId, name: req.name, phone: req.phone, date: req.date, start: _to24hFromDisplay(req.start), end: _to24hFromDisplay(req.end),
     sport: req.sport || '', ground, slot: 'Full Ground', duration: req.duration || '',
     total, advance: 0, pending: total, advanceAmount: 0, balanceAmountTotal: 0,
     payments: [], payment: 'Cash', balancePayment: null, balancePaidAt: null,
@@ -5568,11 +5617,27 @@ window.renderAccounts = () => {
 // ===== REPORTS — MONTHLY BOOKING & COLLECTION =====
 
 // ── Core hour calculator: exact minutes from HH:MM strings ──
+// Same format-agnostic fix as _toMinutes()/formatTime() above: this must
+// never silently produce NaN just because a booking's start/end happens
+// to be in "H:MM AM/PM" form instead of 24h "HH:MM" — that NaN is exactly
+// what turned into the dashboard's "NaNh" Available Slots Today card.
+function _timeStrToMinutes(t) {
+  if (!t) return null;
+  const s = String(t).trim();
+  const ampm = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampm) {
+    let h = parseInt(ampm[1], 10) % 12;
+    if (/pm/i.test(ampm[3])) h += 12;
+    return h * 60 + parseInt(ampm[2], 10);
+  }
+  const [h, m] = s.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
 function calcBookingHours(start, end) {
-  if (!start || !end) return 0;
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  const sMin = _timeStrToMinutes(start), eMin = _timeStrToMinutes(end);
+  if (sMin === null || eMin === null) return 0; // unrecognized/missing — contribute nothing rather than NaN
+  let mins = eMin - sMin;
   if (mins <= 0) mins += 1440; // crosses midnight
   return Math.round((mins / 60) * 100) / 100; // 2 decimal places
 }
