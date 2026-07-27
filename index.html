@@ -1313,8 +1313,10 @@
     document.querySelectorAll('.avail-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === _activeAvailPeriod));
     grid.innerHTML = `<div class="avail-loading">Loading ${_availSelectedDate}'s availability…</div>`;
     _setSyncStatus('loading');
-    _availSlotsCache = await fetchLiveSlotStatus(_availSelectedDate);
-    _availSlotsCacheNextDay = await fetchLiveSlotStatus(_nextDateStr(_availSelectedDate));
+    [_availSlotsCache, _availSlotsCacheNextDay] = await Promise.all([
+      fetchLiveSlotStatus(_availSelectedDate),
+      fetchLiveSlotStatus(_nextDateStr(_availSelectedDate))
+    ]);
     const visibleIndices = _indicesForPeriod(_activeAvailPeriod);
     _currentVisibleIndices = visibleIndices;
 
