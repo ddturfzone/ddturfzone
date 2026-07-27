@@ -3772,7 +3772,7 @@ function _notifyQueuedOffline() {
   }
 }
 
-async function queuedSync(payload) {
+async function queuedSync(payload, opts) {
   if (!window.DDTZ_SHEET_URL) return { ok: false, skipped: true };
   payload = { ...payload, syncId: payload.syncId || _genSyncId() };
   if (payload.type !== 'audit_log') logAudit(payload); // every real action gets an audit-trail entry, fire-and-forget
@@ -3793,7 +3793,7 @@ async function queuedSync(payload) {
       // server-side check. Retrying would just fail again forever, so
       // surface it now instead of silently queuing it.
       updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
-      if (res.conflict) {
+      if (res.conflict && !(opts && opts.silentConflict)) {
         showToast(`⛔ ${res.error} (This booking is saved on this device only — please resolve the conflict before relying on it.)`, 'error');
       }
       return res;
@@ -3872,7 +3872,7 @@ function logAudit(sourcePayload) {
   postToGoogleSheet(entry).then(res => { if (!res.ok && !res.skipped) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); } });
 }
 
-function autoSyncBooking(data) {
+function autoSyncBooking(data, opts) {
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
   if (!SHEET_URL) return;
   const payments = getBookingPayments(data);
@@ -3907,7 +3907,7 @@ function autoSyncBooking(data) {
     totalPaid: data.advance,
     createdBy: CURRENT_USER?.name || ''
   };
-  return queuedSync(payload);
+  return queuedSync(payload, opts);
 }
 
 // =====================================================================
@@ -4094,10 +4094,21 @@ function _groundForRequestSport(sport) {
   return 'Football Ground';
 }
 
+const _confirmingRequestIds = new Set();
 window.confirmBookingRequest = async (id) => {
   if (!can('confirmRequest')) { denyAccess('Only Admins and the Super Admin can confirm reservation requests.'); return; }
+  if (_confirmingRequestIds.has(id)) return; // already in flight — ignore a double-click
   const req = (window.DB.bookingRequests || []).find(r => r.id === id);
   if (!req || req.status !== 'PENDING') return;
+  _confirmingRequestIds.add(id);
+  try {
+    await _confirmBookingRequestInner(req, id);
+  } finally {
+    _confirmingRequestIds.delete(id);
+  }
+};
+
+async function _confirmBookingRequestInner(req, id) {
 
   const ground = req.ground || _groundForRequestSport(req.sport);
   // Authoritative re-check right before booking — the request may have sat
@@ -4134,7 +4145,26 @@ window.confirmBookingRequest = async (id) => {
   const newId = await saveDoc('bookings', data, null);
   data.id = newId;
   window.DB.bookings.unshift(data);
-  autoSyncBooking(data);
+
+  // Authoritative check: the LOCAL findOverlappingBooking/findBlockingConflict
+  // checks above only guard against what this device already knows about —
+  // another admin device could have booked or blocked the exact same slot
+  // moments ago and not synced here yet. The server (Code.gs) re-checks
+  // against the live Sheet under a lock before accepting the write, so we
+  // wait for that answer before treating this as truly confirmed.
+  const syncRes = await autoSyncBooking(data, { silentConflict: true });
+  if (syncRes && syncRes.ok === false && syncRes.conflict) {
+    // Roll back: the server is the source of truth and it said no —
+    // don't leave a phantom "confirmed" booking sitting only on this device.
+    window.DB.bookings = window.DB.bookings.filter(b => b.id !== newId);
+    LS.delete('bookings', newId);
+    renderBookingRequests();
+    renderBookings();
+    renderDashboard();
+    renderBookingCalendar();
+    showToast(`⛔ Could not confirm — ${syncRes.error || 'this slot was just taken on another device'}. Reject this request instead, or pick a different one.`, 'error');
+    return;
+  }
 
   const updatedReq = { ...req, status: 'CONFIRMED', bookingId, confirmedAt: new Date().toISOString(), confirmedBy: CURRENT_USER?.name || '' };
   await saveDoc('bookingRequests', updatedReq, req.id);
