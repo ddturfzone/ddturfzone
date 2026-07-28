@@ -4697,7 +4697,14 @@ window.installServerBackupTrigger = async () => {
   showToast('Installing daily backup trigger…', 'info');
   const res = await postToGoogleSheet({ type: 'install_backup_trigger' });
   if (!res.ok) return; // postToGoogleSheet already showed the error toast
-  showToast(res.result.alreadyExisted ? 'Daily trigger was already installed.' : '✅ Daily backup trigger installed — runs every day at 11:55 PM.');
+  const r = res.result || {};
+  if (r.needsManualSetup) {
+    // Not an error — just needs one manual, one-time step in the Apps
+    // Script editor (see r.message for exact instructions).
+    showToast(r.message || 'A one-time manual setup step is needed — see Code.gs for instructions.', 'error');
+  } else {
+    showToast(r.alreadyExisted ? 'Daily trigger was already installed.' : '✅ Daily backup trigger installed — runs every day at 11:55 PM.');
+  }
   refreshGasBackupPanel();
 };
 
@@ -4732,7 +4739,14 @@ window.deleteGasBackup = async (fileId) => {
   if (!confirm('Delete this server backup? This cannot be undone. (The most recent verified backup can never be deleted this way.)')) return;
   const res = await postToGoogleSheet({ type: 'delete_backup', fileId });
   if (!res.ok) return;
-  showToast('Server backup deleted.');
+  const r = res.result || {};
+  if (r.needsManualSetup) {
+    // Not deleted — Drive access needs a one-time authorization step (see
+    // r.message for exact instructions). Nothing was lost.
+    showToast(r.message || 'A one-time Drive authorization step is needed — see Code.gs for instructions.', 'error');
+  } else {
+    showToast('Server backup deleted.');
+  }
   refreshGasBackupPanel();
 };
 
