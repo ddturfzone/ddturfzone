@@ -686,6 +686,27 @@ tr:hover td{background:#f8fffe}
             <button class="btn btn-primary" onclick="openModal('expense-modal')">+ Add Expense</button>
           </div>
         </div>
+        <!-- Date range selector -->
+        <div style="background:white;border:1.5px solid var(--gray2);border-radius:14px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--gray3);margin-bottom:6px">From Date</div>
+            <input type="date" id="acc-from-date" style="padding:8px 12px;border:1.5px solid var(--gray2);border-radius:8px;font-size:14px;font-family:'Inter',sans-serif;outline:none">
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--gray3);margin-bottom:6px">To Date</div>
+            <input type="date" id="acc-to-date" style="padding:8px 12px;border:1.5px solid var(--gray2);border-radius:8px;font-size:14px;font-family:'Inter',sans-serif;outline:none">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="renderAccounts()">🔍 Apply</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="acctSetRange('today')">Today</button>
+            <button class="btn btn-secondary btn-sm" onclick="acctSetRange('week')">This Week</button>
+            <button class="btn btn-secondary btn-sm" onclick="acctSetRange('month')">This Month</button>
+            <button class="btn btn-secondary btn-sm" onclick="acctSetRange('lastMonth')">Last Month</button>
+            <button class="btn btn-secondary btn-sm" onclick="acctSetRange('all')">All Time</button>
+          </div>
+        </div>
+        <div id="acc-period-label" style="font-size:12px;color:var(--gray3);font-weight:600;margin-bottom:14px"></div>
+
         <div class="stats-grid" id="accounts-stats"></div>
         <div class="grid-2 mt-16">
           <div class="card">
@@ -5754,31 +5775,93 @@ window.deleteExpense = async (id) => {
   showToast('Expense deleted');
 };
 
+// Reads the Accounts page's From/To date inputs. If either is empty (e.g. on
+// first load), defaults both to the current calendar month and writes that
+// back into the inputs so the UI and the filter stay in sync.
+function getAccountsDateRange() {
+  const fromEl = document.getElementById('acc-from-date');
+  const toEl = document.getElementById('acc-to-date');
+  let from = fromEl.value, to = toEl.value;
+  if (!from || !to) {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    from = toLocalDateStr(first);
+    to = toLocalDateStr(last);
+    fromEl.value = from;
+    toEl.value = to;
+  }
+  // Guard against a reversed range (From after To) rather than silently
+  // returning zero rows — swap so the filter still makes sense.
+  if (from > to) { [from, to] = [to, from]; fromEl.value = from; toEl.value = to; }
+  return { from, to };
+}
+
+// Quick-preset buttons on the Accounts page. Sets both date inputs then
+// re-renders — 'all' spans from the earliest record on file to today so
+// nothing gets excluded.
+window.acctSetRange = (preset) => {
+  const now = new Date();
+  let from, to;
+  if (preset === 'today') {
+    from = to = toLocalDateStr(now);
+  } else if (preset === 'week') {
+    const day = now.getDay(); // 0=Sun
+    const monday = new Date(now); monday.setDate(now.getDate() - ((day + 6) % 7));
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    from = toLocalDateStr(monday); to = toLocalDateStr(sunday);
+  } else if (preset === 'month') {
+    from = toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    to = toLocalDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  } else if (preset === 'lastMonth') {
+    from = toLocalDateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    to = toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 0));
+  } else { // 'all'
+    const allDates = [
+      ...window.DB.expenses.map(e => e.date),
+      ...window.DB.bookings.map(b => b.date),
+      ...window.DB.fees.map(f => f.date)
+    ].filter(Boolean).sort();
+    from = allDates[0] || toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    to = toLocalDateStr(now);
+  }
+  document.getElementById('acc-from-date').value = from;
+  document.getElementById('acc-to-date').value = to;
+  renderAccounts();
+};
+
 window.renderAccounts = () => {
-  const month=getMonthStr();
-  const monthExp=window.DB.expenses.filter(e=>e.date?.startsWith(month));
-  const monthFees=window.DB.fees.filter(f=>{const m=new Date().toLocaleString('default',{month:'long'});return f.month===m;});
-  const monthBookings=window.DB.bookings.filter(b=>b.date?.startsWith(month));
-  const turfRev=monthBookings.reduce((s,b)=>s+b.total,0);
-  const coachRev=monthFees.reduce((s,f)=>s+f.paid,0);
-  const totalRev=turfRev+coachRev;
-  const totalExp=monthExp.reduce((s,e)=>s+e.amount,0);
-  const profit=totalRev-totalExp;
+  const { from, to } = getAccountsDateRange();
+  const inRange = (d) => d && d >= from && d <= to;
+
+  const rangeExp = window.DB.expenses.filter(e => inRange(e.date));
+  const rangeFees = window.DB.fees.filter(f => inRange(f.date));
+  const rangeBookings = window.DB.bookings.filter(b => b.status !== 'cancelled' && inRange(b.date));
+  const turfRev = rangeBookings.reduce((s,b) => s + (Number(b.total)||0), 0);
+  const coachRev = rangeFees.reduce((s,f) => s + (Number(f.paid)||0), 0);
+  const totalRev = turfRev + coachRev;
+  const totalExp = rangeExp.reduce((s,e) => s + (Number(e.amount)||0), 0);
+  const profit = totalRev - totalExp;
+
+  const sameDay = from === to;
+  document.getElementById('acc-period-label').textContent =
+    `Showing: ${formatDate(from)}${sameDay ? '' : ' – ' + formatDate(to)}`;
+
   document.getElementById('accounts-stats').innerHTML=`
-    <div class="stat-card green"><div class="stat-icon">📈</div><div class="stat-val">₹${totalRev.toLocaleString()}</div><div class="stat-label">Total Revenue (Month)</div></div>
-    <div class="stat-card red"><div class="stat-icon">📉</div><div class="stat-val">₹${totalExp.toLocaleString()}</div><div class="stat-label">Total Expenses (Month)</div></div>
-    <div class="stat-card ${profit>=0?'green':'red'}"><div class="stat-icon">💹</div><div class="stat-val">₹${Math.abs(profit).toLocaleString()}</div><div class="stat-label">${profit>=0?'Net Profit':'Net Loss'} (Month)</div></div>
+    <div class="stat-card green"><div class="stat-icon">📈</div><div class="stat-val">₹${totalRev.toLocaleString()}</div><div class="stat-label">Total Income</div></div>
+    <div class="stat-card red"><div class="stat-icon">📉</div><div class="stat-val">₹${totalExp.toLocaleString()}</div><div class="stat-label">Total Expenses</div></div>
+    <div class="stat-card ${profit>=0?'green':'red'}"><div class="stat-icon">💹</div><div class="stat-val">₹${Math.abs(profit).toLocaleString()}</div><div class="stat-label">${profit>=0?'Net Profit':'Net Loss'}</div></div>
     <div class="stat-card blue"><div class="stat-icon">🏟️</div><div class="stat-val">₹${turfRev.toLocaleString()}</div><div class="stat-label">Turf Revenue</div></div>
     <div class="stat-card purple"><div class="stat-icon">🎓</div><div class="stat-val">₹${coachRev.toLocaleString()}</div><div class="stat-label">Coaching Revenue</div></div>`;
 
   const tbody=document.getElementById('expenses-tbody');
-  tbody.innerHTML=window.DB.expenses.slice(0,20).map(e=>`<tr>
+  tbody.innerHTML=[...rangeExp].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>`<tr>
     <td style="text-transform:capitalize">${e.category}</td>
     <td style="font-weight:700;color:var(--red)">₹${e.amount.toLocaleString()}</td>
     <td>${formatDate(e.date)}</td>
     <td style="font-size:12px;color:var(--gray3)">${e.notes||'-'}</td>
     <td><button class="btn btn-danger btn-sm" onclick="deleteExpense('${e.id}')">🗑️</button></td>
-  </tr>`).join('') || '<tr><td colspan="5" class="text-center" style="color:var(--gray3)">No expenses recorded</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="5" class="text-center" style="color:var(--gray3)">No expenses in this period</td></tr>';
 
   document.getElementById('revenue-breakdown').innerHTML=`
     <div style="display:flex;flex-direction:column;gap:10px">
@@ -7207,10 +7290,12 @@ window.downloadCafeReportExcel = () => {
 window.downloadAccountsReportExcel = () => {
   if (!can('downloadExcel')) { denyAccess('Only the Super Admin can download Excel reports.'); return; }
   if (typeof XLSX === 'undefined') { showToast('Excel library failed to load — check your internet connection.', 'error'); return; }
-  const bookings = (window.DB.bookings || []).filter(b => b.status !== 'cancelled');
-  const fees = window.DB.fees || [];
-  const expenses = window.DB.expenses || [];
-  const cafeSales = window.DB.cafeSales || [];
+  const { from, to } = getAccountsDateRange();
+  const inRange = (d) => d && d >= from && d <= to;
+  const bookings = (window.DB.bookings || []).filter(b => b.status !== 'cancelled' && inRange(b.date));
+  const fees = (window.DB.fees || []).filter(f => inRange(f.date));
+  const expenses = (window.DB.expenses || []).filter(e => inRange(e.date));
+  const cafeSales = (window.DB.cafeSales || []).filter(c => inRange(c.date));
 
   const bkMethod = { Cash:0, GPay:0, Card:0, Other:0 };
   bookings.forEach(b => { const m = sumPaymentsByMethod(getBookingPayments(b)); Object.keys(bkMethod).forEach(k => bkMethod[k]+=m[k]); });
@@ -7219,7 +7304,7 @@ window.downloadAccountsReportExcel = () => {
   const totalExpenses = expenses.reduce((s,e) => s + (Number(e.amount)||0), 0);
 
   const summaryRows = [
-    ['DD Turf Zone - Accounts Report', getToday()],
+    ['DD Turf Zone - Accounts Report', `${from} to ${to}`],
     [],
     ['Category', 'Amount'],
     ['Turf Booking Collection', bkMethod.Cash + bkMethod.GPay + bkMethod.Card + bkMethod.Other],
