@@ -543,8 +543,9 @@ tr:hover td{background:#f8fffe}
             <div style="color:var(--gray3);font-size:13px">Football, Cricket & Taekwondo coaching</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="openCategoriesManager()">⚙️ Categories</button>
             <button class="btn btn-secondary" data-requires-action="downloadExcel" onclick="downloadCoachingReportExcel()">⬇️ Excel Report</button>
-            <button class="btn btn-primary" onclick="openModal('student-modal')">+ Add Student</button>
+            <button class="btn btn-primary" onclick="resetStudentForm();openModal('student-modal')">+ Add Student</button>
           </div>
         </div>
         <div class="filter-bar">
@@ -564,8 +565,8 @@ tr:hover td{background:#f8fffe}
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>ID</th><th>Name</th><th>Parent</th><th>Phone</th><th>Sport</th>
-              <th>Age</th><th>Joined</th><th>Monthly Fee</th><th>Status</th><th>Actions</th>
+              <th></th><th>ID</th><th>Name</th><th>Parent</th><th>Phone</th><th>Category</th>
+              <th>Batch</th><th>Coach</th><th>Admission</th><th>Fee</th><th>Status</th><th>Actions</th>
             </tr></thead>
             <tbody id="students-tbody"></tbody>
           </table>
@@ -1559,31 +1560,106 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- COACHING CATEGORIES MANAGER MODAL -->
+<div class="modal-overlay" id="categories-list-modal">
+  <div class="modal">
+    <div class="modal-title">⚙️ Coaching Categories</div>
+    <div style="font-size:12px;color:var(--gray3);margin-bottom:12px">Add new sports/coaching programs, or disable ones you no longer run. Disabling keeps existing students' history intact — it just hides the category from new enrolments.</div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-primary btn-sm" onclick="openCategoryModal()">+ Add Category</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Name</th><th>Students</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="categories-tbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('categories-list-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- CATEGORY ADD/EDIT MODAL -->
+<div class="modal-overlay" id="category-modal">
+  <div class="modal">
+    <div class="modal-title" id="category-modal-title">+ Add Coaching Category</div>
+    <input type="hidden" id="cat-id">
+    <div class="form-grid">
+      <div class="form-group"><label>Icon (emoji)</label><input type="text" id="cat-icon" placeholder="⚽" maxlength="4" style="width:70px;text-align:center;font-size:20px"></div>
+      <div class="form-group"><label>Category Name *</label><input type="text" id="cat-name" placeholder="e.g. Basketball"></div>
+      <div class="form-group"><label>Status</label>
+        <select id="cat-status"><option value="active">Active</option><option value="inactive">Disabled</option></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('category-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCategory()">💾 Save Category</button>
+    </div>
+  </div>
+</div>
+
 <!-- STUDENT MODAL -->
 <div class="modal-overlay" id="student-modal">
   <div class="modal">
     <div class="modal-title" id="student-modal-title">🎓 Add Student</div>
     <input type="hidden" id="st-id">
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">
+      <div style="position:relative">
+        <img id="st-photo-preview" src="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:var(--gray);display:none;border:2px solid var(--gray2)">
+        <div id="st-photo-placeholder" style="width:64px;height:64px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:24px">🎓</div>
+      </div>
+      <div>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer">📷 Upload Photo<input type="file" id="st-photo-input" accept="image/*" style="display:none" onchange="handleStudentPhotoUpload(event)"></label>
+        <div style="font-size:11px;color:var(--gray3);margin-top:4px">Optional — stored on this device only, kept small automatically</div>
+        <input type="hidden" id="st-photo">
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-size:11px;color:var(--gray3)">Student ID</div>
+        <code id="st-id-display" style="font-size:13px;font-weight:700;background:var(--gray);padding:3px 8px;border-radius:6px">Auto-generated on save</code>
+      </div>
+    </div>
     <div class="form-grid">
       <div class="form-group"><label>Student Name *</label><input type="text" id="st-name" placeholder="Full name"></div>
-      <div class="form-group"><label>Parent Name</label><input type="text" id="st-parent" placeholder="Parent/Guardian name"></div>
-      <div class="form-group"><label>Phone *</label><input type="tel" id="st-phone" placeholder="+91 99999 99999"></div>
-      <div class="form-group"><label>Age</label><input type="number" id="st-age" placeholder="Age"></div>
-      <div class="form-group"><label>Date of Birth</label><input type="date" id="st-dob"></div>
-      <div class="form-group"><label>Sport *</label>
+      <div class="form-group"><label>Coaching Category *</label>
         <select id="st-sport">
           <option value="football">⚽ Football</option>
           <option value="cricket">🏏 Cricket</option>
           <option value="taekwondo">🥋 Taekwondo</option>
         </select>
       </div>
-      <div class="form-group"><label>Joining Date</label><input type="date" id="st-joined"></div>
-      <div class="form-group"><label>Monthly Fee (₹) *</label><input type="number" id="st-fee" placeholder="e.g. 1500"></div>
-      <div class="form-group"><label>Assigned Coach</label><input type="text" id="st-coach" placeholder="Coach name"></div>
+      <div class="form-group"><label>Father / Guardian Name</label><input type="text" id="st-parent" placeholder="Father/Guardian name"></div>
+      <div class="form-group"><label>Mother Name</label><input type="text" id="st-mother" placeholder="Mother's name"></div>
+      <div class="form-group"><label>Mobile Number *</label><input type="tel" id="st-phone" placeholder="+91 99999 99999"></div>
+      <div class="form-group"><label>Alternate Mobile</label><input type="tel" id="st-altphone" placeholder="Alternate contact"></div>
+      <div class="form-group"><label>Email Address</label><input type="email" id="st-email" placeholder="email@example.com"></div>
+      <div class="form-group"><label>Date of Birth</label><input type="date" id="st-dob" onchange="autoCalcStudentAge()"></div>
+      <div class="form-group"><label>Age</label><input type="number" id="st-age" placeholder="Age"></div>
+      <div class="form-group"><label>Gender</label>
+        <select id="st-gender"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
+      </div>
+      <div class="form-group"><label>Blood Group</label>
+        <select id="st-blood"><option value="">Select</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>
+      </div>
+      <div class="form-group"><label>School / College</label><input type="text" id="st-school" placeholder="School or college name"></div>
+      <div class="form-group"><label>Emergency Contact</label><input type="tel" id="st-emergency" placeholder="Name & number"></div>
+      <div class="form-group"><label>Admission Date</label><input type="date" id="st-joined"></div>
+      <div class="form-group"><label>Batch</label><input type="text" id="st-batch" placeholder="e.g. Evening Batch A"></div>
+      <div class="form-group"><label>Coach / Trainer</label><input type="text" id="st-coach" placeholder="Coach name"></div>
+      <div class="form-group"><label>Fee Structure *</label>
+        <select id="st-fee-structure" onchange="toggleStudentFeeFields()">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+      </div>
+      <div class="form-group" id="st-fee-monthly-wrap"><label>Monthly Fee (₹) *</label><input type="number" id="st-fee" placeholder="e.g. 1500"></div>
+      <div class="form-group" id="st-fee-quarterly-wrap" style="display:none"><label>Quarterly Fee (₹) *</label><input type="number" id="st-qfee" placeholder="e.g. 4000"></div>
       <div class="form-group"><label>Status</label>
         <select id="st-status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
       </div>
       <div class="form-group full"><label>Address</label><textarea id="st-address" rows="2" placeholder="Address"></textarea></div>
+      <div class="form-group full"><label>Medical Notes</label><textarea id="st-medical" rows="2" placeholder="Allergies, conditions, medication, etc. (optional)"></textarea></div>
+      <div class="form-group full"><label>Remarks</label><textarea id="st-remarks" rows="2" placeholder="Any other notes"></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('student-modal')">Cancel</button>
@@ -1599,9 +1675,15 @@ tr:hover td{background:#f8fffe}
     <input type="hidden" id="fee-id">
     <div class="form-grid">
       <div class="form-group full"><label>Student *</label>
-        <select id="fee-student-select"></select>
+        <select id="fee-student-select" onchange="onFeeStudentChange()"></select>
       </div>
-      <div class="form-group"><label>Month *</label>
+      <div class="form-group"><label>Fee Type *</label>
+        <select id="fee-type-select" onchange="toggleFeeTypeFields()">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+      </div>
+      <div class="form-group" id="fee-month-wrap"><label>Month *</label>
         <select id="fee-month-select">
           <option value="January">January</option><option value="February">February</option>
           <option value="March">March</option><option value="April">April</option>
@@ -1609,6 +1691,14 @@ tr:hover td{background:#f8fffe}
           <option value="July">July</option><option value="August">August</option>
           <option value="September">September</option><option value="October">October</option>
           <option value="November">November</option><option value="December">December</option>
+        </select>
+      </div>
+      <div class="form-group" id="fee-quarter-wrap" style="display:none"><label>Quarter *</label>
+        <select id="fee-quarter-select">
+          <option value="Q1">Quarter 1 (Jan–Mar)</option>
+          <option value="Q2">Quarter 2 (Apr–Jun)</option>
+          <option value="Q3">Quarter 3 (Jul–Sep)</option>
+          <option value="Q4">Quarter 4 (Oct–Dec)</option>
         </select>
       </div>
       <div class="form-group"><label>Year</label><input type="number" id="fee-year" value="2025"></div>
@@ -1751,7 +1841,7 @@ tr:hover td{background:#f8fffe}
 // depends on this single URL being stable.
 const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZEOJliAUvz3bOAD804cdFYIKsIF1q0gu0xltintwonoigfrkMcAxAsEhRnEjYsaP/exec';
 
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -2298,10 +2388,12 @@ async function loadAllData() {
   // Read-only: copies whatever already exists in localStorage into memory.
   // Must never write a default/empty dataset here — see the DATA
   // PRESERVATION POLICY banner above the LS helper.
-  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests'];
+  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories'];
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
+  _seedDefaultCoachingCategoriesOnce();
+  refreshCategoryDropdowns();
   _dedupeBookingsByBookingId();
   buildCustomers();
   populateFeeStudentSelect();
@@ -2318,6 +2410,149 @@ async function loadAllData() {
   // this one was last online — see syncBookingsAndBlocksFromSheet() below.
   syncBookingsAndBlocksFromSheet();
 }
+
+// ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
+// Seeds the three categories DD Turf Zone already runs (Football, Cricket,
+// Taekwondo) exactly ONCE, ever — guarded by its own flag, never by
+// "is the collection empty", so if the admin later deletes all categories
+// on purpose this will not silently bring them back on the next reload.
+function _seedDefaultCoachingCategoriesOnce() {
+  try {
+    if (localStorage.getItem('ddtz_categories_seeded') === '1') return;
+    if (!window.DB.coachingCategories.length) {
+      const defaults = [
+        { name: 'Football', slug: 'football', icon: '⚽', status: 'active' },
+        { name: 'Cricket', slug: 'cricket', icon: '🏏', status: 'active' },
+        { name: 'Taekwondo', slug: 'taekwondo', icon: '🥋', status: 'active' }
+      ];
+      defaults.forEach(d => {
+        const id = LS.add('coachingCategories', d);
+        window.DB.coachingCategories.push({ ...d, id });
+      });
+    }
+    localStorage.setItem('ddtz_categories_seeded', '1');
+  } catch (e) {}
+}
+function slugifyCategory(name) {
+  return String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '') || ('cat' + Date.now());
+}
+// includeInactive=true for filters/reports (so a disabled category's existing
+// students/history stay visible); false for enrolment-type dropdowns (you
+// shouldn't be able to sign a NEW student up under a disabled category).
+function getCoachingCategories(includeInactive = false) {
+  const list = window.DB.coachingCategories || [];
+  return includeInactive ? list : list.filter(c => c.status !== 'inactive');
+}
+function categoryIcon(slug) { return (window.DB.coachingCategories||[]).find(c=>c.slug===slug)?.icon || '🏅'; }
+function categoryLabel(slug) {
+  const c = (window.DB.coachingCategories||[]).find(c=>c.slug===slug);
+  return c ? `${c.icon} ${c.name}` : slug;
+}
+function _fillCategorySelect(el, { includeAll=false, includeTurf=false, includeInactive=false, keepCurrent=true } = {}) {
+  if (!el) return;
+  const current = el.value;
+  const cats = getCoachingCategories(includeInactive);
+  let html = includeAll ? `<option value="">All Sports</option>` : '';
+  html += cats.map(c => `<option value="${c.slug}">${c.icon} ${c.name}</option>`).join('');
+  if (includeTurf) html += `<option value="turf">🏟️ Turf Booking</option>`;
+  el.innerHTML = html;
+  if (keepCurrent && current) {
+    // If the previously-selected value (e.g. a disabled category on an
+    // existing student being edited) isn't in the fresh list, add it back
+    // so editing doesn't silently reassign the student to a different sport.
+    if (![...el.options].some(o => o.value === current)) {
+      const stale = (window.DB.coachingCategories||[]).find(c => c.slug === current);
+      const opt = document.createElement('option');
+      opt.value = current;
+      opt.textContent = stale ? `${stale.icon} ${stale.name} (disabled)` : current;
+      el.appendChild(opt);
+    }
+    el.value = current;
+  }
+}
+// Re-renders every sport/category <select> in the app from the current
+// coachingCategories list. Called on load and after any category add/
+// edit/delete/toggle so every dropdown stays in sync immediately.
+window.refreshCategoryDropdowns = () => {
+  _fillCategorySelect(document.getElementById('student-sport-filter'), { includeAll: true, includeInactive: true });
+  _fillCategorySelect(document.getElementById('att-sport'), {});
+  _fillCategorySelect(document.getElementById('st-sport'), {});
+  _fillCategorySelect(document.getElementById('co-sport'), {});
+  _fillCategorySelect(document.getElementById('enq-sport'), { includeTurf: true });
+};
+
+// ----- Category CRUD -----
+window.openCategoriesManager = () => { renderCategoriesManagerList(); openModal('categories-list-modal'); };
+window.renderCategoriesManagerList = () => {
+  const tbody = document.getElementById('categories-tbody');
+  if (!tbody) return;
+  const list = window.DB.coachingCategories || [];
+  tbody.innerHTML = list.map(c => {
+    const studentCount = window.DB.students.filter(s => s.sport === c.slug).length;
+    return `<tr>
+      <td style="font-size:20px">${c.icon}</td>
+      <td style="font-weight:600">${c.name}</td>
+      <td style="color:var(--gray3);font-size:12px">${studentCount} student${studentCount===1?'':'s'}</td>
+      <td>${c.status==='inactive' ? '<span class="badge badge-gray">Disabled</span>' : '<span class="badge badge-green">Active</span>'}</td>
+      <td><div style="display:flex;gap:4px">
+        <button class="btn btn-info btn-sm" onclick="openCategoryModal('${c.id}')">✏️</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleCategoryStatus('${c.id}')">${c.status==='inactive'?'✅ Enable':'🚫 Disable'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCategory('${c.id}')">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" class="text-center" style="color:var(--gray3)">No categories yet</td></tr>`;
+};
+window.openCategoryModal = (id=null) => {
+  const cat = id ? window.DB.coachingCategories.find(c=>c.id===id) : null;
+  document.getElementById('cat-id').value = cat?.id || '';
+  document.getElementById('cat-name').value = cat?.name || '';
+  document.getElementById('cat-icon').value = cat?.icon || '🏅';
+  document.getElementById('cat-status').value = cat?.status || 'active';
+  document.getElementById('category-modal-title').textContent = cat ? '✏️ Edit Category' : '+ Add Coaching Category';
+  openModal('category-modal');
+};
+window.saveCategory = async () => {
+  const name = document.getElementById('cat-name').value.trim();
+  if (!name) { showToast('Enter a category name', 'error'); return; }
+  const icon = document.getElementById('cat-icon').value.trim() || '🏅';
+  const status = document.getElementById('cat-status').value;
+  const existId = document.getElementById('cat-id').value;
+  let slug;
+  if (existId) {
+    slug = window.DB.coachingCategories.find(c=>c.id===existId)?.slug || slugifyCategory(name);
+  } else {
+    slug = slugifyCategory(name);
+    if (window.DB.coachingCategories.some(c=>c.slug===slug)) { showToast('A category with a similar name already exists', 'error'); return; }
+  }
+  const data = { name, icon, slug, status };
+  const id = await saveDoc('coachingCategories', data, existId||null);
+  if (!existId) { data.id=id; window.DB.coachingCategories.unshift(data); }
+  else { const idx=window.DB.coachingCategories.findIndex(x=>x.id===existId); if(idx>=0) window.DB.coachingCategories[idx]={...data,id:existId}; }
+  closeModal('category-modal');
+  renderCategoriesManagerList();
+  refreshCategoryDropdowns();
+  showToast('Category saved ✅');
+};
+window.toggleCategoryStatus = async (id) => {
+  const cat = window.DB.coachingCategories.find(c=>c.id===id); if (!cat) return;
+  const newStatus = cat.status==='inactive' ? 'active' : 'inactive';
+  await saveDoc('coachingCategories', {...cat, status:newStatus}, id);
+  cat.status = newStatus;
+  renderCategoriesManagerList();
+  refreshCategoryDropdowns();
+  showToast(`Category ${newStatus==='active'?'enabled':'disabled'}`);
+};
+window.deleteCategory = async (id) => {
+  const cat = window.DB.coachingCategories.find(c=>c.id===id); if (!cat) return;
+  const inUse = window.DB.students.some(s=>s.sport===cat.slug);
+  if (inUse) { showToast('Students are enrolled under this category — disable it instead of deleting.', 'error'); return; }
+  if (!confirm(`Delete the "${cat.name}" category?`)) return;
+  await deleteDoc2('coachingCategories', id);
+  window.DB.coachingCategories = window.DB.coachingCategories.filter(c=>c.id!==id);
+  renderCategoriesManagerList();
+  refreshCategoryDropdowns();
+  showToast('Category deleted');
+};
 
 // Appends a record to a localStorage collection while KEEPING the id it
 // already has, instead of minting a new one via LS.add(). Only safe/used
@@ -4365,7 +4600,9 @@ function autoSyncFee(fee) {
     studentId: fee.studentId,
     studentName: fee.studentName,
     sport: fee.sport,
+    feeType: fee.feeType || 'monthly',
     month: fee.month,
+    quarter: fee.quarter || '',
     year: fee.year,
     amount: fee.amount,
     paid: fee.paid,
@@ -4415,10 +4652,24 @@ function autoSyncStudent(student, action) {
     studentId: student.studentId || student.id,
     studentName: student.name || '',
     phone: student.phone || '',
+    altPhone: student.altPhone || '',
+    email: student.email || '',
+    guardian: student.parent || '',
+    mother: student.mother || '',
+    gender: student.gender || '',
+    dob: student.dob || '',
+    bloodGroup: student.bloodGroup || '',
+    school: student.school || '',
+    emergencyContact: student.emergencyContact || '',
     sport: student.sport || '',
-    batch: student.coach || '',  // no separate "batch" field exists yet — coach/group is the closest equivalent
+    batch: student.batch || student.coach || '',
+    coach: student.coach || '',
+    feeStructure: student.feeStructure || 'monthly',
     fees: student.fee || 0,
+    quarterlyFees: student.qfee || 0,
     joiningDate: student.joined || '',
+    medicalNotes: student.medicalNotes || '',
+    remarks: student.remarks || '',
     status: student.status || ''
   };
   return queuedSync(payload);
@@ -5315,23 +5566,45 @@ window.renderCustomers = () => {
 window.saveStudent = async () => {
   const name=document.getElementById('st-name').value.trim();
   const phone=document.getElementById('st-phone').value.trim();
+  const feeStructure=document.getElementById('st-fee-structure').value;
   const fee=document.getElementById('st-fee').value;
-  if (!name||!phone||!fee) { showToast('Fill required fields','error'); return; }
+  const qfee=document.getElementById('st-qfee').value;
+  if (!name||!phone) { showToast('Fill required fields','error'); return; }
+  if (feeStructure==='monthly' && !fee) { showToast('Enter the monthly fee','error'); return; }
+  if (feeStructure==='quarterly' && !qfee) { showToast('Enter the quarterly fee','error'); return; }
   const data = {
-    name, phone, fee:Number(fee),
+    name, phone,
+    fee:Number(fee)||0,
+    qfee:Number(qfee)||0,
+    feeStructure,
     parent: document.getElementById('st-parent').value,
+    mother: document.getElementById('st-mother').value,
+    altPhone: document.getElementById('st-altphone').value,
+    email: document.getElementById('st-email').value,
     age: document.getElementById('st-age').value,
     dob: document.getElementById('st-dob').value,
+    gender: document.getElementById('st-gender').value,
+    bloodGroup: document.getElementById('st-blood').value,
+    school: document.getElementById('st-school').value,
+    emergencyContact: document.getElementById('st-emergency').value,
     sport: document.getElementById('st-sport').value,
     joined: document.getElementById('st-joined').value||getToday(),
+    batch: document.getElementById('st-batch').value,
     coach: document.getElementById('st-coach').value,
     status: document.getElementById('st-status').value,
     address: document.getElementById('st-address').value,
-    studentId: 'ST'+Date.now().toString().slice(-6)
+    medicalNotes: document.getElementById('st-medical').value,
+    remarks: document.getElementById('st-remarks').value,
+    photo: document.getElementById('st-photo').value || ''
   };
   const existId=document.getElementById('st-id').value;
+  // Student ID = the record's own sequential id (e.g. CO0001XYZ, already
+  // minted once by saveDoc/LS.add on first creation). No separate ID is
+  // generated here — the old code minted a brand-new "ST<timestamp>" value
+  // on every single edit, silently reassigning the student's ID each time.
+  if (existId) data.studentId = window.DB.students.find(x=>x.id===existId)?.studentId || existId;
   const id=await saveDoc('students',data,existId||null);
-  if(!existId){data.id=id;window.DB.students.unshift(data);}
+  if(!existId){data.studentId=id;data.id=id;window.DB.students.unshift(data);}
   else{const idx=window.DB.students.findIndex(x=>x.id===existId);if(idx>=0)window.DB.students[idx]={...data,id:existId};}
   autoSyncStudent(data, existId ? 'update' : 'create');
   closeModal('student-modal');
@@ -5342,12 +5615,66 @@ window.saveStudent = async () => {
   showToast('Student saved! ✅');
 };
 
+function toggleStudentFeeFields(){
+  const structure = document.getElementById('st-fee-structure').value;
+  document.getElementById('st-fee-monthly-wrap').style.display = structure==='monthly' ? '' : 'none';
+  document.getElementById('st-fee-quarterly-wrap').style.display = structure==='quarterly' ? '' : 'none';
+}
+
+window.autoCalcStudentAge = () => {
+  const dob = document.getElementById('st-dob').value;
+  if (!dob) return;
+  const birth = new Date(dob), today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m===0 && today.getDate() < birth.getDate())) age--;
+  if (age >= 0 && age < 100) document.getElementById('st-age').value = age;
+};
+
+// Resizes/compresses the photo client-side before storing as base64 —
+// localStorage has a hard ~5-10MB ceiling shared with every other
+// collection in the app, so an unresized phone photo (often 3-5MB) could
+// blow through that in a handful of admissions. Capped to ~240px wide
+// JPEG @ 70% quality, which lands well under 30KB per student in practice.
+window.handleStudentPhotoUpload = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Please choose an image file', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 240;
+      const scale = Math.min(1, maxW / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('st-photo').value = dataUrl;
+      const preview = document.getElementById('st-photo-preview');
+      preview.src = dataUrl;
+      preview.style.display = '';
+      document.getElementById('st-photo-placeholder').style.display = 'none';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+};
+
 function resetStudentForm(){
-  ['st-id','st-name','st-parent','st-phone','st-age','st-coach','st-address'].forEach(id=>document.getElementById(id).value='');
+  ['st-id','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-coach','st-batch','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('st-dob').value='';
   document.getElementById('st-joined').valueAsDate=new Date();
-  document.getElementById('st-fee').value='';
+  document.getElementById('st-gender').value='';
+  document.getElementById('st-blood').value='';
+  document.getElementById('st-fee-structure').value='monthly';
+  toggleStudentFeeFields();
   document.getElementById('st-status').value='active';
+  document.getElementById('st-id-display').textContent='Auto-generated on save';
+  document.getElementById('st-photo-preview').style.display='none';
+  document.getElementById('st-photo-placeholder').style.display='';
   document.getElementById('student-modal-title').textContent='🎓 Add Student';
 }
 
@@ -5356,15 +5683,41 @@ window.editStudent = (id) => {
   document.getElementById('st-id').value=s.id;
   document.getElementById('st-name').value=s.name;
   document.getElementById('st-parent').value=s.parent||'';
+  document.getElementById('st-mother').value=s.mother||'';
   document.getElementById('st-phone').value=s.phone;
+  document.getElementById('st-altphone').value=s.altPhone||'';
+  document.getElementById('st-email').value=s.email||'';
   document.getElementById('st-age').value=s.age||'';
   document.getElementById('st-dob').value=s.dob||'';
+  document.getElementById('st-gender').value=s.gender||'';
+  document.getElementById('st-blood').value=s.bloodGroup||'';
+  document.getElementById('st-school').value=s.school||'';
+  document.getElementById('st-emergency').value=s.emergencyContact||'';
+  _fillCategorySelect(document.getElementById('st-sport'), { includeInactive:false });
   document.getElementById('st-sport').value=s.sport;
+  if (document.getElementById('st-sport').value !== s.sport) {
+    // sport is a disabled/removed category — add it back so we don't silently reassign
+    const opt = document.createElement('option');
+    opt.value = s.sport; opt.textContent = categoryLabel(s.sport) + ' (disabled)';
+    document.getElementById('st-sport').appendChild(opt);
+    document.getElementById('st-sport').value = s.sport;
+  }
   document.getElementById('st-joined').value=s.joined||'';
-  document.getElementById('st-fee').value=s.fee;
+  document.getElementById('st-batch').value=s.batch||'';
+  document.getElementById('st-fee-structure').value=s.feeStructure||'monthly';
+  toggleStudentFeeFields();
+  document.getElementById('st-fee').value=s.fee||'';
+  document.getElementById('st-qfee').value=s.qfee||'';
   document.getElementById('st-coach').value=s.coach||'';
   document.getElementById('st-status').value=s.status;
   document.getElementById('st-address').value=s.address||'';
+  document.getElementById('st-medical').value=s.medicalNotes||'';
+  document.getElementById('st-remarks').value=s.remarks||'';
+  document.getElementById('st-photo').value=s.photo||'';
+  const preview = document.getElementById('st-photo-preview');
+  if (s.photo) { preview.src=s.photo; preview.style.display=''; document.getElementById('st-photo-placeholder').style.display='none'; }
+  else { preview.style.display='none'; document.getElementById('st-photo-placeholder').style.display=''; }
+  document.getElementById('st-id-display').textContent = s.studentId || s.id;
   document.getElementById('student-modal-title').textContent='✏️ Edit Student';
   openModal('student-modal');
 };
@@ -5384,28 +5737,34 @@ window.renderStudents = () => {
   const sport=document.getElementById('student-sport-filter')?.value||'';
   const status=document.getElementById('student-status-filter')?.value||'';
   const list=window.DB.students.filter(s=>{
-    const ms=!search||s.name.toLowerCase().includes(search)||s.phone.includes(search);
+    const ms=!search||s.name.toLowerCase().includes(search)||s.phone.includes(search)||(s.studentId||s.id||'').toLowerCase().includes(search)||(s.batch||'').toLowerCase().includes(search)||(s.coach||'').toLowerCase().includes(search);
     const msp=!sport||s.sport===sport;
     const mst=!status||s.status===status;
     return ms&&msp&&mst;
   });
   const tbody=document.getElementById('students-tbody');
-  if(!list.length){tbody.innerHTML=`<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">🎓</div><p>No students yet. Add your first student!</p></div></td></tr>`;return;}
-  tbody.innerHTML=list.map(s=>`<tr>
-    <td><code style="font-size:11px;background:var(--gray);padding:2px 6px;border-radius:4px">${s.studentId||s.id?.substring(0,6)}</code></td>
+  if(!list.length){tbody.innerHTML=`<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">🎓</div><p>No students yet. Add your first student!</p></div></td></tr>`;return;}
+  tbody.innerHTML=list.map(s=>{
+    const feeLabel = s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`;
+    const photoCell = s.photo ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">` : `<div style="width:32px;height:32px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:14px">🎓</div>`;
+    return `<tr>
+    <td>${photoCell}</td>
+    <td><code style="font-size:11px;background:var(--gray);padding:2px 6px;border-radius:4px">${s.studentId||s.id}</code></td>
     <td><div style="font-weight:600">${s.name}</div></td>
     <td style="color:var(--gray3)">${s.parent||'-'}</td>
     <td>${s.phone}</td>
     <td>${sportBadge(s.sport)}</td>
-    <td>${s.age||'-'}</td>
+    <td>${s.batch||'-'}</td>
+    <td>${s.coach||'-'}</td>
     <td>${formatDate(s.joined)}</td>
-    <td style="font-weight:700;color:var(--green)">₹${s.fee}/mo</td>
+    <td style="font-weight:700;color:var(--green)">${feeLabel}</td>
     <td>${statusBadge(s.status)}</td>
     <td><div style="display:flex;gap:4px">
       <button class="btn btn-info btn-sm" onclick="editStudent('${s.id}')">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="deleteStudent('${s.id}')">🗑️</button>
     </div></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 };
 
 // ===== ATTENDANCE =====
@@ -5534,7 +5893,25 @@ window.saveAttendance = async () => {
 // ===== FEES =====
 function populateFeeStudentSelect(){
   const sel=document.getElementById('fee-student-select');
-  sel.innerHTML=window.DB.students.map(s=>`<option value="${s.id}" data-fee="${s.fee}" data-sport="${s.sport}">${s.name} (${s.sport}) — ₹${s.fee}/mo</option>`).join('');
+  sel.innerHTML=window.DB.students.map(s=>`<option value="${s.id}" data-fee="${s.fee||0}" data-qfee="${s.qfee||0}" data-structure="${s.feeStructure||'monthly'}" data-sport="${s.sport}">${s.name} (${s.sport}) — ${s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`}</option>`).join('');
+  onFeeStudentChange();
+}
+// Prefills Fee Type + Fee Amount from the selected student's own fee
+// structure, so the common case (collecting exactly what they owe) needs
+// no manual entry — amount stays editable for one-off adjustments.
+window.onFeeStudentChange = () => {
+  const opt = document.getElementById('fee-student-select')?.selectedOptions?.[0];
+  if (!opt) return;
+  const structure = opt.dataset.structure || 'monthly';
+  document.getElementById('fee-type-select').value = structure;
+  toggleFeeTypeFields();
+  document.getElementById('fee-amount').value = structure==='quarterly' ? (opt.dataset.qfee||0) : (opt.dataset.fee||0);
+  calcFeePending();
+};
+function toggleFeeTypeFields(){
+  const type = document.getElementById('fee-type-select').value;
+  document.getElementById('fee-month-wrap').style.display = type==='monthly' ? '' : 'none';
+  document.getElementById('fee-quarter-wrap').style.display = type==='quarterly' ? '' : 'none';
 }
 function populateFeeMonthFilter(){
   const sel=document.getElementById('fee-month-filter');
@@ -5553,9 +5930,12 @@ window.saveFee = async (sendWA=false) => {
   const amount=Number(document.getElementById('fee-amount').value)||0;
   const paid=Number(document.getElementById('fee-paid').value)||0;
   if(!amount||!paid){showToast('Fill fee and paid amount','error');return;}
+  const feeType=document.getElementById('fee-type-select').value;
   const data = {
     studentId:stId, studentName:st.name, sport:st.sport,
-    month:document.getElementById('fee-month-select').value,
+    feeType,
+    month:feeType==='monthly' ? document.getElementById('fee-month-select').value : '',
+    quarter:feeType==='quarterly' ? document.getElementById('fee-quarter-select').value : '',
     year:document.getElementById('fee-year').value,
     amount, paid, pending:amount-paid,
     paymentMethod:document.getElementById('fee-payment-method').value,
@@ -5583,7 +5963,7 @@ window.saveFee = async (sendWA=false) => {
       '',
       `Student : ${st.name}`,
       `Sport   : ${st.sport.charAt(0).toUpperCase()+st.sport.slice(1)} Coaching`,
-      `Month   : ${data.month} ${data.year}`,
+      `Period  : ${feeType==='quarterly' ? data.quarter : data.month} ${data.year}`,
       `Fee     : ₹${amount.toLocaleString('en-IN')}`,
       `Paid    : ₹${paid.toLocaleString('en-IN')}`,
       `Pending : ₹${Math.max(0, amount-paid).toLocaleString('en-IN')}`,
@@ -5624,7 +6004,7 @@ window.renderFees = () => {
   tbody.innerHTML=list.map(f=>`<tr>
     <td style="font-weight:600">${f.studentName}</td>
     <td>${sportBadge(f.sport)}</td>
-    <td>${f.month} ${f.year}</td>
+    <td>${f.feeType==='quarterly' ? (f.quarter||'') : (f.month||'')} ${f.year}</td>
     <td>₹${f.amount}</td>
     <td style="color:var(--green);font-weight:700">₹${f.paid}</td>
     <td style="color:${f.pending>0?'var(--red)':'var(--green)'};font-weight:700">₹${f.pending}</td>
