@@ -1059,6 +1059,149 @@ tr:hover td{background:#f8fffe}
         </div>
 
         <div class="card mb-16" style="margin-bottom:16px">
+          <div class="card-title">🔄 Sync Status Dashboard</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Google Sheets</div>
+              <div id="sync-dash-sheet" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Apps Script</div>
+              <div id="sync-dash-script" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Internet</div>
+              <div id="sync-dash-internet" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Pending Records</div>
+              <div id="sync-dash-pending" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px;grid-column:span 2">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Last Successful Sync</div>
+              <div id="sync-dash-lastsync" style="font-size:13px;font-weight:600">—</div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="manualSyncNow()">🔄 Sync Now</button>
+          <button class="btn btn-secondary btn-sm" onclick="testSheetConnection()">🔌 Test Connection</button>
+          <div style="margin-top:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--gray3);margin-bottom:6px">Recent Sync Errors</div>
+            <div id="sync-dash-errors" style="font-size:12px;color:var(--gray3)">No recent errors.</div>
+          </div>
+        </div>
+
+        <div class="card mb-16" style="margin-bottom:16px">
+          <div class="card-title">🛡️ Backup &amp; Recovery</div>
+          <div style="font-size:12px;color:var(--gray3);margin-bottom:10px">
+            Bookings save locally first and always succeed even if the internet or Google Sheets is down (see Sync Status Dashboard above).
+            This section adds a separate safety net: full point-in-time snapshots of every module, kept on this device, that you can download
+            or restore from — automatically after real changes, and on demand.
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Local Database</div>
+              <div id="backup-dash-local" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Google Sheets Backup</div>
+              <div id="backup-dash-sheets" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Pending Sync</div>
+              <div id="backup-dash-pending" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Total Bookings</div>
+              <div id="backup-dash-totalbookings" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Last Local Backup</div>
+              <div id="backup-dash-lastbackup" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Last Successful Sync</div>
+              <div id="backup-dash-lastsync" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Last Restore</div>
+              <div id="backup-dash-lastrestore" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Local Storage Used</div>
+              <div id="backup-dash-storage" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px;grid-column:span 2">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Overall Backup Health</div>
+              <div id="backup-dash-health" style="font-size:13px;font-weight:600">—</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+            <button class="btn btn-primary btn-sm" onclick="backupNow()">💾 Backup Now</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadJSONBackup()">⬇️ Download JSON</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadExcelBackup()">⬇️ Download Excel</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadCSVBackup()">⬇️ Download CSV (Bookings)</button>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">Restore</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px">
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+              📤 Restore from JSON File
+              <input type="file" accept="application/json" onchange="handleRestoreFileSelected(event)" style="display:none">
+            </label>
+            <button class="btn btn-secondary btn-sm" onclick="restoreFromGoogleSheet()">☁️ Restore from Google Sheets</button>
+          </div>
+          <div style="font-size:11px;color:var(--gray3);margin-bottom:14px">Restoring from Excel: convert it to the JSON backup format first (Excel restore isn't supported directly — download a JSON backup for the format to match, or use Import Data below for spreadsheet-shaped files).</div>
+
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">Backup Version History</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date &amp; Time</th><th>Records</th><th>Size</th><th>Type</th><th>Actions</th></tr></thead>
+              <tbody id="backup-history-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card mb-16" style="margin-bottom:16px">
+          <div class="card-title">🤖 Automatic Server-Side Backup (Google Apps Script)</div>
+          <div style="font-size:12px;color:var(--gray3);margin-bottom:10px">
+            Runs on Google's servers, independent of any browser or device — unlike the local snapshots above, this keeps working even if this admin panel is never opened.
+            Once a day it makes a full copy of the entire spreadsheet (every tab) into a separate "DD Turf Zone Backups" Drive folder, verifies the copy, and logs the result below.
+            Requires the updated <code>Code.gs</code> to be deployed (Deploy → Manage deployments → Edit → New version) — this feature does nothing until that's done.
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Daily Trigger</div>
+              <div id="gas-backup-dash-trigger" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Schedule</div>
+              <div id="gas-backup-dash-schedule" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Total Server Backups</div>
+              <div id="gas-backup-dash-total" style="font-size:13px;font-weight:600">—</div>
+            </div>
+            <div style="background:var(--gray);border-radius:10px;padding:10px 12px">
+              <div style="font-size:11px;color:var(--gray3);margin-bottom:2px">Last Verified Backup</div>
+              <div id="gas-backup-dash-lastverified" style="font-size:13px;font-weight:600">—</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+            <button class="btn btn-primary btn-sm" onclick="installServerBackupTrigger()">⏰ Install Daily Trigger</button>
+            <button class="btn btn-secondary btn-sm" onclick="runServerBackupNow()">☁️ Backup Now (Server-Side)</button>
+            <button class="btn btn-secondary btn-sm" onclick="refreshGasBackupPanel()">🔄 Refresh Status</button>
+          </div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">Server Backup History</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date &amp; Time</th><th>Type</th><th>Verification</th><th>Records</th><th>Actions</th></tr></thead>
+              <tbody id="gas-backup-history-tbody"><tr><td colspan="5" style="color:var(--gray3)">Click "Refresh Status" once the updated Code.gs is deployed.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card mb-16" style="margin-bottom:16px">
           <div class="card-title">📥 Import Data</div>
           <div style="font-size:12px;color:var(--gray3);margin-bottom:10px">
             Migrate existing records from Excel (.xlsx) or CSV into DD Turf Zone. Every imported record is validated,
@@ -1464,6 +1607,14 @@ tr:hover td{background:#f8fffe}
 </div>
 
 <!-- IMPORT DATA -->
+<div class="modal-overlay" id="restore-preview-modal">
+  <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto">
+    <div class="card-title" style="margin-bottom:10px">♻️ Restore Preview</div>
+    <div id="restore-preview-body"></div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="closeModal('restore-preview-modal')">Cancel</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="import-data-modal">
   <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto">
     <div class="modal-title">📥 Import Data</div>
@@ -1959,16 +2110,107 @@ const LS = {
     const data = LS.get(col);
     data.unshift({...rec, id, createdAt: rec.createdAt || new Date().toISOString()});
     LS.set(col, data);
+    _scheduleAutoBackup('data_change');
     return id;
   },
   update: (col, id, rec) => {
     const data = LS.get(col).map(r => r.id === id ? {...r, ...rec, updatedAt: new Date().toISOString()} : r);
     LS.set(col, data);
+    _scheduleAutoBackup('data_change');
   },
-  delete: (col, id) => { LS.set(col, LS.get(col).filter(r => r.id !== id)); }
+  delete: (col, id) => { LS.set(col, LS.get(col).filter(r => r.id !== id)); _scheduleAutoBackup('data_change'); }
 };
 
-// ===== UNIFIED CRUD (LocalStorage only) =====
+// ===== ENTERPRISE BACKUP & RECOVERY =====
+// Layered backup strategy on top of the existing localStorage-primary /
+// Google-Sheets-secondary design:
+//   1. Primary: localStorage (via LS above) — booking save/delete never
+//      waits on anything else, exactly as before.
+//   2. Secondary: Google Sheets via the existing sync queue — unchanged.
+//   3. NEW — local backup snapshots: a full point-in-time copy of every
+//      collection, stored under its own localStorage key, with a
+//      lightweight index (BACKUP_HISTORY_KEY) for fast listing. Created
+//      automatically after real data changes (debounced), before
+//      import/restore, once a day on load, and on demand.
+// IMPORTANT LIMITATION (told to the admin, not hidden): this all runs
+// inside the browser. It protects against browser crashes, bad imports,
+// accidental edits/deletes, and Google Sheets being unreachable — but it
+// can only run *while this admin page is open*. True unattended backups
+// that happen even with no browser open would need a server-side
+// component (e.g. a time-driven Google Apps Script trigger that snapshots
+// the Sheet to Drive on a schedule) — that's a separate, optional addition
+// to Code.gs, not something a static GitHub Pages + browser app can do by itself.
+const BACKUP_HISTORY_KEY = 'ddtz_backup_history';
+const BACKUP_DATA_PREFIX = 'ddtz_backup_data_';
+const BACKUP_MAX_KEPT = 25; // caps localStorage growth — oldest AUTO backups evicted first past this
+const LAST_RESTORE_KEY = 'ddtz_last_restore';
+const LAST_DAILY_BACKUP_KEY = 'ddtz_last_daily_backup_date';
+// Same collections loadAllData() reads — the authoritative list of what's
+// actually persisted (customers/window.DB.customers is derived, not stored).
+const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories'];
+
+function _getBackupHistory() { try { return JSON.parse(localStorage.getItem(BACKUP_HISTORY_KEY) || '[]'); } catch(e){ return []; } }
+function _setBackupHistory(list) { try { localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(list)); } catch(e){} }
+
+// Creates one full snapshot of every collection. type: 'auto' | 'manual'.
+// trigger: short machine-readable reason, shown in the history table.
+// Never throws — a failed backup (e.g. localStorage quota) must not block
+// whatever booking operation triggered it.
+function createBackup(type, trigger) {
+  try {
+    const snapshot = {};
+    let recordCount = 0;
+    BACKUP_COLLECTIONS.forEach(col => {
+      const arr = LS.get(col);
+      snapshot[col] = arr;
+      recordCount += arr.length;
+    });
+    const id = 'BK' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6).toUpperCase();
+    const payload = { id, timestamp: new Date().toISOString(), type, trigger, recordCount, data: snapshot };
+    const json = JSON.stringify(payload);
+    localStorage.setItem(BACKUP_DATA_PREFIX + id, json);
+
+    const history = _getBackupHistory();
+    history.unshift({ id, timestamp: payload.timestamp, type, trigger, recordCount, sizeBytes: json.length });
+    // Evict oldest AUTO backups first once over the cap. Manual backups
+    // are only evicted if nothing but manual backups remain.
+    while (history.length > BACKUP_MAX_KEPT) {
+      let evictIdx = -1;
+      for (let i = history.length - 1; i >= 0; i--) { if (history[i].type === 'auto') { evictIdx = i; break; } }
+      if (evictIdx === -1) evictIdx = history.length - 1;
+      const [evicted] = history.splice(evictIdx, 1);
+      try { localStorage.removeItem(BACKUP_DATA_PREFIX + evicted.id); } catch(e) {}
+    }
+    _setBackupHistory(history);
+    renderBackupDashboard();
+    return payload;
+  } catch (e) {
+    console.error('Local backup failed:', e);
+    return null;
+  }
+}
+
+function _loadStoredBackup(id) {
+  try { return JSON.parse(localStorage.getItem(BACKUP_DATA_PREFIX + id)); } catch (e) { return null; }
+}
+
+// Debounced so a burst of writes (e.g. blocking a date range in a loop)
+// produces one snapshot a few seconds after things settle, not one per write.
+let _autoBackupTimer = null;
+function _scheduleAutoBackup(trigger) {
+  if (_autoBackupTimer) clearTimeout(_autoBackupTimer);
+  _autoBackupTimer = setTimeout(() => createBackup('auto', trigger), 4000);
+}
+
+// Called once from loadAllData() on every app open. Creates at most one
+// 'daily' backup per calendar day this admin page happens to be opened —
+// see the limitation note above for why this can't be truly unattended.
+function _checkDailyBackup() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem(LAST_DAILY_BACKUP_KEY) === today) return;
+  localStorage.setItem(LAST_DAILY_BACKUP_KEY, today);
+  createBackup('auto', 'daily');
+}
 window.saveDoc = async (col, data, id) => {
   if (id) { LS.update(col, id, data); return id; }
   return LS.add(col, data);
@@ -2403,6 +2645,7 @@ async function loadAllData() {
   updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
   updateRequestsBadge();
   _checkDataIntegrityOnLoad();
+  _checkDailyBackup();
   // Pull in any reservation requests customers submitted from the public
   // site (a different device/browser) since this admin was last online.
   fetchPendingRequestsFromSheet();
@@ -4010,8 +4253,11 @@ async function postToGoogleSheet(payload) {
       if (result.ok === false) {
         console.error('Google Sheet sync rejected:', result.error);
         if (!result.conflict) showToast(`⚠️ Google Sheet sync failed: ${result.error}`, 'error');
+        _lastAppsScriptReachable = true; // server WAS reached, it just rejected this payload
+        _recordSyncError(result.error);
         return { ok: false, error: result.error, conflict: !!result.conflict, retry: false };
       }
+      _markSyncSuccess();
       return { ok: true, result, retry: false };
     }
 
@@ -4020,11 +4266,15 @@ async function postToGoogleSheet(payload) {
     const errMsg = `HTTP ${res.status}`;
     console.error('Google Sheet sync failed:', errMsg);
     showToast(`⚠️ Google Sheet sync failed: ${errMsg}`, 'error');
+    _lastAppsScriptReachable = false;
+    _recordSyncError(errMsg);
     return { ok: false, error: errMsg, retry: true };
   } catch (err) {
     // Network failure, blocked request, or an unreachable/misconfigured URL
     console.error('Google Sheet sync error:', err);
     showToast('⚠️ Could not reach Google Sheets — check the Apps Script URL in Settings and your internet connection. The booking itself was still saved.', 'error');
+    _lastAppsScriptReachable = false;
+    _recordSyncError(String(err));
     return { ok: false, error: String(err), retry: true };
   }
 }
@@ -4077,7 +4327,414 @@ function updateSyncStatus(state) {
   const s = map[state] || map.offline;
   el.textContent = `${s.icon} ${s.label}`;
   el.title = _getSyncQueue().length ? `${_getSyncQueue().length} record(s) waiting to sync` : 'All records synced';
+  renderSyncDashboard();
 }
+
+// ----- Sync dashboard bookkeeping (additive — doesn't change sync behavior) -----
+const SYNC_LAST_SUCCESS_KEY = 'ddtz_sync_last_success';
+const SYNC_ERRORS_KEY = 'ddtz_sync_recent_errors';
+let _lastAppsScriptReachable = null; // null = unknown yet, true/false once tested
+
+function _markSyncSuccess() {
+  try { localStorage.setItem(SYNC_LAST_SUCCESS_KEY, new Date().toISOString()); } catch (e) {}
+  _lastAppsScriptReachable = true;
+  renderSyncDashboard();
+}
+function _recordSyncError(message) {
+  try {
+    const list = JSON.parse(localStorage.getItem(SYNC_ERRORS_KEY) || '[]');
+    list.unshift({ time: new Date().toISOString(), message: String(message).slice(0, 200) });
+    localStorage.setItem(SYNC_ERRORS_KEY, JSON.stringify(list.slice(0, 10))); // keep last 10 only
+  } catch (e) {}
+  renderSyncDashboard();
+}
+function _getRecentSyncErrors() {
+  try { return JSON.parse(localStorage.getItem(SYNC_ERRORS_KEY) || '[]'); } catch (e) { return []; }
+}
+function _fmtRelativeTime(iso) {
+  if (!iso) return 'Never';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'Never';
+  const diffSec = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
+  if (diffSec < 60) return 'Just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return d.toLocaleString();
+}
+// Renders the Sync Status Dashboard card in Settings. Silently no-ops if
+// the elements aren't in the DOM (e.g. a different page is open) — safe to
+// call from anywhere, any time.
+function renderSyncDashboard() {
+  const sheetEl = document.getElementById('sync-dash-sheet');
+  if (!sheetEl) return; // Settings page not currently rendered
+  const hasUrl = !!window.DDTZ_SHEET_URL;
+  sheetEl.textContent = hasUrl ? '🟢 Configured' : '⚪ Not set up';
+
+  const scriptEl = document.getElementById('sync-dash-script');
+  if (!hasUrl) scriptEl.textContent = '⚪ Not set up';
+  else if (_lastAppsScriptReachable === true) scriptEl.textContent = '🟢 Reachable';
+  else if (_lastAppsScriptReachable === false) scriptEl.textContent = '🔴 Unreachable';
+  else scriptEl.textContent = '🟡 Unknown — try Test Connection';
+
+  document.getElementById('sync-dash-internet').textContent = navigator.onLine ? '🟢 Online' : '🔴 Offline';
+  const pending = _getSyncQueue().length;
+  document.getElementById('sync-dash-pending').textContent = pending ? `🟡 ${pending} waiting` : '🟢 0';
+  document.getElementById('sync-dash-lastsync').textContent = _fmtRelativeTime(localStorage.getItem(SYNC_LAST_SUCCESS_KEY));
+
+  const errors = _getRecentSyncErrors();
+  const errEl = document.getElementById('sync-dash-errors');
+  errEl.innerHTML = errors.length
+    ? errors.map(e => `<div style="padding:4px 0;border-bottom:1px solid var(--gray2)">⚠️ ${new Date(e.time).toLocaleString()} — ${e.message}</div>`).join('')
+    : 'No recent errors.';
+}
+// Manual "Sync Now" button — just forces an immediate flush attempt,
+// resetting the retry backoff so the next automatic attempt (if this one
+// also fails) starts from the fast end of the schedule again.
+window.manualSyncNow = async () => {
+  showToast('Syncing…', 'info');
+  _syncBackoffIndex = 0;
+  await flushSyncQueue();
+};
+
+// ----- Manual backup actions -----
+function _fileTimestamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}`;
+}
+function _triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+window.backupNow = () => {
+  const b = createBackup('manual', 'manual_button');
+  if (b) showToast(`✅ Backup created — ${b.recordCount} records saved locally.`);
+  else showToast('⚠️ Backup failed — check the browser console.', 'error');
+};
+window.downloadJSONBackup = () => {
+  const b = createBackup('manual', 'download_json');
+  if (!b) { showToast('⚠️ Backup failed.', 'error'); return; }
+  _triggerDownload(new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' }), `backup-${_fileTimestamp()}.json`);
+  showToast('✅ JSON backup downloaded.');
+};
+window.downloadExcelBackup = () => {
+  if (typeof XLSX === 'undefined') { showToast('Excel library failed to load — check your internet connection.', 'error'); return; }
+  const b = createBackup('manual', 'download_excel');
+  if (!b) { showToast('⚠️ Backup failed.', 'error'); return; }
+  const wb = XLSX.utils.book_new();
+  BACKUP_COLLECTIONS.forEach(col => {
+    const arr = b.data[col] || [];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arr.length ? arr : [{ }]), col.slice(0, 31));
+  });
+  XLSX.writeFile(wb, `backup-${_fileTimestamp()}.xlsx`);
+  showToast('✅ Excel backup downloaded.');
+};
+window.downloadCSVBackup = () => {
+  if (typeof XLSX === 'undefined') { showToast('Excel/CSV library failed to load — check your internet connection.', 'error'); return; }
+  const b = createBackup('manual', 'download_csv');
+  if (!b) { showToast('⚠️ Backup failed.', 'error'); return; }
+  // CSV is a single flat table — bookings (the core business data) is what's exported.
+  // Use Download JSON or Download Excel above for a complete backup of every module.
+  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(b.data.bookings || []));
+  _triggerDownload(new Blob([csv], { type: 'text/csv' }), `backup-bookings-${_fileTimestamp()}.csv`);
+  showToast('✅ CSV backup (bookings) downloaded.');
+};
+window.downloadStoredBackup = (id) => {
+  const b = _loadStoredBackup(id);
+  if (!b) { showToast('That backup is no longer available.', 'error'); return; }
+  _triggerDownload(new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' }), `backup-${b.timestamp.slice(0,10)}-${id}.json`);
+};
+window.deleteStoredBackup = (id) => {
+  if (!confirm('Delete this backup? This only removes the local snapshot — it does not affect any live booking data.')) return;
+  localStorage.removeItem(BACKUP_DATA_PREFIX + id);
+  _setBackupHistory(_getBackupHistory().filter(h => h.id !== id));
+  renderBackupDashboard();
+  showToast('Backup deleted.');
+};
+
+// ----- Restore engine -----
+// Restoring is deliberately a two-step flow: compute a preview (record
+// counts, new vs. existing vs. conflicting by id) first, require the admin
+// to pick a mode and confirm, and take a fresh 'pre_restore' safety backup
+// before anything is written — so a restore can itself always be undone.
+let _pendingRestore = null; // { source, timestamp, data } while the preview modal is open
+
+function _diffBackupAgainstCurrent(backupData) {
+  const rows = [];
+  let totalNew = 0, totalExisting = 0;
+  BACKUP_COLLECTIONS.forEach(col => {
+    const incoming = backupData[col] || [];
+    const currentIds = new Set(LS.get(col).map(r => r.id));
+    let fresh = 0, existing = 0;
+    incoming.forEach(r => { if (currentIds.has(r.id)) existing++; else fresh++; });
+    totalNew += fresh; totalExisting += existing;
+    if (incoming.length) rows.push({ col, total: incoming.length, fresh, existing });
+  });
+  return { rows, totalNew, totalExisting };
+}
+
+function _openRestorePreviewModal(source, timestamp, data) {
+  _pendingRestore = { source, timestamp, data };
+  const diff = _diffBackupAgainstCurrent(data);
+  const body = document.getElementById('restore-preview-body');
+  body.innerHTML = `
+    <div style="font-size:13px;margin-bottom:10px">Source: <strong>${source}</strong>${timestamp ? ` — ${new Date(timestamp).toLocaleString()}` : ''}</div>
+    <table style="width:100%;font-size:12px;margin-bottom:12px">
+      <thead><tr><th style="text-align:left">Module</th><th>In Backup</th><th>New</th><th>Already Exists</th></tr></thead>
+      <tbody>${diff.rows.map(r => `<tr><td>${r.col}</td><td>${r.total}</td><td>${r.fresh}</td><td>${r.existing}</td></tr>`).join('') || '<tr><td colspan="4">No records in this backup.</td></tr>'}</tbody>
+    </table>
+    <div style="font-size:12px;color:var(--gray3);margin-bottom:10px"><strong>${diff.totalNew}</strong> new record(s) not currently in this device's data, <strong>${diff.totalExisting}</strong> that already exist here (by ID).</div>
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Choose how to apply this restore:</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="btn btn-primary btn-sm" onclick="executeRestore('new_only')">➕ Import Only New Records (${diff.totalNew}) — safest</button>
+      <button class="btn btn-secondary btn-sm" onclick="executeRestore('merge')">🔀 Merge — add new + update existing by ID</button>
+      <button class="btn btn-danger btn-sm" onclick="executeRestore('replace')">⚠️ Replace — overwrite ALL current data with this backup</button>
+    </div>`;
+  openModal('restore-preview-modal');
+}
+
+window.openRestorePreview = (backupId) => {
+  const b = _loadStoredBackup(backupId);
+  if (!b) { showToast('That backup is no longer available.', 'error'); return; }
+  _openRestorePreviewModal(`Local backup (${b.type})`, b.timestamp, b.data);
+};
+
+window.handleRestoreFileSelected = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const data = parsed.data || parsed; // accept either a full backup payload or a raw {col: [...]} object
+    _openRestorePreviewModal(`Uploaded file (${file.name})`, parsed.timestamp, data);
+  } catch (e) {
+    showToast('Could not read that file — expecting a JSON backup exported from this app.', 'error');
+  } finally {
+    event.target.value = '';
+  }
+};
+
+window.restoreFromGoogleSheet = async () => {
+  if (!window.DDTZ_SHEET_URL) { showToast('Set up the Google Sheet connection in Settings first.', 'error'); return; }
+  if (!confirm('Pull bookings and blocked slots from Google Sheets and merge anything missing locally? A safety backup of this device\'s current data will be taken first.')) return;
+  createBackup('auto', 'pre_restore');
+  showToast('Restoring from Google Sheets…', 'info');
+  await syncBookingsAndBlocksFromSheet();
+  localStorage.setItem(LAST_RESTORE_KEY, JSON.stringify({ source: 'Google Sheets', timestamp: new Date().toISOString() }));
+  renderBackupDashboard();
+  showToast('✅ Restore from Google Sheets complete.');
+};
+
+window.executeRestore = (mode) => {
+  if (!_pendingRestore) return;
+  const modeLabels = { new_only: 'import only new records', merge: 'merge (add new + update existing)', replace: 'REPLACE ALL current data' };
+  if (!confirm(`This will ${modeLabels[mode]} using the selected backup. Continue?`)) return;
+
+  // Safety net: always snapshot current state before writing anything.
+  createBackup('auto', 'pre_restore');
+
+  const data = _pendingRestore.data;
+  BACKUP_COLLECTIONS.forEach(col => {
+    const incoming = data[col] || [];
+    if (!incoming.length && mode !== 'replace') return;
+    if (mode === 'replace') {
+      LS.set(col, incoming);
+    } else {
+      const current = LS.get(col);
+      const currentIds = new Set(current.map(r => r.id));
+      if (mode === 'new_only') {
+        const toAdd = incoming.filter(r => !currentIds.has(r.id));
+        LS.set(col, [...toAdd, ...current]);
+      } else { // merge
+        const merged = current.map(r => {
+          const match = incoming.find(i => i.id === r.id);
+          return match ? { ...r, ...match } : r;
+        });
+        const trulyNew = incoming.filter(r => !currentIds.has(r.id));
+        LS.set(col, [...trulyNew, ...merged]);
+      }
+    }
+  });
+
+  localStorage.setItem(LAST_RESTORE_KEY, JSON.stringify({ source: _pendingRestore.source, timestamp: new Date().toISOString(), mode }));
+  _pendingRestore = null;
+  closeModal('restore-preview-modal');
+
+  // Refresh in-memory state and every view — same pattern loadAllData() uses.
+  loadAllData().then(() => {
+    renderDashboard();
+    if (document.getElementById('bookings-page') && !document.getElementById('bookings-page').classList.contains('hidden')) renderBookings();
+    renderBookingCalendar();
+    showToast('✅ Restore complete.');
+    renderBackupDashboard();
+  });
+};
+
+// ----- Version history + health dashboard rendering -----
+function renderBackupHistory() {
+  const el = document.getElementById('backup-history-tbody');
+  if (!el) return;
+  const history = _getBackupHistory();
+  el.innerHTML = history.length ? history.map(h => `
+    <tr>
+      <td>${new Date(h.timestamp).toLocaleString()}</td>
+      <td>${h.recordCount}</td>
+      <td>${(h.sizeBytes/1024).toFixed(1)} KB</td>
+      <td>${h.type === 'manual' ? '🖐️ Manual' : '⚙️ Auto'}<br><span style="font-size:10px;color:var(--gray3)">${h.trigger||''}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="downloadStoredBackup('${h.id}')" title="Download">⬇️</button>
+        <button class="btn btn-primary btn-sm" onclick="openRestorePreview('${h.id}')" title="Restore">♻️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteStoredBackup('${h.id}')" title="Delete">🗑️</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--gray3)">No backups yet — one will be created automatically the next time data changes.</td></tr>';
+}
+
+function _estimateLocalStorageUsageKB() {
+  let total = 0;
+  try { for (const k in localStorage) { if (localStorage.hasOwnProperty(k)) total += (localStorage[k].length + k.length); } } catch (e) {}
+  return (total / 1024).toFixed(1);
+}
+
+function renderBackupDashboard() {
+  renderBackupHistory();
+  const elLocal = document.getElementById('backup-dash-local');
+  if (!elLocal) return; // Settings not currently open
+  const history = _getBackupHistory();
+  const lastBackup = history[0];
+  elLocal.textContent = '🟢 Available';
+  document.getElementById('backup-dash-sheets').textContent = window.DDTZ_SHEET_URL ? '🟢 Configured' : '⚪ Not set up';
+  document.getElementById('backup-dash-pending').textContent = String(_getSyncQueue().length);
+  document.getElementById('backup-dash-lastbackup').textContent = lastBackup ? _fmtRelativeTime(lastBackup.timestamp) : 'Never';
+  document.getElementById('backup-dash-lastsync').textContent = _fmtRelativeTime(localStorage.getItem(SYNC_LAST_SUCCESS_KEY));
+  let lastRestore = null;
+  try { lastRestore = JSON.parse(localStorage.getItem(LAST_RESTORE_KEY) || 'null'); } catch (e) {}
+  document.getElementById('backup-dash-lastrestore').textContent = lastRestore ? `${_fmtRelativeTime(lastRestore.timestamp)} (${lastRestore.source})` : 'Never';
+  const totalBookings = (window.DB.bookings || []).length;
+  document.getElementById('backup-dash-totalbookings').textContent = String(totalBookings);
+  document.getElementById('backup-dash-storage').textContent = `${_estimateLocalStorageUsageKB()} KB`;
+
+  // Overall health: green if a backup exists from the last 24h and sync
+  // isn't backed up; yellow if backups exist but are stale or queue is
+  // building up; red if there's no backup at all yet.
+  const healthEl = document.getElementById('backup-dash-health');
+  const hoursSinceBackup = lastBackup ? (Date.now() - new Date(lastBackup.timestamp).getTime()) / 3600000 : Infinity;
+  const pending = _getSyncQueue().length;
+  if (!lastBackup) healthEl.textContent = '🔴 No local backup yet';
+  else if (hoursSinceBackup > 48 || pending > 20) healthEl.textContent = '🟡 Attention needed';
+  else healthEl.textContent = '🟢 Healthy';
+}
+
+// ===== PHASE 1: SERVER-SIDE (GOOGLE APPS SCRIPT) BACKUP PANEL =====
+// Talks to the new backupStatus/backupData GET actions and the
+// backup_now/install_backup_trigger/remove_backup_trigger/delete_backup
+// POST types added to Code.gs. Entirely additive — reuses postToGoogleSheet
+// for writes and a plain fetch for the two new GET actions, exactly like
+// every other read (e.g. testSheetConnection, syncBookingsAndBlocksFromSheet).
+async function _gasBackupGet(action, extraParams) {
+  if (!window.DDTZ_SHEET_URL) return { ok: false, error: 'Google Sheet URL is not configured in Settings.' };
+  const url = new URL(window.DDTZ_SHEET_URL);
+  url.searchParams.set('action', action);
+  Object.entries(extraParams || {}).forEach(([k, v]) => url.searchParams.set(k, v));
+  try {
+    const res = await fetch(url.toString());
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: 'Could not reach the server: ' + e };
+  }
+}
+
+let _lastGasBackupStatus = null;
+
+window.refreshGasBackupPanel = async () => {
+  const el = document.getElementById('gas-backup-dash-trigger');
+  if (!el) return; // Settings not currently open
+  if (!window.DDTZ_SHEET_URL) {
+    el.textContent = '⚪ Not set up';
+    document.getElementById('gas-backup-history-tbody').innerHTML = '<tr><td colspan="5" style="color:var(--gray3)">Set up the Google Sheet Web App URL above first.</td></tr>';
+    return;
+  }
+  el.textContent = '🟡 Checking…';
+  const res = await _gasBackupGet('backupStatus');
+  if (!res.ok) {
+    el.textContent = '⚪ Unknown (update Code.gs)';
+    document.getElementById('gas-backup-dash-schedule').textContent = '—';
+    document.getElementById('gas-backup-dash-total').textContent = '—';
+    document.getElementById('gas-backup-dash-lastverified').textContent = '—';
+    document.getElementById('gas-backup-history-tbody').innerHTML = `<tr><td colspan="5" style="color:var(--gray3)">${res.error || 'This Apps Script deployment doesn\'t support server-side backups yet — deploy the updated Code.gs (Deploy → Manage deployments → Edit → New version).'}</td></tr>`;
+    return;
+  }
+  _lastGasBackupStatus = res;
+  el.textContent = res.installed ? '🟢 Installed' : '🔴 Not installed';
+  document.getElementById('gas-backup-dash-schedule').textContent = res.scheduleLabel || '—';
+  document.getElementById('gas-backup-dash-total').textContent = String(res.totalBackups || 0);
+  document.getElementById('gas-backup-dash-lastverified').textContent = res.lastVerified
+    ? `✅ ${_fmtRelativeTime(res.lastVerified.timestamp)}` : 'None yet';
+
+  const tbody = document.getElementById('gas-backup-history-tbody');
+  const rows = res.backups || [];
+  tbody.innerHTML = rows.length ? rows.map(b => {
+    const total = Object.values(b.recordCounts || {}).reduce((s, n) => s + (Number(n) || 0), 0);
+    const badge = b.status === 'Verified' ? '✅ Verified' : b.status === 'Deleted' ? '⚫ Deleted' : '❌ Corrupted';
+    const canRestore = b.status !== 'Deleted';
+    return `<tr>
+      <td>${new Date(b.timestamp).toLocaleString()}</td>
+      <td>${b.triggeredBy === 'scheduled_trigger' ? '⏰ Automatic' : '🖐️ Manual'}</td>
+      <td>${badge}${b.notes ? `<br><span style="font-size:10px;color:var(--gray3)">${b.notes}</span>` : ''}</td>
+      <td>${total}</td>
+      <td style="white-space:nowrap">
+        ${b.fileUrl ? `<a class="btn btn-secondary btn-sm" href="${b.fileUrl}" target="_blank" rel="noopener" title="Open in Drive">📂</a>` : ''}
+        ${canRestore ? `<button class="btn btn-primary btn-sm" onclick="restoreFromGasBackup('${b.fileId}','${b.dateLabel}')" title="Restore Bookings + Blocked Slots">♻️</button>` : ''}
+        ${canRestore ? `<button class="btn btn-danger btn-sm" onclick="deleteGasBackup('${b.fileId}')" title="Delete">🗑️</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" style="color:var(--gray3)">No server backups yet — click "Backup Now" or "Install Daily Trigger" below.</td></tr>';
+};
+
+window.installServerBackupTrigger = async () => {
+  showToast('Installing daily backup trigger…', 'info');
+  const res = await postToGoogleSheet({ type: 'install_backup_trigger' });
+  if (!res.ok) return; // postToGoogleSheet already showed the error toast
+  showToast(res.result.alreadyExisted ? 'Daily trigger was already installed.' : '✅ Daily backup trigger installed — runs every day at 11:55 PM.');
+  refreshGasBackupPanel();
+};
+
+window.runServerBackupNow = async () => {
+  showToast('Running server-side backup…', 'info');
+  const res = await postToGoogleSheet({ type: 'backup_now' });
+  if (!res.ok) return;
+  const b = res.result.backup;
+  if (b.status === 'Verified') showToast(`✅ Server backup created and verified.`);
+  else showToast(`⚠️ Server backup created but flagged as Corrupted — check the history table.`, 'error');
+  refreshGasBackupPanel();
+};
+
+// Restore path for server-side backups: pulls ONLY Bookings + BlockedSlots
+// out of the chosen backup copy (the two collections whose sheet shape is
+// guaranteed to match admin.html's local schema exactly) and feeds them
+// into the SAME preview/merge/replace modal the local & uploaded-file
+// restores already use — nothing new to learn, and every safety net
+// (pre-restore snapshot, choice of new-only/merge/replace) still applies.
+// Students/Attendance/Enquiries/etc. are still inside that backup file —
+// open it in Drive (📂 above) to recover those directly.
+window.restoreFromGasBackup = async (fileId, dateLabel) => {
+  if (!confirm(`Pull Bookings + Blocked Slots from the server backup dated ${dateLabel}? You'll choose how to apply it on the next screen. A safety backup of this device's current data is taken first.`)) return;
+  showToast('Fetching backup…', 'info');
+  const res = await _gasBackupGet('backupData', { fileId });
+  if (!res.ok) { showToast(`⚠️ Could not read that backup: ${res.error}`, 'error'); return; }
+  createBackup('auto', 'pre_restore');
+  _openRestorePreviewModal(`Server backup (${dateLabel})`, null, { bookings: res.bookings, blockedSlots: res.blockedSlots });
+};
+
+window.deleteGasBackup = async (fileId) => {
+  if (!confirm('Delete this server backup? This cannot be undone. (The most recent verified backup can never be deleted this way.)')) return;
+  const res = await postToGoogleSheet({ type: 'delete_backup', fileId });
+  if (!res.ok) return;
+  showToast('Server backup deleted.');
+  refreshGasBackupPanel();
+};
 
 let _lastOfflineToastAt = 0;
 function _notifyQueuedOffline() {
@@ -4161,14 +4818,38 @@ async function flushSyncQueue() {
   if (rejected.length) {
     showToast(`⚠️ ${rejected.length} queued record(s) were rejected by Google Sheets and won't be retried — check them manually (e.g. a booking conflict).`, 'error');
   }
-  if (remaining.length) _notifyQueuedOffline();
-  else if (q.length && !rejected.length) showToast('✅ All queued records synced to Google Sheets.');
+  if (remaining.length) {
+    _notifyQueuedOffline();
+    _scheduleBackoffRetry(); // still records pending — retry sooner than the 30s safety net
+  } else {
+    _syncBackoffIndex = 0; // queue is clear — reset the backoff for next time
+    if (_syncBackoffTimer) { clearTimeout(_syncBackoffTimer); _syncBackoffTimer = null; }
+    if (q.length && !rejected.length) showToast('✅ All queued records synced to Google Sheets.');
+  }
 }
 
 window.addEventListener('online', flushSyncQueue);
-window.addEventListener('offline', () => updateSyncStatus('offline'));
-setInterval(flushSyncQueue, 30000); // periodic safety-net flush every 30s
+window.addEventListener('offline', () => { updateSyncStatus('offline'); renderSyncDashboard(); });
+setInterval(flushSyncQueue, 30000); // periodic safety-net flush every 30s (unchanged)
 setTimeout(flushSyncQueue, 2000);   // flush any records queued from a previous session, shortly after load
+
+// ----- Escalating retry backoff (additive, on top of the 30s safety net) -----
+// After a failed flush, retry sooner than 30s so a brief hiccup recovers
+// fast, then back off if it keeps failing: 5s -> 30s -> 1m -> 5m, holding
+// at 5m until it succeeds or the queue is empty. Resets to the fast end
+// the moment a flush succeeds (or the queue empties), and also whenever
+// "Sync Now" is pressed.
+const SYNC_BACKOFF_STEPS_MS = [5000, 30000, 60000, 300000];
+let _syncBackoffIndex = 0;
+let _syncBackoffTimer = null;
+function _scheduleBackoffRetry() {
+  if (_syncBackoffTimer) clearTimeout(_syncBackoffTimer);
+  const delay = SYNC_BACKOFF_STEPS_MS[Math.min(_syncBackoffIndex, SYNC_BACKOFF_STEPS_MS.length - 1)];
+  _syncBackoffTimer = setTimeout(() => {
+    _syncBackoffIndex = Math.min(_syncBackoffIndex + 1, SYNC_BACKOFF_STEPS_MS.length - 1);
+    flushSyncQueue();
+  }, delay);
+}
 
 // ===== AUDIT LOG =====
 // Every payload that goes through queuedSync (i.e. every real
@@ -7146,7 +7827,15 @@ window.renderSettings = () => {
     const mark = (role) => allowed.includes(role) ? '✅' : '—';
     return `<tr><td>${pageLabels[p]||p}</td><td>${mark(ROLES.SUPER_ADMIN)}</td><td>${mark(ROLES.ADMIN)}</td><td>${mark(ROLES.STAFF)}</td></tr>`;
   }).join('');
+
+  renderSyncDashboard();
+  renderBackupDashboard();
+  refreshGasBackupPanel();
 };
+
+// Internet status on the dashboard should flip the instant the browser
+// regains/loses connectivity, not just after the next sync attempt.
+window.addEventListener('online', renderSyncDashboard);
 
 window.saveSheetUrlSetting = async () => {
   if (!can('manageSettings')) { denyAccess('Only the Super Admin can change Settings.'); return; }
@@ -7432,6 +8121,7 @@ window.runDataImport = async () => {
   const resultsEl = document.getElementById('import-results');
   if (!file) { showToast('Choose a file first.', 'error'); return; }
   if (typeof XLSX === 'undefined') { showToast('Excel/CSV library failed to load — check your internet connection.', 'error'); return; }
+  createBackup('auto', 'before_import'); // safety snapshot in case the import needs to be undone
 
   const btn = document.getElementById('import-run-btn');
   btn.disabled = true; btn.textContent = 'Importing…';
