@@ -311,25 +311,6 @@ tr:hover td{background:#f8fffe}
 .idcard-back .idcard-medical{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:6px;padding:4px 7px;margin-top:5px;font-size:9px}
 .idcard-back .idcard-terms{margin-top:6px;font-size:8px;color:var(--gray3);line-height:1.45}
 .idcard-back .idcard-back-foot{background:var(--gray);padding:5px 12px;font-size:8.5px;color:var(--gray3);text-align:center;font-weight:600}
-/* ====== PHASE 3.2b-iii — QR SCANNER ====== */
-.qr-scanner-wrap{max-width:420px;margin:0 auto}
-#qr-scanner-viewport{width:100%;aspect-ratio:1/1;background:#000;border-radius:14px;overflow:hidden;box-shadow:var(--shadow-lg)}
-#qr-scanner-viewport video{border-radius:14px}
-.qr-scanner-placeholder{width:100%;aspect-ratio:1/1;background:var(--dark);border-radius:14px;display:flex;align-items:center;justify-content:center;color:white;font-size:14px;text-align:center;padding:20px;flex-direction:column;gap:10px}
-.qr-scanner-controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
-.qr-scanner-mode-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;font-size:13px;color:var(--gray3)}
-.scan-result{border-radius:12px;padding:16px;margin-top:16px}
-.scan-result-ok{background:var(--green-bg);border:1.5px solid var(--green-light)}
-.scan-result-warn{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;text-align:center;font-weight:700;padding:20px}
-.scan-result-invalid{background:#fef2f2;border:1.5px solid #fecaca;color:#991b1b;text-align:center;font-weight:700;padding:20px}
-.scan-result-student{display:flex;gap:14px;align-items:center}
-.scan-result-student img,.scan-result-student .ph{width:64px;height:64px;border-radius:50%;object-fit:cover;background:var(--gray);border:2px solid var(--gray2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px}
-.scan-result-fields{font-size:12.5px;color:var(--text);line-height:1.6}
-.scan-result-fields b{color:var(--gray3);font-weight:700}
-.scan-result-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-.scan-history-row{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid var(--gray2);font-size:12.5px}
-.scan-history-row:last-child{border-bottom:none}
-.scan-offline-banner{background:#fff3cd;border:1.5px solid #f0c36d;color:#7a5b00;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;text-align:center}
 /* ====== PHASE 3.4b — FEE COLLECTION ====== */
 #fee-student-info{background:var(--gray);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.8}
 #fee-student-info b{color:var(--gray3);font-weight:700}
@@ -404,8 +385,8 @@ tr:hover td{background:#f8fffe}
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Coaching</div>
+        <button class="nav-item" data-page-nav="enrolments" onclick="showPage('enrolments')"><span class="nav-icon">📝</span>Pending Enrolments<span id="nav-enrolments-badge" class="nav-badge" style="display:none">0</span></button>
         <button class="nav-item" data-page-nav="students" onclick="showPage('students')"><span class="nav-icon">🎓</span>Coaching</button>
-        <button class="nav-item" data-page-nav="scanner" onclick="showPage('scanner')"><span class="nav-icon">📷</span>QR Scanner</button>
         <button class="nav-item" data-page-nav="attendance" onclick="showPage('attendance')"><span class="nav-icon">✅</span>Attendance</button>
         <button class="nav-item" data-page-nav="fees" onclick="showPage('fees')"><span class="nav-icon">💰</span>Fee Collection</button>
         <button class="nav-item" data-page-nav="dues" onclick="showPage('dues')"><span class="nav-icon">📆</span>Dues</button>
@@ -606,6 +587,46 @@ tr:hover td{background:#f8fffe}
         </div>
       </div>
 
+      <!-- PENDING ENROLMENTS — PHASE 3.5: Student Enrolment Request System.
+           A parent-facing public form (separate page, no login) writes
+           PENDING requests here; Approve is the only path that ever
+           creates a real Student record. Rows are never deleted — Approve
+           and Reject both just change Status and stay as permanent
+           history (same "never delete, just change Status" shape as
+           Pending Reservations). -->
+      <div class="page" id="page-enrolments">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Pending Enrolments</div>
+            <div style="color:var(--gray3);font-size:13px">Student admission requests submitted through the public enrolment form</div>
+          </div>
+        </div>
+        <div class="filter-bar">
+          <input type="text" id="enr-search" placeholder="🔍 Search student, parent, mobile..." oninput="renderEnrolments()" style="min-width:220px">
+          <select id="enr-sport-filter" onchange="renderEnrolments()">
+            <option value="">All Sports</option>
+            <option value="football">⚽ Football</option>
+            <option value="cricket">🏏 Cricket</option>
+            <option value="taekwondo">🥋 Taekwondo</option>
+          </select>
+          <select id="enr-status-filter" onchange="renderEnrolments()">
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="">All Requests</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Request ID</th><th>Student Name</th><th>Parent Name</th><th>Mobile</th><th>Sport</th>
+              <th>Preferred Batch</th><th>Submitted Date</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="enrolments-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- STUDENTS -->
       <div class="page" id="page-students">
         <div class="card mb-16" style="margin-bottom:16px">
@@ -698,37 +719,6 @@ tr:hover td{background:#f8fffe}
             </tr></thead>
             <tbody id="students-tbody"></tbody>
           </table>
-        </div>
-      </div>
-
-      <!-- PHASE 3.2b-iii — QR SCANNER -->
-      <div class="page" id="page-scanner">
-        <div style="margin-bottom:20px">
-          <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">📷 QR Scanner</div>
-          <div style="color:var(--gray3);font-size:13px">Scan a student's ID card to open their profile — camera or a photo of the QR code, either works.</div>
-        </div>
-        <div id="scanner-offline-banner" class="scan-offline-banner" style="display:none">📴 You're offline — scans will still work and sync to Activity Log once you're back online.</div>
-        <div class="card">
-          <div class="qr-scanner-wrap">
-            <div id="qr-scanner-viewport"></div>
-            <div class="qr-scanner-controls">
-              <button class="btn btn-primary btn-sm" id="scanner-start-btn" onclick="startQrScanner()">▶️ Start Scanner</button>
-              <button class="btn btn-secondary btn-sm" id="scanner-stop-btn" onclick="stopQrScanner()" style="display:none">⏹️ Stop</button>
-              <button class="btn btn-secondary btn-sm" id="scanner-pause-btn" onclick="pauseQrScanner()" style="display:none">⏸️ Pause</button>
-              <button class="btn btn-secondary btn-sm" id="scanner-resume-btn" onclick="resumeQrScanner()" style="display:none">▶️ Resume</button>
-              <button class="btn btn-secondary btn-sm" id="scanner-switch-cam-btn" onclick="toggleQrScannerCamera()" style="display:none">🔄 Switch Camera</button>
-              <button class="btn btn-secondary btn-sm" id="scanner-flash-btn" onclick="toggleQrFlash()" style="display:none">🔦 Flash</button>
-              <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin-bottom:0">📁 Scan from Image<input type="file" accept="image/*" style="display:none" onchange="scanQrFromImage(event)"></label>
-            </div>
-            <div class="qr-scanner-mode-row">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="scanner-continuous-mode"> Continuous Scan Mode (don't pause between scans)</label>
-            </div>
-            <div id="scanner-result"></div>
-          </div>
-        </div>
-        <div class="card mt-16" style="margin-top:16px">
-          <div class="card-title">🕒 Recent Scans</div>
-          <div id="scanner-history-list"><div style="padding:20px;text-align:center;color:var(--gray3)">Loading…</div></div>
         </div>
       </div>
 
@@ -2377,6 +2367,55 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- ENROLMENT REQUEST MODAL (View/Edit) — PHASE 3.5 -->
+<div class="modal-overlay" id="enrolment-modal">
+  <div class="modal">
+    <div class="modal-title" id="enrolment-modal-title">📝 Enrolment Request</div>
+    <input type="hidden" id="enr-id">
+    <div style="font-size:12px;color:var(--gray3);margin-bottom:10px">
+      Request ID <b id="enr-view-requestid" style="color:var(--text);font-family:monospace"></b>
+      &nbsp;&nbsp; Submitted <b id="enr-view-submitted" style="color:var(--text)"></b>
+      &nbsp;&nbsp; Status <span id="enr-view-status"></span>
+    </div>
+    <div class="form-grid">
+      <div class="form-group"><label>Student Name *</label><input type="text" id="enr-student-name"></div>
+      <div class="form-group"><label>Date of Birth</label><input type="date" id="enr-dob"></div>
+      <div class="form-group"><label>Gender</label>
+        <select id="enr-gender"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
+      </div>
+      <div class="form-group"><label>Parent/Guardian Name *</label><input type="text" id="enr-parent-name"></div>
+      <div class="form-group"><label>Mobile Number *</label><input type="tel" id="enr-mobile"></div>
+      <div class="form-group"><label>Email (Optional)</label><input type="email" id="enr-email"></div>
+      <div class="form-group full"><label>Address</label><input type="text" id="enr-address"></div>
+      <div class="form-group"><label>School/College</label><input type="text" id="enr-school"></div>
+      <div class="form-group"><label>Sport *</label>
+        <select id="enr-sport"><option value="football">⚽ Football</option><option value="cricket">🏏 Cricket</option><option value="taekwondo">🥋 Taekwondo</option></select>
+      </div>
+      <div class="form-group"><label>Preferred Batch</label><input type="text" id="enr-batch" placeholder="e.g. Morning A"></div>
+      <div class="form-group full"><label>Medical Notes (Optional)</label><textarea id="enr-medical" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('enrolment-modal')">Close</button>
+      <button class="btn btn-primary" id="enrolment-save-btn" data-requires-action="manageEnrolments" onclick="saveEnrolmentEdit()">💾 Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ENROLMENT REJECT MODAL — PHASE 3.5: Reject always asks for a reason,
+     which is kept as permanent history (the request is never deleted). -->
+<div class="modal-overlay" id="enrolment-reject-modal">
+  <div class="modal">
+    <div class="modal-title">❌ Reject Enrolment Request</div>
+    <input type="hidden" id="enr-reject-id">
+    <div style="font-size:13px;color:var(--gray3);margin-bottom:10px">Rejecting the request for <b id="enr-reject-name" style="color:var(--text)"></b>. This keeps the request in history — it will not be deleted.</div>
+    <div class="form-group full"><label>Rejection Reason *</label><textarea id="enr-reject-reason" rows="3" placeholder="e.g. Batch full, incomplete details, duplicate request..."></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('enrolment-reject-modal')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmRejectEnrolment()">Reject Request</button>
+    </div>
+  </div>
+</div>
+
 <!-- COACH MODAL -->
 <div class="modal-overlay" id="coach-modal">
   <div class="modal">
@@ -2521,10 +2560,6 @@ tr:hover td{background:#f8fffe}
      output we can read back with toDataURL immediately). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<!-- PHASE 3.2b-iii — QR Scanner: camera access + decode + file-image decode,
-     all client-side (works fully offline once the library itself is
-     cached by the browser — no per-scan network call). -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 
 <script>
 // ===== PRODUCTION GOOGLE APPS SCRIPT URL =====
@@ -2556,7 +2591,7 @@ const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZ
 //     Known Limitation entry. RESOLVED in Phase 3.1 — see the "PHASE 3.1 —
 //     Coaches Backend" comments on TABS.COACHES / autoSyncCoach /
 //     syncCoachesFromSheet / handleCoachesGet / handleCoachWrite.
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -2711,7 +2746,7 @@ const LAST_RESTORE_KEY = 'ddtz_last_restore';
 const LAST_DAILY_BACKUP_KEY = 'ddtz_last_daily_backup_date';
 // Same collections loadAllData() reads — the authoritative list of what's
 // actually persisted (customers/window.DB.customers is derived, not stored).
-const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories'];
+const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments'];
 
 function _getBackupHistory() { try { return JSON.parse(localStorage.getItem(BACKUP_HISTORY_KEY) || '[]'); } catch(e){ return []; } }
 function _setBackupHistory(list) { try { localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(list)); } catch(e){} }
@@ -2798,16 +2833,15 @@ const PAGE_PERMISSIONS = {
   requests:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   bookings:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   customers:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.5 — Student Enrolment Request System. Staff: View Only.
+  // Manager/Super Admin: full workflow (Edit/Approve/Reject gated below
+  // by ACTION_PERMISSIONS.manageEnrolments).
+  enrolments: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   students:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
-  // PHASE 3.2b-iii — QR Scanner. View & Scan only for every role (no
-  // separate action gate exists — there's nothing editable on this page;
-  // "View Full Profile" opens the same read-only viewStudent() every role
-  // already has access to from the Students page).
-  scanner:    [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   attendance: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   // PHASE 3.4b — Fee Collection. Previously Admin-only (Staff couldn't
   // see the page at all); 3.4b's own role matrix explicitly opens it to
-  // Staff as View Only, matching Students/Attendance/Scanner — an
+  // Staff as View Only, matching Students/Attendance — an
   // intentional widening carried by this phase's spec, not a regression.
   // See ACTION_PERMISSIONS.manageFees below for the Create/Edit gate.
   fees:       [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
@@ -2888,6 +2922,10 @@ const ACTION_PERMISSIONS = {
   // "View Student Profile" and "View Payment History" stay available to
   // Staff (read-only), same reasoning as printReceipts' preview modal above.
   manageDues:           [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.5 — Student Enrolment Request System. Gates Edit/Approve/Reject
+  // on the Pending Enrolments page; View stays available to Staff (same
+  // page-level View Only shape as everything else in this app).
+  manageEnrolments:     [ROLES.SUPER_ADMIN, ROLES.ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -3159,7 +3197,6 @@ async function doLogin() {
 }
 
 function doLogout() {
-  window.stopQrScanner?.(); // PHASE 3.2b-iii — never leave the camera running past logout
   try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
   CURRENT_USER = null;
   document.getElementById('auth-screen').style.display = 'flex';
@@ -3286,7 +3323,7 @@ async function loadAllData() {
   // Read-only: copies whatever already exists in localStorage into memory.
   // Must never write a default/empty dataset here — see the DATA
   // PRESERVATION POLICY banner above the LS helper.
-  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories'];
+  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments'];
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
@@ -3300,6 +3337,7 @@ async function loadAllData() {
   initReportSelectors();
   updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
   updateRequestsBadge();
+  updateEnrolmentsBadge();
   _checkDataIntegrityOnLoad();
   _checkDailyBackup();
   // Pull in any reservation requests customers submitted from the public
@@ -3314,6 +3352,8 @@ async function loadAllData() {
   syncStudentsFromSheet();
   // PHASE 3.4b — same idea for Fees, now that it has a real GET reader.
   syncFeesFromSheet();
+  // PHASE 3.5 — same idea for Enrolment Requests (public form submissions).
+  syncEnrolmentsFromSheet();
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
@@ -3714,22 +3754,16 @@ window.showPage = (page) => {
       return; // stay on whatever page was already open
     }
   }
-  // PHASE 3.2b-iii — release the camera the moment we leave the Scanner
-  // page (navigating anywhere else, including re-showing the same page
-  // isn't a "leave"). A live getUserMedia stream left running in the
-  // background is both a privacy issue and a battery drain on mobile.
-  const _leavingScannerPage = document.getElementById('page-scanner')?.classList.contains('active') && page !== 'scanner';
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  if (_leavingScannerPage) window.stopQrScanner?.();
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',scanner:'QR Scanner',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,scanner:renderScannerPage,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -8135,321 +8169,6 @@ function _consumeStudentDeepLinkIfAny() {
   } catch (e) { /* best-effort only — must never block normal app load */ }
 }
 
-// ===== PHASE 3.2b-iii — QR SCANNER =====
-// Camera + decode is entirely client-side (html5-qrcode reads frames off
-// the local video stream) — it keeps working with no internet at all.
-// Only what happens AFTER a successful decode (looking the student up,
-// writing an Activity Log entry) touches anything remote, and both of
-// those already go through offline-safe paths that exist elsewhere in
-// this file (window.DB.students is the same locally-cached copy every
-// other page reads, and logAudit() already queues itself when offline).
-//
-// "Future Ready": every step from a raw decoded string to "here's the
-// matched student" lives in _parseStudentIdFromScannedText/
-// _lookupScannedStudent below, deliberately factored out of the
-// camera/UI plumbing so a later phase (Attendance, Fee Collection,
-// Parent Check-In, Tournament Registration) can call the same two
-// functions from its own trigger instead of re-implementing QR parsing.
-// No attendance (or any other) record is created by this phase — a scan
-// only ever opens a profile or logs to Activity Log.
-
-let _qrScanner = null;          // Html5Qrcode instance, alive only while the Scanner page has a running camera
-let _qrCameras = [];             // [{id, label}, ...] from Html5Qrcode.getCameras()
-let _qrCameraIdx = 0;
-let _qrScannerRunning = false;
-let _qrScannerPaused = false;
-let _qrTorchOn = false;
-let _qrLastScanText = null;
-let _qrLastScanAt = 0;
-const QR_SCAN_DEBOUNCE_MS = 4000; // ignore an identical re-decode of the same still-in-frame card for this long
-
-window.renderScannerPage = () => {
-  document.getElementById('scanner-result').innerHTML = '';
-  _updateScannerOfflineBanner();
-  _loadScanHistory();
-};
-
-function _updateScannerOfflineBanner() {
-  const banner = document.getElementById('scanner-offline-banner');
-  if (banner) banner.style.display = navigator.onLine ? 'none' : '';
-}
-window.addEventListener('online', _updateScannerOfflineBanner);
-window.addEventListener('offline', _updateScannerOfflineBanner);
-
-// Extracts the ?student=<id> deep link this same app's ID Card QR encodes
-// (see _studentDeepLinkUrl in the Phase 3.2b-ii block above). Anything
-// that isn't a URL, or is a URL without that param, is not one of ours.
-function _parseStudentIdFromScannedText(text) {
-  try {
-    const url = new URL(text);
-    return url.searchParams.get('student') || null;
-  } catch (e) {
-    return null; // not a URL at all — not a QR this app generated
-  }
-}
-function _lookupScannedStudent(studentId) {
-  return window.DB.students.find(x => (x.studentId || x.id) === studentId) || null;
-}
-
-window.startQrScanner = async () => {
-  if (_qrScannerRunning) return;
-  if (typeof Html5Qrcode === 'undefined') { showToast('Scanner library failed to load — check your internet connection.', 'error'); return; }
-  const viewport = document.getElementById('qr-scanner-viewport');
-  viewport.innerHTML = '';
-  try {
-    _qrCameras = await Html5Qrcode.getCameras();
-  } catch (e) {
-    // getUserMedia was denied, or no camera exists at all — the person can
-    // still use "Scan from Image" below, so this isn't a dead end.
-    viewport.innerHTML = `<div class="qr-scanner-placeholder">🚫 Camera access denied or unavailable.<br>You can still use "📁 Scan from Image" below.</div>`;
-    showToast('Camera permission was denied (or no camera is available).', 'error');
-    return;
-  }
-  if (!_qrCameras || !_qrCameras.length) {
-    viewport.innerHTML = `<div class="qr-scanner-placeholder">No camera found on this device.<br>Use "📁 Scan from Image" instead.</div>`;
-    showToast('No camera found on this device.', 'error');
-    return;
-  }
-  // Prefer a rear/back/environment-labelled camera by default (typical on
-  // phones/tablets at a front desk); front cameras are still reachable via
-  // "Switch Camera".
-  _qrCameraIdx = _qrCameras.findIndex(c => /back|rear|environment/i.test(c.label || ''));
-  if (_qrCameraIdx < 0) _qrCameraIdx = 0;
-  await _qrStartWithCurrentCamera();
-};
-
-async function _qrStartWithCurrentCamera() {
-  const viewport = document.getElementById('qr-scanner-viewport');
-  try {
-    if (_qrScanner) { try { await _qrScanner.stop(); } catch (e) {} }
-    _qrScanner = new Html5Qrcode('qr-scanner-viewport');
-    await _qrScanner.start(
-      _qrCameras[_qrCameraIdx].id,
-      { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1.0 },
-      (decodedText) => _handleScannedText(decodedText),
-      () => {} // per-frame "no QR found yet" — expected noise, not an error
-    );
-    _qrScannerRunning = true;
-    _qrScannerPaused = false;
-    document.getElementById('scanner-start-btn').style.display = 'none';
-    document.getElementById('scanner-stop-btn').style.display = '';
-    document.getElementById('scanner-pause-btn').style.display = '';
-    document.getElementById('scanner-resume-btn').style.display = 'none';
-    document.getElementById('scanner-switch-cam-btn').style.display = _qrCameras.length > 1 ? '' : 'none';
-    _qrDetectTorchSupport();
-  } catch (e) {
-    viewport.innerHTML = `<div class="qr-scanner-placeholder">Could not start the camera.<br>${_esc(e.message || String(e))}</div>`;
-    showToast('Could not start the camera: ' + (e.message || e), 'error');
-  }
-}
-
-window.stopQrScanner = async () => {
-  if (!_qrScanner || !_qrScannerRunning) return;
-  try { await _qrScanner.stop(); _qrScanner.clear(); } catch (e) {}
-  _qrScannerRunning = false;
-  _qrScannerPaused = false;
-  _qrTorchOn = false;
-  document.getElementById('scanner-start-btn').style.display = '';
-  document.getElementById('scanner-stop-btn').style.display = 'none';
-  document.getElementById('scanner-pause-btn').style.display = 'none';
-  document.getElementById('scanner-resume-btn').style.display = 'none';
-  document.getElementById('scanner-switch-cam-btn').style.display = 'none';
-  document.getElementById('scanner-flash-btn').style.display = 'none';
-};
-
-window.toggleQrScannerCamera = async () => {
-  if (!_qrCameras.length) return;
-  _qrCameraIdx = (_qrCameraIdx + 1) % _qrCameras.length;
-  await _qrStartWithCurrentCamera();
-};
-
-// Best-effort flash/torch support — not every camera/browser exposes this,
-// so the button only appears once html5-qrcode confirms the currently
-// running track actually supports it, and every step is wrapped so an
-// unsupported device just never shows the button instead of erroring.
-function _qrDetectTorchSupport() {
-  const btn = document.getElementById('scanner-flash-btn');
-  try {
-    const capabilities = _qrScanner.getRunningTrackCameraCapabilities();
-    const torch = capabilities.torchFeature();
-    btn.style.display = torch.isSupported() ? '' : 'none';
-  } catch (e) {
-    btn.style.display = 'none';
-  }
-}
-window.toggleQrFlash = async () => {
-  try {
-    const capabilities = _qrScanner.getRunningTrackCameraCapabilities();
-    const torch = capabilities.torchFeature();
-    if (!torch.isSupported()) return;
-    _qrTorchOn = !_qrTorchOn;
-    await torch.apply(_qrTorchOn);
-    document.getElementById('scanner-flash-btn').textContent = _qrTorchOn ? '🔦 Flash On' : '🔦 Flash';
-  } catch (e) { showToast('Flash is not supported on this camera.', 'error'); }
-};
-
-window.pauseQrScanner = () => {
-  if (!_qrScannerRunning || _qrScannerPaused) return;
-  try { _qrScanner.pause(true); } catch (e) {}
-  _qrScannerPaused = true;
-  document.getElementById('scanner-pause-btn').style.display = 'none';
-  document.getElementById('scanner-resume-btn').style.display = '';
-};
-window.resumeQrScanner = () => {
-  if (!_qrScannerRunning || !_qrScannerPaused) return;
-  try { _qrScanner.resume(); } catch (e) {}
-  _qrScannerPaused = false;
-  document.getElementById('scanner-pause-btn').style.display = '';
-  document.getElementById('scanner-resume-btn').style.display = 'none';
-};
-
-// "Scan from Image" — works even with no camera at all (permission
-// denied, desktop with no webcam, etc.), and doesn't require the live
-// scanner to be running.
-window.scanQrFromImage = (event) => {
-  const file = event.target.files?.[0];
-  event.target.value = ''; // allow re-selecting the same file next time
-  if (!file) return;
-  if (typeof Html5Qrcode === 'undefined') { showToast('Scanner library failed to load — check your internet connection.', 'error'); return; }
-  const tempId = 'qr-image-scan-temp';
-  let tempDiv = document.getElementById(tempId);
-  if (!tempDiv) { tempDiv = document.createElement('div'); tempDiv.id = tempId; tempDiv.style.display = 'none'; document.body.appendChild(tempDiv); }
-  const scanner = new Html5Qrcode(tempId);
-  scanner.scanFile(file, false)
-    .then((decodedText) => _handleScannedText(decodedText))
-    .catch(() => { _recordScanActivity(null, 'invalid'); _showScanResult('invalid'); })
-    .finally(() => { try { scanner.clear(); } catch (e) {} });
-};
-
-// Continuous Scan Mode: skip the auto-pause-after-a-result below, so an
-// operator can run a queue of students past the camera without tapping
-// "Scan Next" each time. The debounce above still stops the SAME card
-// (one still sitting in frame) from being logged repeatedly.
-function _continuousModeOn() {
-  return !!document.getElementById('scanner-continuous-mode')?.checked;
-}
-
-async function _handleScannedText(text) {
-  const now = Date.now();
-  if (text === _qrLastScanText && (now - _qrLastScanAt) < QR_SCAN_DEBOUNCE_MS) return;
-  _qrLastScanText = text;
-  _qrLastScanAt = now;
-
-  const scannedId = _parseStudentIdFromScannedText(text);
-  if (!scannedId) {
-    _recordScanActivity(null, 'invalid');
-    _showScanResult('invalid');
-    return;
-  }
-  const student = _lookupScannedStudent(scannedId);
-  if (!student) {
-    _recordScanActivity(scannedId, 'not_found');
-    _showScanResult('not_found', null, scannedId);
-    return;
-  }
-  _recordScanActivity(student, 'success');
-  _showScanResult('success', student);
-}
-
-function _recordScanActivity(studentOrId, result) {
-  const isStudent = studentOrId && typeof studentOrId === 'object';
-  const studentId = isStudent ? (studentOrId.studentId || studentOrId.id) : (studentOrId || '');
-  const studentName = isStudent ? (studentOrId.name || '') : '';
-  // logAudit() writes to the exact same Activity Log every other module
-  // already uses — this is what gives scanning Real-Time Sync (peer
-  // devices see it via the same syncEvents poll), Notifications (the
-  // existing bell/toast/sound in _rtApplyEvents fires for any module with
-  // an RT_MODULE_META entry — see 'scan_log' above), and Backup (the
-  // Audit sheet is included in every full-spreadsheet server backup) all
-  // for free, with zero new endpoints.
-  logAudit({ type: 'scan_log', action: result, studentId, studentName });
-  _pushScanHistoryLocal({
-    timestamp: new Date().toISOString(),
-    user: CURRENT_USER?.name || 'Unknown',
-    role: CURRENT_USER?.role || '',
-    device: _deviceTag(),
-    result, studentId, studentName
-  });
-}
-
-function _showScanResult(kind, student, extra) {
-  const box = document.getElementById('scanner-result');
-  if (kind === 'invalid') {
-    box.innerHTML = `<div class="scan-result scan-result-invalid">❌ Invalid Student QR Code
-      <div class="scan-result-actions" style="justify-content:center"><button class="btn btn-secondary btn-sm" onclick="_scanResultNext()">🔄 Scan Next</button></div></div>`;
-  } else if (kind === 'not_found') {
-    box.innerHTML = `<div class="scan-result scan-result-warn">⚠️ Student Not Found${extra ? ` <div style="font-weight:400;font-size:11px;margin-top:4px">(ID: ${_esc(extra)})</div>` : ''}
-      <div class="scan-result-actions" style="justify-content:center"><button class="btn btn-secondary btn-sm" onclick="_scanResultNext()">🔄 Scan Next</button></div></div>`;
-  } else {
-    const photoHtml = student.photo ? `<img src="${student.photo}">` : `<div class="ph">🎓</div>`;
-    box.innerHTML = `<div class="scan-result scan-result-ok">
-      <div class="scan-result-student">
-        ${photoHtml}
-        <div class="scan-result-fields">
-          <div style="font-size:15px;font-weight:800;color:var(--dark)">${_esc(student.name || '')}</div>
-          <b>ID</b> ${_esc(student.studentId || student.id)}<br>
-          <b>Sport</b> ${_esc(categoryLabel(student.sport) || student.sport || '-')}<br>
-          <b>Batch</b> ${_esc(student.batch || '-')}<br>
-          <b>Coach</b> ${_esc(student.coach || '-')}<br>
-          <b>Status</b> ${student.archived ? 'Archived' : (student.status === 'active' ? 'Active' : 'Inactive')}
-        </div>
-      </div>
-      <div class="scan-result-actions">
-        <button class="btn btn-primary btn-sm" onclick="viewStudent('${student.id}')">👁️ View Full Profile</button>
-        <button class="btn btn-secondary btn-sm" onclick="_scanResultClose()">Close</button>
-        <button class="btn btn-secondary btn-sm" onclick="_scanResultNext()">🔄 Scan Next</button>
-      </div>
-    </div>`;
-  }
-  // Pause after every result (Pause/Resume Scanner) unless Continuous Scan
-  // Mode is on, in which case the debounce window alone is what stops the
-  // same still-in-frame card from re-triggering.
-  if (_qrScannerRunning && !_continuousModeOn()) window.pauseQrScanner();
-}
-window._scanResultNext = () => { document.getElementById('scanner-result').innerHTML = ''; window.resumeQrScanner(); };
-window._scanResultClose = () => { document.getElementById('scanner-result').innerHTML = ''; };
-
-// ---- Scan History (Recent Scans panel) ----
-// Deliberately NOT a new collection/endpoint — it's the exact same
-// Activity Log (syncEvents) every other module's history already comes
-// from, just filtered to module === 'scan_log' client-side.
-let _scanHistoryCache = [];
-async function _loadScanHistory() {
-  const box = document.getElementById('scanner-history-list');
-  if (!box) return;
-  if (!_scanHistoryCache.length) {
-    try {
-      const res = await fetch(`${window.DDTZ_SHEET_URL}?action=syncEvents&sinceRow=1&_=${Date.now()}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (data && data.ok) _scanHistoryCache = (data.events || []).filter(ev => ev.module === 'scan_log').reverse();
-    } catch (e) { /* offline/unreachable — show whatever's already cached (nothing, on a cold load) */ }
-  }
-  _renderScanHistory();
-}
-function _renderScanHistory() {
-  const box = document.getElementById('scanner-history-list');
-  if (!box) return;
-  if (!_scanHistoryCache.length) { box.innerHTML = '<div class="empty-state"><div class="empty-icon">📷</div><p>No scans yet.</p></div>'; return; }
-  box.innerHTML = _scanHistoryCache.slice(0, 30).map(ev => {
-    const badge = ev.action === 'success' ? '✅' : ev.action === 'not_found' ? '⚠️' : '❌';
-    const who = ev.recordId ? `${_esc(ev.recordId)}${ev.summary ? '' : ''}` : (ev.action === 'invalid' ? 'Unrecognized QR' : 'Unknown student');
-    return `<div class="scan-history-row">
-      <span>${badge} ${who}</span>
-      <span style="color:var(--gray3)">${_esc(ev.user || '')} · ${_fmtRelativeTime(ev.timestamp)}</span>
-    </div>`;
-  }).join('');
-}
-// Optimistic local prepend right after THIS device's own scan — matches
-// the same "don't wait on a round-trip to see your own action" pattern
-// the Import Wizard's history panel already uses.
-function _pushScanHistoryLocal(entry) {
-  _scanHistoryCache.unshift({
-    timestamp: entry.timestamp, user: entry.user, role: entry.role, device: entry.device,
-    module: 'scan_log', action: entry.result, recordId: entry.studentId || '', summary: entry.studentName || ''
-  });
-  _renderScanHistory();
-}
-
 // ===== ATTENDANCE =====
 document.getElementById('att-date').valueAsDate=new Date();
 window.loadAttendance = () => {
@@ -9499,6 +9218,293 @@ window.printReceiptHistoryForStudent = (studentId) => {
   setTimeout(doPrint, 400);
   const s = window.DB.students.find(x => (x.studentId || x.id) === studentId);
   logAudit({ type: 'reminder', action: 'print_history', studentId, studentName: s ? s.name : '', recordId: studentId });
+};
+
+// ============================================================================
+// PHASE 3.5 — STUDENT ENROLMENT REQUEST SYSTEM
+// ----------------------------------------------------------------------------
+// A separate public-facing form (no login — see enroll.html) writes a
+// PENDING request straight to the 'EnrolmentRequests' Sheet tab, with no
+// relationship to this admin device at all. This section is the Admin
+// side: Pending Enrolments page, View/Edit, Approve (the ONLY path that
+// ever creates a real Student record — reuses the exact same
+// saveDoc('students', ...)/autoSyncStudent(...) primitives saveStudent
+// itself uses, so an approved student is indistinguishable from a
+// manually-added one), and Reject (always asks for a reason, never
+// deletes the request — it just becomes permanent history).
+// ============================================================================
+
+function autoSyncEnrolment(req, action) {
+  const SHEET_URL = window.DDTZ_SHEET_URL || '';
+  if (!SHEET_URL) return Promise.resolve({ ok: false, skipped: true });
+  const payload = {
+    type: 'enrolment_request_update',
+    action,                     // 'update' — every admin-side write is an update; only the public form ever creates
+    requestId: req.requestId,
+    studentName: req.studentName || '', dob: req.dob || '', gender: req.gender || '',
+    parentName: req.parentName || '', mobile: req.mobile || '', email: req.email || '',
+    address: req.address || '', school: req.school || '', sport: req.sport || '', batch: req.batch || '',
+    medicalNotes: req.medicalNotes || '', status: req.status || 'PENDING',
+    rejectionReason: req.rejectionReason || '', approvedStudentId: req.approvedStudentId || '',
+    updatedBy: CURRENT_USER?.name || '',
+    // PHASE 2.5 — opt-in optimistic conflict check, same pattern as every
+    // other editable record (see _versionConflict / autoSyncEnquiry above).
+    expectedUpdatedAt: req.updatedAt || ''
+  };
+  return queuedSync(payload);
+}
+
+// GET action=enrolments — every request regardless of status, merged in
+// by requestId (NOT via the generic RT_MERGE_MAP fast-path/_rtMergeRecord:
+// that path mints a fresh local `id` via LS.add rather than preserving
+// requestId as the id, the exact same pitfall Fees' own RT_MERGE_MAP
+// comment already documents for a brand-new record — so, like Fees, this
+// relies on its own explicit merge here instead, called both on an
+// interval and immediately whenever the real-time feed sees a change).
+let _enrolmentSyncInFlight = false;
+async function syncEnrolmentsFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _enrolmentSyncInFlight) return;
+  _enrolmentSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=enrolments&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    (data.requests || []).forEach(remote => {
+      if (!remote.requestId) return;
+      const local = window.DB.enrolments.find(r => r.requestId === remote.requestId);
+      if (!local) {
+        _lsAddPreservingId('enrolments', { ...remote, id: remote.requestId });
+        window.DB.enrolments.unshift({ ...remote, id: remote.requestId });
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        const merged = { ...local, ...remote, id: local.id };
+        LS.update('enrolments', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      updateEnrolmentsBadge();
+      if (document.getElementById('page-enrolments')?.classList.contains('active')) renderEnrolments();
+    }
+  } catch (e) {
+    // Network hiccup — local data is unaffected.
+  } finally {
+    _enrolmentSyncInFlight = false;
+  }
+}
+setInterval(() => { if (CURRENT_USER) syncEnrolmentsFromSheet(); }, 30000);
+window.addEventListener('focus', () => { if (CURRENT_USER) syncEnrolmentsFromSheet(); });
+
+function updateEnrolmentsBadge() {
+  const count = (window.DB.enrolments || []).filter(r => r.status === 'PENDING').length;
+  const badge = document.getElementById('nav-enrolments-badge');
+  if (badge) {
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+  }
+}
+
+window.renderEnrolments = () => {
+  const search = (document.getElementById('enr-search')?.value || '').toLowerCase().trim();
+  const sport = document.getElementById('enr-sport-filter')?.value || '';
+  const status = document.getElementById('enr-status-filter')?.value || '';
+  updateEnrolmentsBadge();
+
+  let list = (window.DB.enrolments || []).filter(r => {
+    if (status && r.status !== status) return false;
+    if (sport && r.sport !== sport) return false;
+    if (search && !`${r.studentName} ${r.parentName} ${r.mobile} ${r.requestId}`.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  const tbody = document.getElementById('enrolments-tbody');
+  if (!list.length) { tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📝</div><p>No enrolment requests found</p></div></td></tr>`; return; }
+
+  const canManage = can('manageEnrolments');
+  tbody.innerHTML = list.map(r => {
+    const statusLabels = { PENDING: 'badge-yellow ⏳ Pending', APPROVED: 'badge-green ✅ Approved', REJECTED: 'badge-red ❌ Rejected' };
+    const [cls, ...rest] = (statusLabels[r.status] || 'badge-gray ' + r.status).split(' ');
+    const isPending = r.status === 'PENDING';
+    const actions = [
+      `<button class="btn btn-secondary btn-sm" onclick="viewEnrolment('${r.id}')" title="View">👁️</button>`,
+      canManage && isPending ? `<button class="btn btn-info btn-sm" onclick="editEnrolment('${r.id}')" title="Edit">✏️</button>` : '',
+      canManage && isPending ? `<button class="btn btn-primary btn-sm" onclick="approveEnrolment('${r.id}')" title="Approve">✅</button>` : '',
+      canManage && isPending ? `<button class="btn btn-danger btn-sm" onclick="openRejectEnrolmentModal('${r.id}')" title="Reject">❌</button>` : ''
+    ].join('');
+    return `<tr>
+      <td style="font-size:11px;font-family:monospace">${_esc(r.requestId)}</td>
+      <td style="font-weight:600">${_esc(r.studentName)}</td>
+      <td>${_esc(r.parentName)}</td>
+      <td>${_esc(r.mobile)}</td>
+      <td>${sportBadge(r.sport)}</td>
+      <td>${_esc(r.batch || '-')}</td>
+      <td>${formatDate(r.createdAt) || '-'}</td>
+      <td><span class="badge ${cls}">${rest.join(' ')}</span></td>
+      <td><div style="display:flex;gap:4px;flex-wrap:wrap">${actions}</div></td>
+    </tr>`;
+  }).join('');
+};
+
+function _fillEnrolmentForm(r) {
+  document.getElementById('enr-id').value = r.id;
+  document.getElementById('enr-view-requestid').textContent = r.requestId;
+  document.getElementById('enr-view-submitted').textContent = formatDate(r.createdAt) || '-';
+  const statusLabels = { PENDING: 'badge-yellow ⏳ Pending', APPROVED: 'badge-green ✅ Approved', REJECTED: 'badge-red ❌ Rejected' };
+  const [cls, ...rest] = (statusLabels[r.status] || 'badge-gray ' + r.status).split(' ');
+  document.getElementById('enr-view-status').innerHTML = `<span class="badge ${cls}">${rest.join(' ')}</span>`;
+  document.getElementById('enr-student-name').value = r.studentName || '';
+  document.getElementById('enr-dob').value = r.dob || '';
+  document.getElementById('enr-gender').value = r.gender || '';
+  document.getElementById('enr-parent-name').value = r.parentName || '';
+  document.getElementById('enr-mobile').value = r.mobile || '';
+  document.getElementById('enr-email').value = r.email || '';
+  document.getElementById('enr-address').value = r.address || '';
+  document.getElementById('enr-school').value = r.school || '';
+  document.getElementById('enr-sport').value = r.sport || 'football';
+  document.getElementById('enr-batch').value = r.batch || '';
+  document.getElementById('enr-medical').value = r.medicalNotes || '';
+}
+
+function _setEnrolmentFormReadOnly(readonly) {
+  ['enr-student-name','enr-dob','enr-gender','enr-parent-name','enr-mobile','enr-email','enr-address','enr-school','enr-sport','enr-batch','enr-medical']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = readonly; });
+  document.getElementById('enrolment-save-btn').style.display = readonly ? 'none' : '';
+}
+
+window.viewEnrolment = (id) => {
+  const r = window.DB.enrolments.find(x => x.id === id);
+  if (!r) { showToast('Enrolment request not found', 'error'); return; }
+  _fillEnrolmentForm(r);
+  _setEnrolmentFormReadOnly(true);
+  document.getElementById('enrolment-modal-title').textContent = '👁️ View Enrolment Request';
+  openModal('enrolment-modal');
+};
+
+window.editEnrolment = (id) => {
+  if (!can('manageEnrolments')) { denyAccess(); return; }
+  const r = window.DB.enrolments.find(x => x.id === id);
+  if (!r) { showToast('Enrolment request not found', 'error'); return; }
+  if (r.status !== 'PENDING') { showToast('Only pending requests can be edited.', 'error'); return; }
+  _fillEnrolmentForm(r);
+  _setEnrolmentFormReadOnly(false);
+  document.getElementById('enrolment-modal-title').textContent = '✏️ Edit Enrolment Request';
+  openModal('enrolment-modal');
+};
+
+window.saveEnrolmentEdit = async () => {
+  if (!can('manageEnrolments')) { denyAccess(); return; }
+  const id = document.getElementById('enr-id').value;
+  const r = window.DB.enrolments.find(x => x.id === id);
+  if (!r) return;
+  const studentName = document.getElementById('enr-student-name').value.trim();
+  const parentName = document.getElementById('enr-parent-name').value.trim();
+  const mobile = document.getElementById('enr-mobile').value.trim();
+  if (!studentName || !parentName || !mobile) { showToast('Student Name, Parent Name, and Mobile are required.', 'error'); return; }
+  const updated = {
+    ...r, studentName, parentName, mobile,
+    dob: document.getElementById('enr-dob').value,
+    gender: document.getElementById('enr-gender').value,
+    email: document.getElementById('enr-email').value.trim(),
+    address: document.getElementById('enr-address').value.trim(),
+    school: document.getElementById('enr-school').value.trim(),
+    sport: document.getElementById('enr-sport').value,
+    batch: document.getElementById('enr-batch').value.trim(),
+    medicalNotes: document.getElementById('enr-medical').value.trim()
+  };
+  LS.update('enrolments', id, updated);
+  const idx = window.DB.enrolments.findIndex(x => x.id === id);
+  if (idx >= 0) window.DB.enrolments[idx] = updated;
+  const syncRes = await autoSyncEnrolment(updated, 'update');
+  if (syncRes && syncRes.ok && syncRes.updatedAt) {
+    updated.updatedAt = syncRes.updatedAt;
+    LS.update('enrolments', id, { updatedAt: syncRes.updatedAt });
+  }
+  closeModal('enrolment-modal');
+  renderEnrolments();
+  showToast('Enrolment request updated ✅');
+};
+
+// The ONLY path that ever creates a real Student — deliberately built as
+// its own function (not folded into saveStudent, which reads from the
+// Student form's DOM) so it can be called with plain data straight from
+// an enrolment request. Uses the exact same saveDoc('students', ...) +
+// autoSyncStudent(...) primitives saveStudent itself uses (see PHASE
+// 3.2a), so the resulting record is 100% indistinguishable from a
+// manually-added student — same ID format, same Sheet sync, same
+// real-time/backup coverage. Fee Plan (fee/qfee/yearlyFee/dueDay/coach)
+// isn't collected on the public enrolment form, so it's left at sensible
+// defaults for Admin/Manager to fill in afterward via the normal Edit
+// Student flow, same as any other required-follow-up on a new admission.
+async function _createStudentFromEnrolment(r) {
+  const data = {
+    name: r.studentName, phone: r.mobile,
+    admissionNo: '', fee: 0, qfee: 0, yearlyFee: 0,
+    discountType: 'none', discountValue: 0, joiningFee: 0, dueDay: null, feeStructure: 'monthly',
+    parent: r.parentName, mother: '', altPhone: '', email: r.email || '',
+    age: '', dob: r.dob || '', gender: r.gender || '', bloodGroup: '',
+    school: r.school || '', emergencyContact: '',
+    sport: r.sport, joined: getToday(), batch: r.batch || '', coach: '',
+    status: 'active', address: r.address || '', medicalNotes: r.medicalNotes || '',
+    remarks: `Created from Enrolment Request ${r.requestId}`, photo: '', archived: false
+  };
+  const id = await saveDoc('students', data, null);
+  data.studentId = id; data.id = id;
+  window.DB.students.unshift(data);
+  autoSyncStudent(data, 'create');
+  return id;
+}
+
+window.approveEnrolment = async (id) => {
+  if (!can('manageEnrolments')) { denyAccess(); return; }
+  const r = window.DB.enrolments.find(x => x.id === id);
+  if (!r) { showToast('Enrolment request not found', 'error'); return; }
+  if (r.status !== 'PENDING') { showToast('This request has already been actioned.', 'error'); return; }
+  if (!confirm(`Approve enrolment for ${r.studentName}? This will create a new Student record.`)) return;
+
+  const studentId = await _createStudentFromEnrolment(r);
+  const updated = { ...r, status: 'APPROVED', approvedStudentId: studentId };
+  LS.update('enrolments', id, updated);
+  const idx = window.DB.enrolments.findIndex(x => x.id === id);
+  if (idx >= 0) window.DB.enrolments[idx] = updated;
+  await autoSyncEnrolment(updated, 'update');
+
+  renderEnrolments();
+  if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
+  renderDashboard();
+  showToast(`Enrolment approved — Student ${studentId} created ✅`);
+};
+
+window.openRejectEnrolmentModal = (id) => {
+  if (!can('manageEnrolments')) { denyAccess(); return; }
+  const r = window.DB.enrolments.find(x => x.id === id);
+  if (!r) { showToast('Enrolment request not found', 'error'); return; }
+  if (r.status !== 'PENDING') { showToast('This request has already been actioned.', 'error'); return; }
+  document.getElementById('enr-reject-id').value = id;
+  document.getElementById('enr-reject-name').textContent = r.studentName;
+  document.getElementById('enr-reject-reason').value = '';
+  openModal('enrolment-reject-modal');
+};
+
+window.confirmRejectEnrolment = async () => {
+  if (!can('manageEnrolments')) { denyAccess(); return; }
+  const id = document.getElementById('enr-reject-id').value;
+  const reason = document.getElementById('enr-reject-reason').value.trim();
+  if (!reason) { showToast('A rejection reason is required.', 'error'); return; }
+  const r = window.DB.enrolments.find(x => x.id === id);
+  if (!r) return;
+  const updated = { ...r, status: 'REJECTED', rejectionReason: reason };
+  LS.update('enrolments', id, updated);
+  const idx = window.DB.enrolments.findIndex(x => x.id === id);
+  if (idx >= 0) window.DB.enrolments[idx] = updated;
+  await autoSyncEnrolment(updated, 'update');
+  closeModal('enrolment-reject-modal');
+  renderEnrolments();
+  showToast('Enrolment request rejected — kept in history.');
 };
 
 // ===== COACHES =====
@@ -11979,10 +11985,11 @@ const RT_MODULE_META = {
   siteConfig:             { icon: '🌐', label: 'Website' },
   coach:                  { icon: '👨‍🏫', label: 'Coach' }, // PHASE 3.1 — Coaches Backend
   student_card:           { icon: '🪪', label: 'ID Card' },  // PHASE 3.2b-ii
-  scan_log:               { icon: '📷', label: 'QR Scan' },  // PHASE 3.2b-iii
   fee:                    { icon: '💰', label: 'Fee Payment' }, // PHASE 3.4b — Fee Collection
   receipt:                { icon: '🧾', label: 'Receipt' }, // PHASE 3.4c — Receipt System
-  reminder:               { icon: '📣', label: 'Reminder' } // PHASE 3.4d — Due Engine & Reminder Dashboard
+  reminder:               { icon: '📣', label: 'Reminder' }, // PHASE 3.4d — Due Engine & Reminder Dashboard
+  enrolment_request:        { icon: '📝', label: 'Enrolment Request' }, // PHASE 3.5 — Student Enrolment Request System
+  enrolment_request_update: { icon: '📝', label: 'Enrolment Request' }
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
@@ -12354,6 +12361,10 @@ function _rtApplyEvents(events) {
   // to be refreshed whenever either changes on another device, same
   // targeted-refresh pattern as every other module above.
   if ((affected.has('fee') || affected.has('student')) && document.getElementById('page-dues')?.classList.contains('active')) window.renderDues?.();
+  // PHASE 3.5 — Student Enrolment Request System. Deliberately NOT in
+  // RT_MERGE_MAP (see syncEnrolmentsFromSheet's own comment on why) —
+  // just re-fetch, same explicit-refresh pattern Fees uses above.
+  if (affected.has('enrolment_request') || affected.has('enrolment_request_update')) window.syncEnrolmentsFromSheet?.();
   if (newNotifs.length) window.renderDashboard?.();
 }
 
