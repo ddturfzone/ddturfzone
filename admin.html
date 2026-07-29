@@ -149,6 +149,7 @@ tr:hover td{background:#f8fffe}
 .badge-red{background:#fee2e2;color:#991b1b}
 .badge-blue{background:#dbeafe;color:#1e40af}
 .badge-purple{background:#ede9fe;color:#5b21b6}
+.badge-orange{background:#ffedd5;color:#9a3412}
 .badge-gray{background:var(--gray2);color:var(--gray3)}
 /* ====== BOOKING MODAL REDESIGN ====== */
 .bk-modal-wide{max-width:600px!important}
@@ -407,6 +408,7 @@ tr:hover td{background:#f8fffe}
         <button class="nav-item" data-page-nav="scanner" onclick="showPage('scanner')"><span class="nav-icon">📷</span>QR Scanner</button>
         <button class="nav-item" data-page-nav="attendance" onclick="showPage('attendance')"><span class="nav-icon">✅</span>Attendance</button>
         <button class="nav-item" data-page-nav="fees" onclick="showPage('fees')"><span class="nav-icon">💰</span>Fee Collection</button>
+        <button class="nav-item" data-page-nav="dues" onclick="showPage('dues')"><span class="nav-icon">📆</span>Dues</button>
         <button class="nav-item" data-page-nav="coaches" onclick="showPage('coaches')"><span class="nav-icon">👨‍🏫</span>Coaches</button>
       </div>
       <div class="nav-section">
@@ -788,6 +790,57 @@ tr:hover td{background:#f8fffe}
               <th>Received</th><th>Pending</th><th>Method</th><th>Date</th><th>Status</th><th>Actions</th>
             </tr></thead>
             <tbody id="fees-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DUES — PHASE 3.4d: Due Engine & Reminder Dashboard. Purely a
+           computed VIEW over existing Students (Fee Plan/Due Day) + Fees
+           (payments already logged) — no new data model, nothing new to
+           back up. Same reasoning the Receipt System (3.4c) used for
+           receipts being a view over an existing fees record. -->
+      <div class="page" id="page-dues">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Dues & Reminders</div>
+            <div style="color:var(--gray3);font-size:13px">Upcoming, due-today & overdue coaching fees at a glance</div>
+          </div>
+        </div>
+        <div class="stats-grid" id="dues-stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"></div>
+        <div class="filter-bar">
+          <input type="text" id="dues-search" placeholder="🔍 Search student, ID, parent, mobile..." oninput="renderDues()" style="min-width:220px">
+          <select id="dues-sport-filter" onchange="renderDues()">
+            <option value="">All Sports</option>
+            <option value="football">⚽ Football</option>
+            <option value="cricket">🏏 Cricket</option>
+            <option value="taekwondo">🥋 Taekwondo</option>
+          </select>
+          <select id="dues-batch-filter" onchange="renderDues()"><option value="">All Batches</option></select>
+          <select id="dues-coach-filter" onchange="renderDues()"><option value="">All Coaches</option></select>
+          <select id="dues-plan-filter" onchange="renderDues()">
+            <option value="">All Fee Plans</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+          <select id="dues-status-filter" onchange="renderDues()">
+            <option value="">All Due Status</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="due_today">Due Today</option>
+            <option value="overdue">Overdue</option>
+            <option value="paid">Paid</option>
+          </select>
+          <input type="date" id="dues-from-date" onchange="renderDues()" title="Due date from">
+          <input type="date" id="dues-to-date" onchange="renderDues()" title="Due date to">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Student ID</th><th>Student Name</th><th>Parent Name</th><th>Mobile</th><th>Sport</th>
+              <th>Batch</th><th>Coach</th><th>Fee Plan</th><th>Due Date</th><th>Amount Due</th>
+              <th>Pending Balance</th><th>Days Overdue</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="dues-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -2298,9 +2351,28 @@ tr:hover td{background:#f8fffe}
       <button class="btn btn-secondary" onclick="closeModal('receipt-modal')">Close</button>
       <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="printReceipt()">🖨️ Print</button>
       <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="downloadReceiptPDF()">📄 Download PDF</button>
+      <!-- PHASE 3.4c Task 2 — Receipt Delivery. Same printReceipts permission
+           as Print/Download PDF above: Super Admin + Manager can share, Staff
+           never sees these (data-requires-action hides them; each handler
+           also re-checks can('printReceipts') as defense-in-depth). -->
+      <button class="btn btn-whatsapp" data-requires-action="printReceipts" onclick="shareReceiptWhatsApp()">💬 WhatsApp</button>
+      <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="copyReceiptMessage()">📋 Copy Message</button>
+      <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="emailReceipt()">📧 Email</button>
+      <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="shareReceiptPDF()">📤 Share PDF</button>
     </div>
     <div id="receipt-view-only-note" style="display:none;text-align:center;font-size:12px;color:var(--gray3);margin-top:10px">
       View only — ask a Manager or Super Admin to print or download this receipt.
+    </div>
+  </div>
+</div>
+
+<!-- DUES PAYMENT HISTORY MODAL — PHASE 3.4d -->
+<div class="modal-overlay" id="dues-history-modal">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-title" id="dues-history-title">📜 Payment History</div>
+    <div id="dues-history-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('dues-history-modal')">Close</button>
     </div>
   </div>
 </div>
@@ -2739,6 +2811,11 @@ const PAGE_PERMISSIONS = {
   // intentional widening carried by this phase's spec, not a regression.
   // See ACTION_PERMISSIONS.manageFees below for the Create/Edit gate.
   fees:       [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
+  // PHASE 3.4d — Due Engine & Reminder Dashboard. Same View-Only-for-Staff
+  // shape as Fees: everyone can see the Dues page; ACTION_PERMISSIONS.manageDues
+  // below gates the actual write/outbound actions (Collect Fee, Manual
+  // WhatsApp Reminder, Print Receipt History).
+  dues:       [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   coaches:    [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   enquiries:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   cafe:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
@@ -2806,6 +2883,11 @@ const ACTION_PERMISSIONS = {
   // edit rights. The preview modal itself is reachable by anyone with
   // Fees page access (Staff included) — this only gates Print/PDF.
   printReceipts:        [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.4d — Due Engine & Reminder Dashboard. Gates Collect Fee (from
+  // the Dues table), Manual WhatsApp Reminder, and Print Receipt History.
+  // "View Student Profile" and "View Payment History" stay available to
+  // Staff (read-only), same reasoning as printReceipts' preview modal above.
+  manageDues:           [ROLES.SUPER_ADMIN, ROLES.ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -3642,12 +3724,12 @@ window.showPage = (page) => {
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
   if (_leavingScannerPage) window.stopQrScanner?.();
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',scanner:'QR Scanner',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',scanner:'QR Scanner',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,scanner:renderScannerPage,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,scanner:renderScannerPage,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -5640,6 +5722,21 @@ function _describeAuditAction(payload) {
   if (!action && payload.type === 'booking') action = payload.status === 'cancelled' ? 'cancel' : 'save';
   if (!action) action = 'create';
   const ref = payload.bookingId || payload.blockId || payload.studentId || payload.enquiryId || payload.attendanceId || payload.name || payload.itemName || '';
+  // PHASE 3.4c Task 2 — Receipt Delivery. Print/PDF (Task 1) keep their
+  // existing generic "receipt print — X" / "receipt pdf — X" summary
+  // unchanged; only the four new delivery actions get friendlier labels
+  // for the Activity Log, matching the spec's required log entries.
+  if (payload.type === 'receipt') {
+    const receiptActionLabels = { whatsapp: 'Receipt Shared', copy: 'Receipt Copied', email: 'Receipt Email Opened', share_pdf: 'PDF Shared' };
+    if (receiptActionLabels[action]) return `${receiptActionLabels[action]}${ref ? ` — ${ref}` : ''}`;
+  }
+  // PHASE 3.4d — Due Engine & Reminder Dashboard. "Prepared" (not "Sent")
+  // is deliberate — this only logs that staff opened wa.me with the
+  // message pre-filled, never that WhatsApp actually delivered it.
+  if (payload.type === 'reminder') {
+    const reminderActionLabels = { whatsapp_prepared: 'Reminder Prepared', print_history: 'Receipt History Printed' };
+    if (reminderActionLabels[action]) return `${reminderActionLabels[action]}${ref ? ` — ${ref}` : ''}`;
+  }
   return `${label} ${action}${ref ? ` — ${ref}` : ''}`;
 }
 // PHASE 2.5 — a record's own ID, pulled from whichever field that payload
@@ -8923,6 +9020,487 @@ window.downloadReceiptPDF = async () => {
   _logReceiptActivity(f, 'pdf');
 };
 
+// ===== PHASE 3.4c (Task 2) — RECEIPT DELIVERY =====
+// Task 1 (above) is frozen — nothing in _receiptDocHTML, printReceipt, or
+// downloadReceiptPDF is touched. This section only adds ways to hand the
+// same receipt to a parent: WhatsApp, Copy Message, Email, Share PDF.
+// No new data is stored — parent contact is read straight off the Student
+// Profile (Guardian Name/Mobile/Email) matched via the fee's studentId, so
+// there's nothing to type and nothing new to back up.
+
+// Looks up the parent contact for a fee record's student. Returns '' for
+// any field that isn't on file rather than guessing — callers decide what
+// to do (e.g. WhatsApp/Email block with a toast if the relevant field is empty).
+function _receiptParentContact(f) {
+  const s = window.DB.students.find(x => x.studentId === f.studentId) || {};
+  return { name: s.parent || '', phone: s.phone || '', email: s.email || '' };
+}
+
+// Same plain-text, no-emoji-cluster template style as buildBookingWhatsAppMessage
+// / saveFeeAndWhatsApp above (see the comment there re: WhatsApp rendering
+// multi-codepoint emoji as "�" on some Android webviews) — shared verbatim
+// across WhatsApp, Copy Message, and Email so all three ways of sending this
+// always say exactly the same thing.
+function _receiptMessageText(f, parentName) {
+  const amount = f.amountReceived ?? f.paid ?? 0;
+  return [
+    'DD Turf Zone',
+    '',
+    `Dear ${parentName || 'Parent/Guardian'},`,
+    '',
+    'We have received your coaching fee payment.',
+    '',
+    `Student : ${f.studentName || '-'}`,
+    `Student ID : ${f.studentId || '-'}`,
+    `Sport : ${categoryLabel(f.sport) || f.sport || '-'}`,
+    `Batch : ${f.batch || '-'}`,
+    `Receipt No : ${f.receiptNo || 'Pending sync…'}`,
+    `Payment Date : ${formatDate(f.receiptDate || f.date)}`,
+    `Amount Paid : ₹${amount.toLocaleString('en-IN')}`,
+    `Payment Method : ${f.paymentMethod || '-'}`,
+    '',
+    'Thank you for your payment.',
+    '',
+    'DD Turf Zone'
+  ].join('\n');
+}
+
+window.shareReceiptWhatsApp = () => {
+  if (!can('printReceipts')) { denyAccess(); return; }
+  const feeId = document.getElementById('receipt-fee-id').value;
+  const f = window.DB.fees.find(x => x.id === feeId);
+  if (!f) return;
+  const parent = _receiptParentContact(f);
+  if (!parent.phone) { showToast('No parent mobile number on file for this student.', 'error'); return; }
+  const msg = encodeURIComponent(_receiptMessageText(f, parent.name));
+  window.open(`https://wa.me/${buildWaPhone(parent.phone)}?text=${msg}`, '_blank');
+  _logReceiptActivity(f, 'whatsapp');
+};
+
+window.copyReceiptMessage = async () => {
+  if (!can('printReceipts')) { denyAccess(); return; }
+  const feeId = document.getElementById('receipt-fee-id').value;
+  const f = window.DB.fees.find(x => x.id === feeId);
+  if (!f) return;
+  const parent = _receiptParentContact(f);
+  const msg = _receiptMessageText(f, parent.name);
+  try {
+    await navigator.clipboard.writeText(msg);
+    showToast('Message copied.');
+    _logReceiptActivity(f, 'copy');
+  } catch (e) {
+    showToast('Unable to copy — please copy manually.', 'error');
+  }
+};
+
+window.emailReceipt = () => {
+  if (!can('printReceipts')) { denyAccess(); return; }
+  const feeId = document.getElementById('receipt-fee-id').value;
+  const f = window.DB.fees.find(x => x.id === feeId);
+  if (!f) return;
+  const parent = _receiptParentContact(f);
+  if (!parent.email) { showToast('No parent email on file for this student.', 'error'); return; }
+  const subject = encodeURIComponent('DD Turf Zone Fee Receipt');
+  const body = encodeURIComponent(_receiptMessageText(f, parent.name));
+  window.open(`mailto:${parent.email}?subject=${subject}&body=${body}`, '_blank');
+  _logReceiptActivity(f, 'email');
+};
+
+// Reuses the exact same html2canvas -> jsPDF pipeline as downloadReceiptPDF
+// above (kept as its own copy rather than refactored out, so Task 1's
+// download path stays untouched/frozen). Web Share API (with file support)
+// shares the PDF directly when the platform supports it; otherwise this
+// falls back to the same download behavior as "Download PDF".
+window.shareReceiptPDF = async () => {
+  if (!can('printReceipts')) { denyAccess(); return; }
+  const feeId = document.getElementById('receipt-fee-id').value;
+  const f = window.DB.fees.find(x => x.id === feeId);
+  if (!f) return;
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PDF…', 'info');
+  const canvas = await html2canvas(document.getElementById('receipt-doc-container'), { scale: 3, backgroundColor: '#ffffff' });
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 15;
+  const imgWidth = pageWidth - margin * 2;
+  const imgHeight = imgWidth * (canvas.height / canvas.width);
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imgWidth, imgHeight);
+  const fileName = `Receipt_${f.receiptNo || f.id}.pdf`;
+
+  const canWebShareFiles = !!(navigator.share && navigator.canShare);
+  if (canWebShareFiles) {
+    const file = new File([doc.output('blob')], fileName, { type: 'application/pdf' });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'DD Turf Zone Fee Receipt', text: `Receipt ${f.receiptNo || ''}` });
+        showToast('Receipt PDF shared ✅');
+        _logReceiptActivity(f, 'share_pdf');
+        return;
+      } catch (e) {
+        if (e?.name === 'AbortError') return; // user cancelled the share sheet — not an error, nothing to log
+        // any other share failure falls through to a plain download below
+      }
+    }
+  }
+  doc.save(fileName);
+  showToast('Web Share not supported on this device — Receipt PDF downloaded instead ✅');
+  _logReceiptActivity(f, 'share_pdf');
+};
+
+// ============================================================================
+// PHASE 3.4d — DUE ENGINE & REMINDER DASHBOARD
+// ----------------------------------------------------------------------------
+// Nothing here is a new stored data model. "Due" status for every active
+// student is recomputed fresh on every render from two things that already
+// exist: the student's own Fee Plan (feeStructure/fee/qfee/yearlyFee/dueDay,
+// Phase 3.4a) and the Fees records already logged against them (Phase
+// 3.4b). That's what makes this automatically correct the moment a payment
+// is recorded anywhere else in the app — there's no separate "due" record
+// that could fall out of sync, and nothing new to add to backup/Sheets
+// sync: it already rides on the existing Students/Fees tabs and the
+// existing AuditLog-based Activity Log / Notification Center (logAudit's
+// payload `type` is freeform on both client and server — see
+// handleAuditLog in Code.gs — so a new 'reminder' type needs zero backend
+// changes to show up in Activity Log, the notification bell, and every
+// other connected device's live feed).
+//
+// Manual WhatsApp Reminder is exactly that — manual. It opens wa.me with a
+// pre-filled message and logs that the reminder was PREPARED; it never
+// calls any WhatsApp API and can't confirm the message was actually sent.
+// Automatic sending, SMS, and email reminders are explicitly out of scope
+// for this phase (see spec).
+// ============================================================================
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DUE_QUARTER_START_MONTH = { Q1: 0, Q2: 3, Q3: 6, Q4: 9 }; // Jan/Apr/Jul/Oct
+function _dueQuarterOf(monthIdx) {
+  if (monthIdx <= 2) return 'Q1';
+  if (monthIdx <= 5) return 'Q2';
+  if (monthIdx <= 8) return 'Q3';
+  return 'Q4';
+}
+
+// The "current" billing period + its Due Date for a student's Fee Plan, as
+// of `today`. Monthly = this calendar month. Quarterly = this calendar
+// quarter (Q1 Jan-Mar … Q4 Oct-Dec — the same Q1-Q4 the Fee Collection form
+// already uses). Yearly = anchored to the student's Joining month every
+// year (falls back to January if no Joining Date is on file) so an annual
+// student's due date recurs on the same month each year rather than
+// always defaulting to January. Due Day is clamped to 1-28 so it never
+// rolls into the following month (e.g. "31" in February).
+function _dueCurrentPeriod(s, today) {
+  const structure = s.feeStructure || 'monthly';
+  const dueDay = Math.min(Math.max(Number(s.dueDay) || 1, 1), 28);
+  const year = today.getFullYear();
+  if (structure === 'quarterly') {
+    const quarter = _dueQuarterOf(today.getMonth());
+    return { feeType: 'quarterly', month: '', quarter, year: String(year), dueDate: new Date(year, DUE_QUARTER_START_MONTH[quarter], dueDay) };
+  }
+  if (structure === 'yearly') {
+    const anchorMonth = s.joined ? new Date(s.joined + 'T00:00:00').getMonth() : 0;
+    return { feeType: 'yearly', month: '', quarter: '', year: String(year), dueDate: new Date(year, isNaN(anchorMonth) ? 0 : anchorMonth, dueDay) };
+  }
+  return { feeType: 'monthly', month: MONTH_NAMES[today.getMonth()], quarter: '', year: String(year), dueDate: new Date(year, today.getMonth(), dueDay) };
+}
+
+// Fee records (Phase 3.4b) already logged for this student's current period.
+function _dueMatchingFees(s, period) {
+  const sid = s.studentId || s.id;
+  return window.DB.fees.filter(f => {
+    if (f.studentId !== sid || f.feeType !== period.feeType) return false;
+    if (period.feeType === 'monthly') return f.month === period.month && String(f.year) === period.year;
+    if (period.feeType === 'quarterly') return f.quarter === period.quarter && String(f.year) === period.year;
+    return String(f.year) === period.year; // yearly
+  });
+}
+
+// The effective (post-discount) per-period fee amount — reuses the exact
+// same _computeEffectiveFee helper the Student modal's live preview and
+// Fee Collection's student-select prefill (Phase 3.4a/3.4b) already use,
+// so this always matches what Fee Collection would charge for this student.
+function _dueAmountForStudent(s) {
+  const structure = s.feeStructure || 'monthly';
+  const base = structure === 'yearly' ? s.yearlyFee : structure === 'quarterly' ? s.qfee : s.fee;
+  return Math.round(_computeEffectiveFee(base, s.discountType, s.discountValue));
+}
+
+const DUE_PLAN_LABELS = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
+
+function _computeDueEntry(s, today) {
+  const period = _dueCurrentPeriod(s, today);
+  const matches = _dueMatchingFees(s, period);
+  const received = matches.reduce((sum, f) => sum + (f.amountReceived ?? f.paid ?? 0), 0);
+  const amountDue = _dueAmountForStudent(s);
+  const pending = Math.max(0, amountDue - received);
+
+  const dueDateOnly = new Date(period.dueDate.getFullYear(), period.dueDate.getMonth(), period.dueDate.getDate());
+  const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const diffDays = Math.round((dueDateOnly - todayOnly) / 86400000);
+
+  let status, daysOverdue = 0;
+  if (pending <= 0 && received > 0) status = 'paid';
+  else if (diffDays === 0) status = 'due_today';
+  else if (diffDays < 0) { status = 'overdue'; daysOverdue = -diffDays; }
+  else if (diffDays <= 7) status = 'due_soon';
+  else status = 'upcoming';
+
+  return {
+    id: s.id, studentId: s.studentId || s.id, name: s.name, parent: s.parent || '', phone: s.phone || '', email: s.email || '',
+    sport: s.sport, batch: s.batch || '', coach: s.coach || '',
+    feeStructure: s.feeStructure || 'monthly', planLabel: DUE_PLAN_LABELS[s.feeStructure || 'monthly'],
+    dueDate: dueDateOnly, amountDue, received, pending, status, daysOverdue
+  };
+}
+
+// Every active (non-archived) student, one computed due entry each.
+function _getDuesList() {
+  const today = new Date();
+  return window.DB.students.filter(s => !s.archived && s.status === 'active').map(s => _computeDueEntry(s, today));
+}
+
+// Dashboard card totals. "Due This Month" / "Expected Collection" are
+// defined as: not yet paid, and the current period's Due Date falls
+// within this calendar month (this deliberately includes anything already
+// overdue from earlier this month, since that money is still expected
+// this month too).
+function _duesSummary(list) {
+  const now = new Date();
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const dueThisMonthList = list.filter(d => d.status !== 'paid' && d.dueDate >= monthStart && d.dueDate <= monthEnd);
+  return {
+    totalOutstanding: list.filter(d => d.status !== 'paid').reduce((s, d) => s + d.pending, 0),
+    overdueStudents: list.filter(d => d.status === 'overdue').length,
+    dueToday: list.filter(d => d.status === 'due_today').length,
+    dueThisWeek: list.filter(d => d.status === 'due_soon').length,
+    dueThisMonth: dueThisMonthList.length,
+    expectedCollection: dueThisMonthList.reduce((s, d) => s + d.pending, 0)
+  };
+}
+
+function _fmtDueDate(d) {
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function _dueStatusBadge(d) {
+  if (d.status === 'paid') return { cls: 'badge-green', text: '🟢 Paid' };
+  if (d.status === 'due_today') return { cls: 'badge-yellow', text: '🟡 Due Today' };
+  if (d.status === 'due_soon') return { cls: 'badge-orange', text: '🟠 Due Soon' };
+  if (d.status === 'overdue') return { cls: 'badge-red', text: `🔴 Overdue (${d.daysOverdue}d)` };
+  return { cls: 'badge-blue', text: '🔵 Upcoming' };
+}
+
+// Fills the Coach/Batch filter dropdowns from active students, same
+// preserve-current-selection pattern as _populateStudentCoachBatchFilters.
+function _populateDuesCoachBatchFilters() {
+  const coachSel = document.getElementById('dues-coach-filter');
+  const batchSel = document.getElementById('dues-batch-filter');
+  if (!coachSel || !batchSel) return;
+  const active = window.DB.students.filter(s => !s.archived && s.status === 'active');
+  const coaches = [...new Set(active.map(s => s.coach).filter(Boolean))].sort();
+  const batches = [...new Set(active.map(s => s.batch).filter(Boolean))].sort();
+  const rebuild = (sel, values, label) => {
+    const current = sel.value;
+    sel.innerHTML = `<option value="">All ${label}</option>` + values.map(v => `<option value="${v}">${v}</option>`).join('');
+    if (values.includes(current)) sel.value = current;
+  };
+  rebuild(coachSel, coaches, 'Coaches');
+  rebuild(batchSel, batches, 'Batches');
+}
+
+window.renderDues = () => {
+  _populateDuesCoachBatchFilters();
+  const list = _getDuesList();
+  const summary = _duesSummary(list);
+
+  document.getElementById('dues-stats').innerHTML = `
+    <div class="stat-card red"><div class="stat-icon">💸</div><div class="stat-val">₹${summary.totalOutstanding.toLocaleString('en-IN')}</div><div class="stat-label">Total Outstanding</div></div>
+    <div class="stat-card red"><div class="stat-icon">🔴</div><div class="stat-val">${summary.overdueStudents}</div><div class="stat-label">Overdue Students</div></div>
+    <div class="stat-card yellow"><div class="stat-icon">🟡</div><div class="stat-val">${summary.dueToday}</div><div class="stat-label">Due Today</div></div>
+    <div class="stat-card orange"><div class="stat-icon">🟠</div><div class="stat-val">${summary.dueThisWeek}</div><div class="stat-label">Due This Week</div></div>
+    <div class="stat-card blue"><div class="stat-icon">📅</div><div class="stat-val">${summary.dueThisMonth}</div><div class="stat-label">Due This Month</div></div>
+    <div class="stat-card green"><div class="stat-icon">📈</div><div class="stat-val">₹${summary.expectedCollection.toLocaleString('en-IN')}</div><div class="stat-label">Expected Collection</div></div>`;
+
+  const search = (document.getElementById('dues-search')?.value || '').toLowerCase().trim();
+  const sport = document.getElementById('dues-sport-filter')?.value || '';
+  const batch = document.getElementById('dues-batch-filter')?.value || '';
+  const coach = document.getElementById('dues-coach-filter')?.value || '';
+  const plan = document.getElementById('dues-plan-filter')?.value || '';
+  const statusFilter = document.getElementById('dues-status-filter')?.value || '';
+  const fromDateVal = document.getElementById('dues-from-date')?.value || '';
+  const toDateVal = document.getElementById('dues-to-date')?.value || '';
+  const fromDate = fromDateVal ? new Date(fromDateVal + 'T00:00:00') : null;
+  const toDate = toDateVal ? new Date(toDateVal + 'T23:59:59') : null;
+
+  let filtered = list.filter(d => {
+    if (search && !`${d.name} ${d.studentId} ${d.parent} ${d.phone}`.toLowerCase().includes(search)) return false;
+    if (sport && d.sport !== sport) return false;
+    if (batch && d.batch !== batch) return false;
+    if (coach && d.coach !== coach) return false;
+    if (plan && d.feeStructure !== plan) return false;
+    // "Upcoming" in the filter dropdown covers both the plain-upcoming and
+    // due-soon (orange, within 7 days) buckets — Due Soon is a visual
+    // sub-state of Upcoming, not a separate filter value (see spec's Due
+    // Status list: Upcoming / Today / Overdue / Paid).
+    if (statusFilter) {
+      const isUpcomingMatch = statusFilter === 'upcoming' && (d.status === 'upcoming' || d.status === 'due_soon');
+      if (!(d.status === statusFilter || isUpcomingMatch)) return false;
+    }
+    if (fromDate && d.dueDate < fromDate) return false;
+    if (toDate && d.dueDate > toDate) return false;
+    return true;
+  });
+
+  const statusOrder = { overdue: 0, due_today: 1, due_soon: 2, upcoming: 3, paid: 4 };
+  filtered.sort((a, b) => (statusOrder[a.status] - statusOrder[b.status]) || (a.dueDate - b.dueDate));
+
+  const tbody = document.getElementById('dues-tbody');
+  if (!filtered.length) { tbody.innerHTML = `<tr><td colspan="14"><div class="empty-state"><div class="empty-icon">📆</div><p>No dues match these filters</p></div></td></tr>`; return; }
+
+  const canManage = can('manageDues');
+  tbody.innerHTML = filtered.map(d => {
+    const badge = _dueStatusBadge(d);
+    const actions = [
+      canManage ? `<button class="btn btn-info btn-sm" onclick="collectFeeForDue('${d.id}')" title="Collect Fee">💰</button>` : '',
+      `<button class="btn btn-secondary btn-sm" onclick="viewStudent('${d.id}')" title="View Student Profile">👁️</button>`,
+      `<button class="btn btn-secondary btn-sm" onclick="openDuesPaymentHistory('${d.studentId}')" title="View Payment History">📜</button>`,
+      canManage ? `<button class="btn btn-whatsapp btn-sm" onclick="sendDueReminderWhatsApp('${d.studentId}')" title="Manual WhatsApp Reminder">💬</button>` : '',
+      canManage ? `<button class="btn btn-secondary btn-sm" onclick="printReceiptHistoryForStudent('${d.studentId}')" title="Print Receipt History">🖨️</button>` : ''
+    ].join('');
+    return `<tr>
+      <td style="font-size:11px;font-family:monospace">${d.studentId}</td>
+      <td style="font-weight:600">${_esc(d.name)}</td>
+      <td>${_esc(d.parent || '-')}</td>
+      <td>${_esc(d.phone || '-')}</td>
+      <td>${sportBadge(d.sport)}</td>
+      <td>${_esc(d.batch || '-')}</td>
+      <td>${_esc(d.coach || '-')}</td>
+      <td>${d.planLabel}</td>
+      <td>${_fmtDueDate(d.dueDate)}</td>
+      <td>₹${d.amountDue.toLocaleString('en-IN')}</td>
+      <td style="color:${d.pending>0?'var(--red)':'var(--green)'};font-weight:700">₹${d.pending.toLocaleString('en-IN')}</td>
+      <td>${d.status === 'overdue' ? d.daysOverdue : '-'}</td>
+      <td><span class="badge ${badge.cls}">${badge.text}</span></td>
+      <td><div style="display:flex;gap:4px;flex-wrap:wrap">${actions}</div></td>
+    </tr>`;
+  }).join('');
+};
+
+// ----- Quick Actions -----
+
+// Opens Fee Collection pre-filled with this student, exactly as if the
+// user had searched for and selected them there manually — reuses
+// resetFeeForm/populateFeeStudentSelect/onFeeStudentChange verbatim (all
+// Phase 3.4a/3.4b), no new fee-recording logic.
+window.collectFeeForDue = (studentDbId) => {
+  if (!can('manageFees')) { denyAccess(); return; }
+  resetFeeForm();
+  openModal('fee-modal');
+  const sel = document.getElementById('fee-student-select');
+  if (sel) { sel.value = studentDbId; onFeeStudentChange(); }
+};
+
+window.openDuesPaymentHistory = (studentId) => {
+  const s = window.DB.students.find(x => (x.studentId || x.id) === studentId);
+  const fees = window.DB.fees.filter(f => f.studentId === studentId)
+    .sort((a, b) => new Date(b.receiptDate || b.date) - new Date(a.receiptDate || a.date));
+  document.getElementById('dues-history-title').textContent = `📜 Payment History — ${s ? s.name : studentId}`;
+  const body = document.getElementById('dues-history-body');
+  if (!fees.length) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">📜</div><p>No payments recorded for this student yet.</p></div>`;
+  } else {
+    body.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Receipt No.</th><th>Due Month</th><th>Payable</th><th>Received</th><th>Pending</th><th>Method</th><th>Date</th><th>Status</th></tr></thead>
+      <tbody>${fees.map(f => {
+        const payable = f.amountPayable ?? f.amount ?? 0;
+        const received = f.amountReceived ?? f.paid ?? 0;
+        const pend = Math.max(0, f.pending ?? (payable - received));
+        return `<tr>
+          <td style="font-size:11px;font-family:monospace">${f.receiptNo || '<span style="color:var(--gray3)">Pending sync…</span>'}</td>
+          <td>${f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year)}</td>
+          <td>₹${payable.toLocaleString('en-IN')}</td>
+          <td style="color:var(--green);font-weight:700">₹${received.toLocaleString('en-IN')}</td>
+          <td style="color:${pend>0?'var(--red)':'var(--green)'};font-weight:700">₹${pend.toLocaleString('en-IN')}</td>
+          <td>${f.paymentMethod || '-'}</td>
+          <td>${formatDate(f.receiptDate || f.date)}</td>
+          <td>${statusBadge(f.status)}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  }
+  openModal('dues-history-modal');
+};
+
+// Same plain-text template style as the Receipt Delivery / Save & WhatsApp
+// messages elsewhere in this file (see the comment on _receiptMessageText
+// re: WhatsApp rendering multi-codepoint emoji as "�" on some Android
+// webviews) — kept as its own message since a payment reminder and a
+// payment confirmation are different things.
+function _dueReminderMessageText(d) {
+  return [
+    'DD Turf Zone', '',
+    `Dear ${d.parent || 'Parent/Guardian'},`, '',
+    'This is a friendly reminder that your coaching fee payment is due.', '',
+    `Student : ${d.name}`,
+    `Student ID : ${d.studentId}`,
+    `Sport : ${categoryLabel(d.sport) || d.sport || '-'}`,
+    `Batch : ${d.batch || '-'}`,
+    `Fee Plan : ${d.planLabel}`,
+    `Due Date : ${_fmtDueDate(d.dueDate)}`,
+    `Amount Due : ₹${d.amountDue.toLocaleString('en-IN')}`,
+    `Pending Balance : ₹${d.pending.toLocaleString('en-IN')}`, '',
+    'Kindly complete the payment at your earliest convenience.', '',
+    'Thank you,', 'DD Turf Zone'
+  ].join('\n');
+}
+
+function _logDuesActivity(d, action) {
+  logAudit({ type: 'reminder', action, studentId: d.studentId, studentName: d.name, recordId: d.studentId });
+}
+
+// Manual only — opens wa.me with the message pre-filled and logs that a
+// reminder was PREPARED. Never calls any WhatsApp/SMS/email API and can't
+// confirm the parent actually received it; sending the message itself is
+// still one tap by the staff member inside WhatsApp. See spec: "Do NOT
+// Build: Automatic WhatsApp / SMS / Email reminders".
+window.sendDueReminderWhatsApp = (studentId) => {
+  if (!can('manageDues')) { denyAccess(); return; }
+  const s = window.DB.students.find(x => (x.studentId || x.id) === studentId);
+  if (!s) { showToast('Student not found.', 'error'); return; }
+  const d = _computeDueEntry(s, new Date());
+  if (!d.phone) { showToast('No parent mobile number on file for this student.', 'error'); return; }
+  const msg = encodeURIComponent(_dueReminderMessageText(d));
+  window.open(`https://wa.me/${buildWaPhone(d.phone)}?text=${msg}`, '_blank');
+  _logDuesActivity(d, 'whatsapp_prepared');
+  showToast('WhatsApp reminder prepared — remember to hit Send in WhatsApp.', 'info');
+};
+
+// Prints every receipt this student has ever been issued, one per page —
+// reuses _receiptDocHTML/_receiptPrintCss verbatim (Phase 3.4c, frozen),
+// just stacked instead of a single receipt.
+window.printReceiptHistoryForStudent = (studentId) => {
+  if (!can('manageDues')) { denyAccess(); return; }
+  const fees = window.DB.fees.filter(f => f.studentId === studentId && f.receiptNo)
+    .sort((a, b) => new Date(a.receiptDate || a.date) - new Date(b.receiptDate || b.date));
+  if (!fees.length) { showToast('No receipts found for this student.', 'error'); return; }
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD Turf Zone - Receipt History</title>
+<style>${_receiptPrintCss()} .receipt-doc{page-break-after:always;margin-bottom:24px}</style></head><body>
+  ${fees.map(f => `<div class="receipt-doc">${_receiptDocHTML(f)}</div>`).join('')}
+</body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Please allow popups to print the receipt history', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  const doPrint = () => { try { w.focus(); w.print(); } catch (e) {} };
+  w.onload = doPrint;
+  setTimeout(doPrint, 400);
+  const s = window.DB.students.find(x => (x.studentId || x.id) === studentId);
+  logAudit({ type: 'reminder', action: 'print_history', studentId, studentName: s ? s.name : '', recordId: studentId });
+};
+
 // ===== COACHES =====
 // PHASE 3.1 — Coaches Backend. saveCoach/deleteCoach still write local-first
 // through saveDoc/deleteDoc2 exactly as before (nothing about that changed),
@@ -11403,7 +11981,8 @@ const RT_MODULE_META = {
   student_card:           { icon: '🪪', label: 'ID Card' },  // PHASE 3.2b-ii
   scan_log:               { icon: '📷', label: 'QR Scan' },  // PHASE 3.2b-iii
   fee:                    { icon: '💰', label: 'Fee Payment' }, // PHASE 3.4b — Fee Collection
-  receipt:                { icon: '🧾', label: 'Receipt' } // PHASE 3.4c — Receipt System
+  receipt:                { icon: '🧾', label: 'Receipt' }, // PHASE 3.4c — Receipt System
+  reminder:               { icon: '📣', label: 'Reminder' } // PHASE 3.4d — Due Engine & Reminder Dashboard
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
@@ -11771,6 +12350,10 @@ function _rtApplyEvents(events) {
   if ((affected.has('fee') || [...affected].some(m => m.indexOf('coaching_') === 0)) && document.getElementById('page-fees')?.classList.contains('active')) window.renderFees?.();
   if (affected.has('fee')) window.syncFeesFromSheet?.();
   if (affected.has('cafe_sale') && document.getElementById('page-cafe')?.classList.contains('active')) window.renderCafe?.();
+  // PHASE 3.4d — Dues is a computed view over Students + Fees, so it needs
+  // to be refreshed whenever either changes on another device, same
+  // targeted-refresh pattern as every other module above.
+  if ((affected.has('fee') || affected.has('student')) && document.getElementById('page-dues')?.classList.contains('active')) window.renderDues?.();
   if (newNotifs.length) window.renderDashboard?.();
 }
 
