@@ -355,6 +355,7 @@ tr:hover td{background:#f8fffe}
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Admin</div>
+        <button class="nav-item" data-page-nav="activity" onclick="showPage('activity')"><span class="nav-icon">🕒</span>Activity Log</button>
         <button class="nav-item" data-page-nav="users" onclick="showPage('users')"><span class="nav-icon">🔐</span>User Management</button>
         <button class="nav-item" data-page-nav="settings" onclick="showPage('settings')"><span class="nav-icon">⚙️</span>Settings</button>
       </div>
@@ -378,6 +379,34 @@ tr:hover td{background:#f8fffe}
         </div>
       </div>
       <div class="topbar-right">
+        <div style="position:relative">
+          <button onclick="toggleNotificationPanel()" title="Notifications" style="position:relative;background:none;border:none;cursor:pointer;font-size:19px;padding:6px;line-height:1;border-radius:8px" onmouseover="this.style.background='var(--gray)'" onmouseout="this.style.background='none'">
+            🔔
+            <span id="rt-bell-badge" style="position:absolute;top:0;right:0;background:#e11d48;color:white;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:none;align-items:center;justify-content:center;padding:0 3px;line-height:1">0</span>
+          </button>
+          <div id="rt-notif-panel" style="display:none;flex-direction:column;position:absolute;right:0;top:calc(100% + 8px);width:340px;max-width:92vw;max-height:70vh;background:white;border:1px solid var(--gray2);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);z-index:200;overflow:hidden">
+            <div style="padding:12px 14px;border-bottom:1px solid var(--gray2);display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div style="font-weight:700;font-size:13px">Notifications</div>
+              <button onclick="markAllNotificationsRead()" style="font-size:11px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:600">Mark all read</button>
+            </div>
+            <div style="padding:8px 12px;display:flex;gap:6px;border-bottom:1px solid var(--gray2)">
+              <input id="rt-notif-search" type="text" placeholder="Search…" oninput="_rtRenderNotifPanel()" style="flex:1;min-width:0;font-size:12px;padding:6px 8px;border:1px solid var(--gray2);border-radius:6px">
+              <select id="rt-notif-filter" onchange="_rtRenderNotifPanel()" style="font-size:12px;padding:6px;border:1px solid var(--gray2);border-radius:6px">
+                <option value="all">All</option>
+                <option value="unread">Unread</option>
+                <option value="booking">Bookings</option>
+                <option value="blocked_slot">Slot Blocks</option>
+                <option value="booking_request">Reservations</option>
+                <option value="student">Students</option>
+                <option value="attendance">Attendance</option>
+                <option value="cafe_sale">Café</option>
+                <option value="enquiry">Enquiries</option>
+                <option value="import_log">Imports</option>
+              </select>
+            </div>
+            <div id="rt-notif-list" style="overflow-y:auto;flex:1"></div>
+          </div>
+        </div>
         <div id="sync-status-badge" title="All records synced" style="font-size:12px;font-weight:600;padding:4px 10px;border-radius:12px;background:var(--gray);color:var(--gray3)">🟢 Synced</div>
         <div class="topbar-date" id="today-date"></div>
         <div class="topbar-divider"></div>
@@ -639,10 +668,24 @@ tr:hover td{background:#f8fffe}
       <div class="page" id="page-coaches">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
           <div>
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Coaches</div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Coaches</div>
+              <span class="badge badge-yellow" title="Coaches has no Google Sheets table or Apps Script endpoint yet — data lives only in this browser and does not sync across devices.">📱 Local Only</span>
+            </div>
             <div style="color:var(--gray3);font-size:13px">Manage coaching staff</div>
           </div>
           <button class="btn btn-primary" onclick="openModal('coach-modal')">+ Add Coach</button>
+        </div>
+        <!-- PHASE 2.5 — Coaches intentionally has no cross-device sync or
+             conflict detection: there is no Google Sheets table or Apps
+             Script endpoint for this module yet (see CHANGELOG.md, Known
+             Limitation). This banner is the only "sync status" surface for
+             Coaches; it deliberately does NOT reuse the other modules'
+             synced/pending/conflict badges since none of that machinery
+             runs for this collection. Planned for Phase 3. -->
+        <div style="background:#fef9c3;border:1px solid #fde047;color:#854d0e;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:16px;display:flex;align-items:center;gap:8px">
+          <span style="font-size:15px">⚠️</span>
+          <span>Coach records are saved on <strong>this device only</strong> and won't appear on other devices or sync with the Google Sheet. Multi-device sync is planned for Phase 3.</span>
         </div>
         <div id="coaches-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
       </div>
@@ -975,6 +1018,47 @@ tr:hover td{background:#f8fffe}
         </div>
       </div>
 
+      <!-- PHASE 2.5 — ACTIVITY LOG. Reads straight from the syncEvents
+           feed (AuditLog tab), which every real write in the app already
+           populates via logAudit() — so this is always server-truth, not
+           a local reconstruction. Admin/Manager only, same tier as
+           Accounts/Reports. -->
+      <div class="page" id="page-activity">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">🕒 Activity Log</div>
+            <div style="color:var(--gray3);font-size:13px">Every booking, block, student, attendance, café and enquiry change — who, what, when, and from where</div>
+          </div>
+          <button class="btn btn-secondary" onclick="refreshActivityLog()">↻ Refresh</button>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <input id="activity-search" type="text" placeholder="Search user, action, record ID…" oninput="_rtFilterActivityLog()" style="flex:1;min-width:180px;font-size:13px;padding:8px 10px;border:1px solid var(--gray2);border-radius:8px">
+            <select id="activity-module-filter" onchange="_rtFilterActivityLog()" style="font-size:13px;padding:8px 10px;border:1px solid var(--gray2);border-radius:8px">
+              <option value="all">All modules</option>
+              <option value="booking">Bookings</option>
+              <option value="blocked_slot">Slot Blocks</option>
+              <option value="booking_request">Reservations</option>
+              <option value="student">Students</option>
+              <option value="attendance">Attendance</option>
+              <option value="cafe_sale">Café</option>
+              <option value="enquiry">Enquiries</option>
+              <option value="import_log">Imports</option>
+              <option value="backup_now">Backups</option>
+              <option value="user">User Accounts</option>
+            </select>
+            <input id="activity-date-from" type="date" onchange="_rtFilterActivityLog()" style="font-size:13px;padding:7px 8px;border:1px solid var(--gray2);border-radius:8px">
+            <span style="color:var(--gray3);font-size:12px">to</span>
+            <input id="activity-date-to" type="date" onchange="_rtFilterActivityLog()" style="font-size:13px;padding:7px 8px;border:1px solid var(--gray2);border-radius:8px">
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-wrap" id="activity-log-list"></div>
+        </div>
+      </div>
+
       <!-- WEBSITE CONTENT — feeds the public homepage (index.html one level up)
            via the same-origin localStorage this admin app already uses as its
            database. No separate CMS/server needed: the public site reads these
@@ -1209,6 +1293,8 @@ tr:hover td{background:#f8fffe}
             Google Sheets — same as a record created directly in the app.
           </div>
           <button class="btn btn-primary btn-sm" onclick="openImportModal()">📥 Import Data</button>
+          <button class="btn btn-secondary btn-sm" onclick="openImportWizard()">🧙 Import Wizard (Advanced)</button>
+          <div style="font-size:11px;color:var(--gray3);margin-top:8px">The Wizard adds column mapping, validation, duplicate-handling options, a preview before anything is saved, and one-click undo — useful for larger or messier files. The simple importer above still works exactly as before.</div>
         </div>
 
         <div class="card mb-16" style="margin-bottom:16px">
@@ -1642,6 +1728,115 @@ tr:hover td{background:#f8fffe}
     </div>
   </div>
 </div>
+
+<!-- ============================================================
+     PHASE 2 — ENTERPRISE IMPORT WIZARD (fully additive; does not
+     touch the simple "Import Data" modal above, which keeps working
+     exactly as before). Reuses saveDoc/deleteDoc2/autoSync* and the
+     Phase 1 backup functions — no new backup engine, no sheet-sync
+     architecture changes.
+     ============================================================ -->
+<div class="modal-overlay" id="import-wizard-modal">
+  <div class="modal" style="max-width:760px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title">🧙 Import Wizard</div>
+
+    <div id="wiz-steps-bar" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;font-size:11px"></div>
+
+    <!-- Step 1: Choose Module -->
+    <div class="wiz-step" data-step="1">
+      <div class="form-group">
+        <label>What are you importing? *</label>
+        <select id="wiz-module" onchange="wizOnModuleChange()"></select>
+      </div>
+      <div id="wiz-module-help" style="font-size:12px;color:var(--gray3)"></div>
+    </div>
+
+    <!-- Step 2: Upload File -->
+    <div class="wiz-step" data-step="2">
+      <div id="wiz-dropzone" style="border:2px dashed var(--gray2);border-radius:12px;padding:32px 16px;text-align:center;cursor:pointer;font-size:13px;color:var(--gray3)"
+           onclick="document.getElementById('wiz-file-input').click()">
+        📄 Drag &amp; drop a CSV, XLS, or XLSX file here<br>or click to browse<br>
+        <span style="font-size:11px">Maximum file size: 25 MB</span>
+      </div>
+      <input type="file" id="wiz-file-input" accept=".xlsx,.xls,.csv" style="display:none">
+      <div id="wiz-file-chosen" style="font-size:12px;color:var(--gray3);margin-top:8px"></div>
+    </div>
+
+    <!-- Step 3: Preview -->
+    <div class="wiz-step" data-step="3">
+      <div id="wiz-preview-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px"></div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Sample rows (first 5)</div>
+      <div style="overflow-x:auto"><table style="font-size:11px;width:100%"><thead id="wiz-preview-thead"></thead><tbody id="wiz-preview-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Step 4+5: Auto-detect & Map Columns -->
+    <div class="wiz-step" data-step="4">
+      <div style="font-size:12px;color:var(--gray3);margin-bottom:10px">Columns were auto-detected below. Correct any that are wrong — your choices are remembered for next time.</div>
+      <div id="wiz-mapping-rows"></div>
+    </div>
+
+    <!-- Step 6: Validate -->
+    <div class="wiz-step" data-step="5">
+      <div id="wiz-validation-summary" style="margin-bottom:10px"></div>
+      <div style="overflow-x:auto;max-height:260px;overflow-y:auto"><table style="font-size:11px;width:100%"><thead><tr><th>Row</th><th>Field</th><th>Reason</th><th>Suggested Fix</th></tr></thead><tbody id="wiz-error-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Step 7+8: Duplicate Check & Import Options -->
+    <div class="wiz-step" data-step="6">
+      <div id="wiz-dup-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px"></div>
+      <div class="form-group">
+        <label>How should duplicates be handled? *</label>
+        <select id="wiz-dup-mode">
+          <option value="skip">Skip Duplicates — only import new rows</option>
+          <option value="importNewOnly">Import New Only — same as Skip, dedicated option per spec</option>
+          <option value="update">Update Existing — refresh matching records with the new values</option>
+          <option value="replace">Replace Existing — delete the matching record and re-add it fresh</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Step 9: Summary / Progress -->
+    <div class="wiz-step" data-step="7">
+      <div id="wiz-summary-pre"></div>
+      <div id="wiz-progress-wrap" style="display:none;margin-top:14px">
+        <div style="background:var(--gray);border-radius:8px;height:14px;overflow:hidden">
+          <div id="wiz-progress-bar" style="background:var(--primary,#2563eb);height:100%;width:0%;transition:width .2s"></div>
+        </div>
+        <div id="wiz-progress-label" style="font-size:12px;color:var(--gray3);margin-top:6px">Preparing…</div>
+      </div>
+    </div>
+
+    <!-- Step 10: Finish / Report -->
+    <div class="wiz-step" data-step="8">
+      <div id="wiz-report" style="margin-bottom:12px"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <button class="btn btn-secondary btn-sm" onclick="wizDownloadReport('csv')">⬇️ Report (CSV)</button>
+        <button class="btn btn-secondary btn-sm" onclick="wizDownloadReport('json')">⬇️ Report (JSON)</button>
+        <button class="btn btn-secondary btn-sm" onclick="wizDownloadReport('xlsx')">⬇️ Report (Excel)</button>
+        <button class="btn btn-secondary btn-sm" onclick="wizDownloadReport('pdf')">⬇️ Report (PDF)</button>
+        <button class="btn btn-secondary btn-sm" id="wiz-download-errors-btn" onclick="wizDownloadErrorReport()">⬇️ Error Report</button>
+        <button class="btn btn-danger btn-sm" id="wiz-undo-btn" onclick="wizUndoLastImport()">↩️ Undo This Import</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" style="flex:1;justify-content:center" id="wiz-back-btn" onclick="wizBack()">Back</button>
+      <button class="btn btn-secondary" style="flex:1;justify-content:center" onclick="closeModal('import-wizard-modal')">Close</button>
+      <button class="btn btn-primary" style="flex:1;justify-content:center" id="wiz-next-btn" onclick="wizNext()">Next</button>
+    </div>
+
+    <div style="font-size:12px;font-weight:600;margin:18px 0 6px">Import History</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <input type="text" id="wiz-history-search" placeholder="Search user, module, file…" style="flex:2;min-width:160px" oninput="_wizRenderHistory()">
+      <select id="wiz-history-module-filter" style="flex:1;min-width:120px" onchange="_wizRenderHistory()">
+        <option value="">All modules</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="_wizFetchHistory(true)">🔄 Refresh</button>
+    </div>
+    <div style="overflow-x:auto"><table style="font-size:11px;width:100%"><thead><tr><th>When</th><th>User</th><th>Module</th><th>File</th><th>Mode</th><th>Imported</th><th>Updated</th><th>Skipped</th><th>Errors</th><th></th></tr></thead><tbody id="wiz-history-tbody"></tbody></table></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="block-slot-modal">
   <div class="modal" style="max-width:420px">
     <div class="modal-title">🚫 Block Time Slot</div>
@@ -1977,11 +2172,44 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- PHASE 2.5 — EDIT CONFLICT MODAL. Shown when the server rejects a save
+     because someone else changed the same record first (see _versionConflict
+     in Code.gs / _rtShowEditConflictModal below). Never auto-closes and
+     never auto-picks a side — the person must explicitly choose. -->
+<div class="modal-overlay" id="edit-conflict-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-title">⚠️ Someone else already changed this</div>
+    <p style="font-size:13px;color:var(--gray3);line-height:1.5;margin:0 0 10px">
+      Another device saved a change to this <span id="ec-module-label">record</span> after you opened it.
+      Your edit was <strong>not</strong> saved yet, so nothing has been overwritten.
+    </p>
+    <div style="background:var(--gray);border-radius:8px;padding:10px 12px;font-size:12.5px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--gray3)">Record</span><span id="ec-record-name" style="font-weight:600">—</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--gray3)">Module</span><span id="ec-record-module" style="font-weight:600">—</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--gray3)">Edited by</span><span id="ec-edited-by" style="font-weight:600">—</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--gray3)">Last updated</span><span id="ec-last-updated" style="font-weight:600">—</span></div>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-bottom:10px" onclick="_rtToggleCompareChanges()">🔍 Compare Changes</button>
+    <div id="ec-compare-box" style="display:none;margin-bottom:10px">
+      <div style="font-size:11.5px;font-weight:700;color:var(--gray3);text-transform:uppercase;margin:6px 0 4px">Your changes</div>
+      <div id="ec-your-changes" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;font-size:12.5px;color:var(--dark);max-height:130px;overflow-y:auto"></div>
+      <div style="font-size:11.5px;font-weight:700;color:var(--gray3);text-transform:uppercase;margin:8px 0 4px">Current server values</div>
+      <div id="ec-current-summary" style="background:var(--gray);border-radius:8px;padding:8px 10px;font-size:12.5px;color:var(--dark);max-height:160px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer" style="flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="_rtDismissEditConflict()">Cancel</button>
+      <button class="btn btn-secondary" style="background:#eff6ff;color:#1e40af" onclick="_rtReloadAfterConflict()">🔄 Reload Latest</button>
+      <button id="ec-overwrite-btn" class="btn btn-primary" style="background:#e11d48" onclick="_rtForceOverwriteAfterConflict()">Overwrite Anyway</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div id="toast" style="position:fixed;bottom:24px;right:24px;background:var(--dark);color:white;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:500;z-index:999;display:none;max-width:320px;box-shadow:var(--shadow-lg)"></div>
 
 <!-- SheetJS for Excel export -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
 // ===== PRODUCTION GOOGLE APPS SCRIPT URL =====
@@ -1992,6 +2220,26 @@ tr:hover td{background:#f8fffe}
 // depends on this single URL being stable.
 const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZEOJliAUvz3bOAD804cdFYIKsIF1q0gu0xltintwonoigfrkMcAxAsEhRnEjYsaP/exec';
 
+// ===== CHANGELOG =====
+// PHASE 2.5 (conflict-handling completion) — additive only, no existing
+// feature rewritten:
+//   - Staff (Users): postUserActionSafe() now sends expectedUpdatedAt and
+//     routes editConflict into the shared resolution modal. Backend
+//     (handleUserWrite) already had the version check; handleUsersGet now
+//     also returns updatedAt as the client's baseline.
+//   - Booking Requests: syncBookingRequestUpdate() now sends
+//     expectedUpdatedAt; Code.gs handleBookingRequestUpdate now runs the
+//     same _versionConflict check every other module has.
+//   - Edit-conflict modal: added Record/Module/Edited By/Last Updated
+//     fields, a "Compare Changes" toggle (your changes vs. current server
+//     values), and an admin-only gate on "Overwrite Anyway".
+//   - Every conflict shown or resolved now writes a structured entry to
+//     the Activity Log (_logEditConflict): user, role, device, module,
+//     record id, timestamp, previous/current version, resolution.
+//   - NOT done: Coaches has no Google Sheet tab or Apps Script endpoint at
+//     all (local-only via saveDoc/LS) — real multi-device conflict
+//     detection needs a new server tab + endpoint, which is a new backend
+//     feature, not a finish of existing work. Left out pending a decision.
 window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
@@ -2242,6 +2490,7 @@ const PAGE_PERMISSIONS = {
   cafe:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   accounts:   [ROLES.SUPER_ADMIN],
   reports:    [ROLES.SUPER_ADMIN],
+  activity:   [ROLES.SUPER_ADMIN, ROLES.ADMIN], // PHASE 2.5
   users:      [ROLES.SUPER_ADMIN],
   settings:   [ROLES.SUPER_ADMIN],
 };
@@ -2329,6 +2578,34 @@ async function postUserAction(action, fields) {
   return _authFetch({ type: 'user', action, ...fields });
 }
 
+// PHASE 2.5 — optimistic-concurrency wrapper around postUserAction.
+// Staff accounts don't live in window.DB/LS like other modules (they're a
+// password-free cache — see USERS_CACHE_KEY), and user actions intentionally
+// go through _authFetch rather than queuedSync (see the comment above
+// _authFetch — no offline queueing for account changes). So this mirrors
+// what queuedSync does for everything else — attach expectedUpdatedAt, and
+// on an editConflict show the same resolution modal — without touching the
+// queuedSync path itself.
+async function postUserActionSafe(action, fields) {
+  const baseline = action !== 'create' ? findUserInCache(fields.email)?.updatedAt : undefined;
+  const payload = { ...fields, expectedUpdatedAt: baseline || undefined };
+  const res = await postUserAction(action, payload);
+  if (res.editConflict) {
+    window._rtShowEditConflictModal?.({ type: 'user', action, ...fields }, res, 'user');
+    return res;
+  }
+  if (res.ok && res.updatedAt) {
+    // Stash the server's fresh UpdatedAt into the local cache so the NEXT
+    // edit of this same account has an accurate conflict-check baseline.
+    try {
+      const list = _getUsersCache();
+      const idx = list.findIndex(u => u.email.toLowerCase() === fields.email.toLowerCase());
+      if (idx !== -1) { list[idx] = { ...list[idx], updatedAt: res.updatedAt }; _setUsersCache(list); }
+    } catch (e) {}
+  }
+  return res;
+}
+
 // GET action=users — pulls the live, password-free directory from the
 // Sheet and refreshes the local cache. Called after login, after every
 // User Management change, and in the background during session restore.
@@ -2372,6 +2649,8 @@ function _enterApp(user) {
   document.getElementById('today-date').textContent =
     new Date().toLocaleDateString('en-IN', {weekday:'short',day:'numeric',month:'short',year:'numeric'});
   applyRolePermissionsToUI();
+  window._rtRenderBell?.(); // PHASE 2.5 — show any unread notifications this device already had queued locally
+  window.rtPollEvents?.();  // and do one immediate poll rather than waiting for the first 2.5s tick
 }
 
 // Hides nav items / page-only buttons the current role isn't allowed to see.
@@ -2937,12 +3216,12 @@ window.showPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -4255,7 +4534,16 @@ async function postToGoogleSheet(payload) {
         if (!result.conflict) showToast(`⚠️ Google Sheet sync failed: ${result.error}`, 'error');
         _lastAppsScriptReachable = true; // server WAS reached, it just rejected this payload
         _recordSyncError(result.error);
-        return { ok: false, error: result.error, conflict: !!result.conflict, retry: false };
+        // PHASE 2.5 — editConflict/current/currentUpdatedAt (see Code.gs
+        // _versionConflict) are a DIFFERENT thing from the pre-existing
+        // slot-taken `conflict` (a brand-new booking colliding with one
+        // already on the sheet): this is "someone else already changed
+        // this exact record". Passed through so queuedSync can show the
+        // dedicated conflict-resolution modal instead of the plain toast.
+        return {
+          ok: false, error: result.error, conflict: !!result.conflict, retry: false,
+          editConflict: !!result.editConflict, current: result.current, currentUpdatedAt: result.currentUpdatedAt
+        };
       }
       _markSyncSuccess();
       return { ok: true, result, retry: false };
@@ -4782,7 +5070,12 @@ async function queuedSync(payload, opts) {
       // server-side check. Retrying would just fail again forever, so
       // surface it now instead of silently queuing it.
       updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
-      if (res.conflict && !(opts && opts.silentConflict)) {
+      if (res.editConflict) {
+        // PHASE 2.5 — a genuine edit conflict (someone else changed this
+        // exact record first), distinct from a slot-taken conflict. Never
+        // silently overwrite: show the resolution modal instead of a toast.
+        window._rtShowEditConflictModal?.(payload, res);
+      } else if (res.conflict && !(opts && opts.silentConflict)) {
         showToast(`⛔ ${res.error} (This booking is saved on this device only — please resolve the conflict before relying on it.)`, 'error');
       }
       return res;
@@ -4793,6 +5086,10 @@ async function queuedSync(payload, opts) {
     _notifyQueuedOffline();
     return res;
   }
+  // PHASE 2.5 — a successful save always returns the fresh server-side
+  // UpdatedAt; stash it on the matching local record so the NEXT edit of
+  // this same record has an accurate conflict-check baseline.
+  if (res.ok && res.result) window._rtCaptureUpdatedAt?.(payload, res.result);
   updateSyncStatus(_getSyncQueue().length ? 'offline' : 'synced');
   return res;
 }
@@ -4884,12 +5181,51 @@ function _describeAuditAction(payload) {
   const ref = payload.bookingId || payload.blockId || payload.studentId || payload.enquiryId || payload.attendanceId || payload.name || payload.itemName || '';
   return `${label} ${action}${ref ? ` — ${ref}` : ''}`;
 }
+// PHASE 2.5 — a record's own ID, pulled from whichever field that payload
+// type actually carries. Same list _describeAuditAction already used for
+// its display "ref", just exposed separately so the Activity Log/sync
+// feed can key off it too.
+function _auditRecordId(payload) {
+  return payload.bookingId || payload.blockId || payload.studentId || payload.enquiryId ||
+    payload.attendanceId || payload.requestId || payload.importId || payload.email || payload.itemName || '';
+}
+
+// PHASE 2.5 — best-effort "what it was before" snapshot, purely from this
+// device's own local DB (never a network call, so this never slows down
+// or blocks the actual save). Only wired up for the record types where a
+// simple id-field lookup is unambiguous; anything else just logs with no
+// PrevValue rather than guessing.
+function _auditPrevValue(moduleName, recordId) {
+  if (!recordId) return null;
+  try {
+    if (moduleName === 'booking') return window.DB.bookings.find(b => b.bookingId === recordId) || null;
+    if (moduleName === 'blocked_slot') return window.DB.blockedSlots.find(b => b.id === recordId) || null;
+    if (moduleName === 'student') return window.DB.students.find(s => s.studentId === recordId) || null;
+    if (moduleName === 'enquiry') return window.DB.enquiries.find(en => en.enquiryId === recordId) || null;
+  } catch (e) { /* best-effort only */ }
+  return null;
+}
+
 function logAudit(sourcePayload) {
+  const moduleName = sourcePayload.type || '';
+  const recordId = _auditRecordId(sourcePayload);
+  // NewValue is just the write payload itself, minus fields that are
+  // transport/security plumbing rather than actual data — this is what
+  // lets the real-time sync layer apply a change without a second
+  // round-trip to fetch the record back.
+  const { token, syncId, type, ...newValueFields } = sourcePayload;
   const entry = {
     type: 'audit_log',
     timestamp: new Date().toISOString(),
     user: CURRENT_USER?.name || 'Unknown',
-    action: _describeAuditAction(sourcePayload)
+    role: CURRENT_USER?.role || '',
+    device: _deviceTag(),
+    action: _describeAuditAction(sourcePayload),
+    module: moduleName,
+    recordId: recordId,
+    summary: _describeAuditAction(sourcePayload),
+    prevValue: _auditPrevValue(moduleName, recordId),
+    newValue: newValueFields
   };
   // Audit entries are best-effort and append-only: queue them the same
   // way, but never let an audit-log failure surface as an error toast —
@@ -4935,7 +5271,11 @@ function autoSyncBooking(data, opts) {
     balanceCash: balTotals.Cash, balanceGPay: balTotals.GPay, balanceCard: balTotals.Card,
     totalCash: allTotals.Cash, totalGPay: allTotals.GPay, totalCard: allTotals.Card,
     totalPaid: data.advance,
-    createdBy: CURRENT_USER?.name || ''
+    createdBy: CURRENT_USER?.name || '',
+    // PHASE 2.5 — only sent when editing an already-existing booking; a
+    // brand-new one (isNewBooking) has no baseline and already goes
+    // through the slot-conflict check instead.
+    expectedUpdatedAt: (opts && opts.isNewBooking) ? undefined : (data.updatedAt || '')
   };
   return queuedSync(payload, opts);
 }
@@ -5061,7 +5401,12 @@ function syncBookingRequestUpdate(req) {
     status: req.status,
     bookingId: req.bookingId || '',
     updatedBy: CURRENT_USER?.name || '',
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    // PHASE 2.5 — opt-in conflict baseline. A request confirmed/rejected for
+    // the very first time has no prior UpdatedAt yet, so this is undefined
+    // and the server skips the check (see _versionConflict) — same
+    // unaffected-on-create behavior as every other module.
+    expectedUpdatedAt: req.updatedAt || undefined
   });
 }
 
@@ -5305,7 +5650,9 @@ function autoSyncFee(fee) {
     paymentMethod: fee.paymentMethod,
     date: fee.date,
     status: fee.status,
-    notes: fee.notes || ''
+    notes: fee.notes || '',
+    // PHASE 2.5 — see autoSyncBlockedSlot comment above.
+    expectedUpdatedAt: fee.updatedAt || undefined
   };
   return queuedSync(payload);
 }
@@ -5333,7 +5680,11 @@ function autoSyncBlockedSlot(bl, action) {
     reason: bl.reason || '',
     notes: bl.notes || '',
     seriesId: bl.seriesId || '',
-    createdBy: bl.createdBy || CURRENT_USER?.name || ''
+    createdBy: bl.createdBy || CURRENT_USER?.name || '',
+    // PHASE 2.5 — only sent on an edit of an EXISTING block; the server
+    // only checks this when present, so a create (no baseline yet) is
+    // unaffected either way.
+    expectedUpdatedAt: action !== 'create' ? (bl.updatedAt || '') : undefined
   };
   return queuedSync(payload);
 }
@@ -5365,7 +5716,9 @@ function autoSyncStudent(student, action) {
     joiningDate: student.joined || '',
     medicalNotes: student.medicalNotes || '',
     remarks: student.remarks || '',
-    status: student.status || ''
+    status: student.status || '',
+    // PHASE 2.5 — see autoSyncBlockedSlot comment above.
+    expectedUpdatedAt: action !== 'create' ? (student.updatedAt || '') : undefined
   };
   return queuedSync(payload);
 }
@@ -5398,7 +5751,9 @@ function autoSyncEnquiry(enq, action) {
     sport: enq.sport || '',
     message: enq.notes || '',
     status: enq.status || '',
-    followUpDate: enq.followUpDate || ''
+    followUpDate: enq.followUpDate || '',
+    // PHASE 2.5 — see autoSyncBlockedSlot comment above.
+    expectedUpdatedAt: action !== 'create' ? (enq.updatedAt || '') : undefined
   };
   return queuedSync(payload);
 }
@@ -7748,25 +8103,25 @@ window.renameUser = async (email, newName) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   newName = (newName || '').trim();
   if (!newName) return;
-  const res = await postUserAction('setName', { email, name: newName });
+  const res = await postUserActionSafe('setName', { email, name: newName });
   if (res.ok) { showToast('Name updated ✅'); refreshUsersCache(); }
-  else showToast(res.error || 'Could not update name.', 'error');
+  else if (!res.editConflict) showToast(res.error || 'Could not update name.', 'error');
 };
 
 window.changeUserRole = async (email, newRole) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
-  const res = await postUserAction('setRole', { email, role: newRole });
+  const res = await postUserActionSafe('setRole', { email, role: newRole });
   if (res.ok) { showToast(`Role updated for ${email} ✅`); const users = await refreshUsersCache(); _renderUsersTable(users || _getUsersCache()); }
-  else showToast(res.error || 'Could not update role.', 'error');
+  else if (!res.editConflict) showToast(res.error || 'Could not update role.', 'error');
 };
 
 window.toggleUserActive = async (email, nextActive) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
-  const res = await postUserAction('setActive', { email, active: nextActive });
+  const res = await postUserActionSafe('setActive', { email, active: nextActive });
   if (res.ok) {
     showToast(nextActive ? `${email} enabled ✅` : `${email} disabled — they can no longer sign in ✅`);
     const users = await refreshUsersCache(); _renderUsersTable(users || _getUsersCache());
-  } else showToast(res.error || 'Could not update status.', 'error');
+  } else if (!res.editConflict) showToast(res.error || 'Could not update status.', 'error');
 };
 
 window.resetUserPassword = async (email) => {
@@ -7774,18 +8129,18 @@ window.resetUserPassword = async (email) => {
   const newPass = prompt(`Set a new password for ${email} (min 6 characters):`);
   if (newPass === null) return; // cancelled
   if (newPass.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
-  const res = await postUserAction('setPassword', { email, password: newPass });
+  const res = await postUserActionSafe('setPassword', { email, password: newPass });
   if (res.ok) showToast(`Password updated for ${email} ✅`);
-  else showToast(res.error || 'Could not update password.', 'error');
+  else if (!res.editConflict) showToast(res.error || 'Could not update password.', 'error');
 };
 
 window.deleteUser = async (email) => {
   if (!can('manageUsers')) { denyAccess('Only the Super Admin can manage users.'); return; }
   if (email.toLowerCase() === CURRENT_USER?.email?.toLowerCase()) { denyAccess('You cannot delete your own account.'); return; }
   if (!confirm(`Delete ${email}? This immediately revokes their access.`)) return;
-  const res = await postUserAction('delete', { email });
+  const res = await postUserActionSafe('delete', { email });
   if (res.ok) { showToast(`${email} deleted`); const users = await refreshUsersCache(); _renderUsersTable(users || _getUsersCache()); }
-  else showToast(res.error || 'Could not delete user.', 'error');
+  else if (!res.editConflict) showToast(res.error || 'Could not delete user.', 'error');
 };
 // Back-compat alias
 window.removeUserRole = window.deleteUser;
@@ -8111,21 +8466,134 @@ const IMPORTERS = {
   }
 };
 
+// ----- PHASE 2 (Import Wizard) — three additional modules, same
+// {record, isDup} interface as every importer above, so the Wizard can
+// treat all ten modules identically. bookings/students/attendance/fees/
+// cafeSales/enquiries/expenses above are untouched.
+IMPORTERS.bookingRequests = (row) => {
+  const name = _importField(row, ['Name','Customer Name']);
+  const phone = _importField(row, ['Phone','Phone Number','Mobile']);
+  const date = _importField(row, ['Date']);
+  const start = _importField(row, ['Start Time','Start','Time From']);
+  if (!name || !phone || !date || !start) return { error: 'Missing Name/Phone/Date/Start Time' };
+  const record = {
+    name, phone, date, start,
+    end: _importField(row,['End Time','End','Time To']),
+    sport: _importField(row,['Sport'])||'Football',
+    ground: _importField(row,['Ground']),
+    duration: _importField(row,['Duration']),
+    amount: _importNum(row,['Amount','Total']),
+    status: 'PENDING'
+  };
+  return { record, isDup: list => list.some(r => r.phone===phone && r.date===date && r.start===start) };
+};
+IMPORTERS.coaches = (row) => {
+  const name = _importField(row, ['Name']);
+  const phone = _importField(row, ['Phone','Mobile']);
+  if (!name || !phone) return { error: 'Missing Name/Phone' };
+  const record = {
+    name, phone,
+    sport: _importField(row,['Sport'])||'Football',
+    fee: _importNum(row,['Fee','Per Session Fee']),
+    status: _importField(row,['Status'])||'active'
+  };
+  return { record, isDup: list => list.some(c => c.phone===phone) };
+};
+IMPORTERS.staff = (row) => {
+  const name = _importField(row, ['Name']);
+  const email = _importField(row, ['Email']).toLowerCase();
+  const password = _importField(row, ['Password']);
+  if (!name || !email || !password) return { error: 'Missing Name/Email/Password' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Email looks invalid' };
+  if (password.length < 6) return { error: 'Password must be at least 6 characters' };
+  const record = { name, email, password, role: (_importField(row,['Role'])||'staff').toLowerCase() };
+  return { record, isDup: list => list.some(u => (u.email||'').toLowerCase() === email) };
+};
+
 // Wires an imported record into window.DB + fires the same autoSync
-// function the corresponding manual Save action uses.
+// function the corresponding manual Save action uses. Unchanged for the
+// original 7 modules; only returns the saved record now (existing caller
+// ignored the return value, so this is safe) so the Import Wizard can log
+// what it created for rollback purposes.
 async function _persistImportedRecord(col, record) {
   const id = await saveDoc(col, record, null);
   const withId = { ...record, id };
   window.DB[col].unshift(withId);
+  _fireImportAutoSync(col, withId, 'create');
+  return withId;
+}
+
+// Shared sync dispatcher used by both the original simple importer above
+// and the Phase 2 Import Wizard below — one place per module that decides
+// how a freshly-saved local record gets pushed to Google Sheets, so the
+// two importers can never drift out of step with each other.
+function _fireImportAutoSync(col, withId, action) {
   if (col === 'bookings') autoSyncBooking(withId);
-  else if (col === 'students') autoSyncStudent(withId, 'create');
+  else if (col === 'students') autoSyncStudent(withId, action);
   else if (col === 'attendance') autoSyncAttendance(withId);
   else if (col === 'fees') autoSyncFee(withId);
   else if (col === 'cafeSales') autoSyncCafeSale(withId);
-  else if (col === 'enquiries') autoSyncEnquiry(withId, 'create');
-  // 'expenses' has no Google Sheet module in the current sync scope (Accounts
-  // is a derived report over Bookings + Expenses) — saved locally, feeds
-  // Accounts/Reports immediately, same as an expense entered by hand.
+  else if (col === 'enquiries') autoSyncEnquiry(withId, action);
+  else if (col === 'bookingRequests') {
+    postToGoogleSheet({
+      type: 'booking_request', requestId: withId.id, name: withId.name, phone: withId.phone,
+      date: withId.date, start: withId.start, end: withId.end || '', sport: withId.sport || '',
+      ground: withId.ground || '', duration: withId.duration || '', amount: withId.amount || 0,
+      status: withId.status || 'PENDING', createdAt: withId.createdAt || new Date().toISOString()
+    });
+  }
+  // 'expenses' and 'coaches' have no Google Sheet module in the current
+  // sync scope (Accounts is a derived report over Bookings + Expenses;
+  // Coaches has always been local-only) — saved locally only, exactly
+  // like one entered by hand.
+}
+
+// ===== PHASE 2 — IMPORT WIZARD ONLY: mode-aware persist/remove =====
+// The simple importer above only ever inserts. The Wizard also supports
+// Update Existing / Replace Existing, and needs a matching "undo" path —
+// both built on the exact same saveDoc/deleteDoc2/_fireImportAutoSync
+// primitives above, never a separate write path.
+async function _wizPersistRecord(col, record, mode, existingId) {
+  if (mode === 'update' && existingId) {
+    await saveDoc(col, record, existingId);
+    const withId = { ...record, id: existingId };
+    const idx = (window.DB[col] || []).findIndex(r => r.id === existingId);
+    if (idx !== -1) window.DB[col][idx] = { ...window.DB[col][idx], ...withId };
+    _fireImportAutoSync(col, withId, 'update');
+    return { withId, action: 'update' };
+  }
+  if (mode === 'replace' && existingId) {
+    await _wizRemoveRecord(col, existingId, { silentSync: true });
+  }
+  const withId = await _persistImportedRecord(col, record);
+  return { withId, action: existingId ? 'replace' : 'insert' };
+}
+
+// Removes one record the Wizard created (or is about to replace) — used by
+// both "Replace Existing" mode and "Undo This Import". Mirrors the exact
+// delete/cancel semantics the app's own manual delete buttons already use
+// per module, so an imported record behaves identically to a hand-entered
+// one once it exists.
+async function _wizRemoveRecord(col, id, opts) {
+  const rec = (window.DB[col] || []).find(r => r.id === id);
+  await deleteDoc2(col, id);
+  window.DB[col] = (window.DB[col] || []).filter(r => r.id !== id);
+  if (opts && opts.silentSync) return rec; // mid-replace — the insert right after will re-sync
+  if (col === 'bookings' && rec) autoSyncBooking({ ...rec, status: 'cancelled' });
+  else if (col === 'students' && rec) autoSyncStudent({ ...rec, id }, 'delete');
+  else if (col === 'enquiries' && rec) autoSyncEnquiry({ ...rec, id }, 'delete');
+  else if (col === 'bookingRequests' && rec) {
+    // No true delete endpoint for requests — mark it Rejected instead,
+    // same as declining a request by hand would.
+    postToGoogleSheet({ type: 'booking_request_update', requestId: id, status: 'REJECTED', updatedAt: new Date().toISOString(), updatedBy: CURRENT_USER?.name || 'Import Wizard undo' });
+  }
+  // attendance / fees(coaching_*) / cafeSales are append-only ledgers in
+  // Google Sheets by design (see handleAppendOnly in Code.gs) — there is
+  // no remote delete for them. Removing the local copy (done above for
+  // every module) is the correct, honest behavior: the local view no
+  // longer shows the record, but its row remains in the Sheet's audit
+  // trail, exactly as it would if it were deleted by hand today.
+  return rec;
 }
 
 window.runDataImport = async () => {
@@ -8193,6 +8661,1365 @@ window.runDataImport = async () => {
     btn.disabled = false; btn.textContent = 'Import';
   }
 };
+
+// ============================================================================
+// PHASE 2 — ENTERPRISE IMPORT WIZARD
+// Fully additive: built entirely on top of saveDoc/deleteDoc2/_fireImportAutoSync/
+// createBackup/runServerBackupNow (Phase 1, unchanged) and the IMPORTERS map
+// above. Does not modify the simple "Import Data" modal, which still works
+// exactly as it did before. Configuration-driven — WIZ_MODULES below is the
+// one place to touch to add a future module.
+// ============================================================================
+
+const WIZ_FIELD_ALIASES = {
+  'Name': ['Name','Customer Name','Full Name'], 'Student Name': ['Student Name','Student','Name'],
+  'Phone': ['Phone','Phone Number','Mobile','Mobile Number','Contact'],
+  'Date': ['Date','Booking Date'], 'Start Time': ['Start Time','Start','Time From'],
+  'End Time': ['End Time','End','Time To'], 'Sport': ['Sport','Game'], 'Ground': ['Ground'],
+  'Total': ['Total','Amount','Total Amount'], 'Advance': ['Advance','Paid','Advance Paid'],
+  'Payment Method': ['Payment Method','Payment','Mode'], 'Status': ['Status'], 'Notes': ['Notes','Message'],
+  'Fee': ['Fee','Monthly Fee','Per Session Fee'], 'Joining Date': ['Joining Date','Joined'],
+  'Coach': ['Coach','Batch'], 'Amount': ['Amount','Fee'], 'Paid': ['Paid'], 'Month': ['Month'], 'Year': ['Year'],
+  'Item': ['Item','Item Name'], 'Quantity': ['Quantity','Qty'], 'Message': ['Message','Notes'],
+  'Category': ['Category'], 'Duration': ['Duration'], 'Email': ['Email'], 'Password': ['Password'], 'Role': ['Role']
+};
+
+// One entry per importable module. `targets` drives the mapping UI; the
+// actual per-row transform + required-field check is reused verbatim from
+// IMPORTERS[key] above — this config only adds what IMPORTERS doesn't
+// already express (display label, which local collection it lives in,
+// which fields are dates/times/amounts for the extra validation pass).
+//
+// `dupKeys` (Phase 2 final polish, item 3) — the record property name(s)
+// that together define "this is the same record" for THIS module. Compared
+// generically by _wizGenericIsDup() below; a brand new module never needs
+// a custom duplicate function, only a dupKeys array here. (IMPORTERS[key]
+// above still returns its own hardcoded isDup closure too, unchanged —
+// that copy is what the ORIGINAL simple "Import Data" modal still uses,
+// so it keeps working exactly as it did before. The Wizard itself no
+// longer calls it; see _wizRunDuplicateCheck / _wizFindExistingMatch.)
+const WIZ_MODULES = [
+  { key:'bookings', label:'Turf Bookings', collection:'bookings', dupKeys:['phone','date','start'], targets:[
+      {f:'Name',required:true},{f:'Phone',required:true},{f:'Date',required:true,isDate:true},
+      {f:'Start Time',required:true,isTime:true},{f:'End Time',isTime:true},{f:'Sport'},{f:'Ground'},
+      {f:'Total',isAmount:true},{f:'Advance',isAmount:true},{f:'Payment Method'},{f:'Status'},{f:'Notes'} ] },
+  { key:'students', label:'Students', collection:'students', dupKeys:['phone','sport'], targets:[
+      {f:'Name',required:true},{f:'Phone',required:true},{f:'Sport'},{f:'Fee',isAmount:true},
+      {f:'Joining Date',isDate:true},{f:'Status'},{f:'Coach'} ] },
+  { key:'attendance', label:'Attendance', collection:'attendance', dupKeys:['studentName','date'], targets:[
+      {f:'Student Name',required:true},{f:'Sport'},{f:'Date',required:true,isDate:true},{f:'Status'},{f:'Coach'} ] },
+  { key:'fees', label:'Coaching Fees', collection:'fees', dupKeys:['studentName','month','year'], targets:[
+      {f:'Student Name',required:true},{f:'Amount',isAmount:true},{f:'Paid',isAmount:true},
+      {f:'Month',required:true},{f:'Year',required:true},{f:'Payment Method'},{f:'Date',isDate:true} ] },
+  { key:'cafeSales', label:'Café Sales', collection:'cafeSales', dupKeys:['itemName','date','amount'], targets:[
+      {f:'Item',required:true},{f:'Quantity'},{f:'Amount',isAmount:true},{f:'Payment Method'},{f:'Date',required:true,isDate:true} ] },
+  { key:'enquiries', label:'Coaching Enquiries', collection:'enquiries', dupKeys:['phone','date'], targets:[
+      {f:'Name',required:true},{f:'Phone',required:true},{f:'Sport'},{f:'Message'},{f:'Status'},{f:'Date',isDate:true} ] },
+  { key:'expenses', label:'Expenses', collection:'expenses', dupKeys:['category','date','amount'], targets:[
+      {f:'Category',required:true},{f:'Amount',isAmount:true},{f:'Date',required:true,isDate:true},{f:'Notes'} ] },
+  { key:'bookingRequests', label:'Booking Requests', collection:'bookingRequests', dupKeys:['phone','date','start'], targets:[
+      {f:'Name',required:true},{f:'Phone',required:true},{f:'Date',required:true,isDate:true},
+      {f:'Start Time',required:true,isTime:true},{f:'End Time',isTime:true},{f:'Sport'},{f:'Ground'},
+      {f:'Duration'},{f:'Amount',isAmount:true} ] },
+  { key:'coaches', label:'Coaches', collection:'coaches', dupKeys:['phone'], targets:[
+      {f:'Name',required:true},{f:'Phone',required:true},{f:'Sport'},{f:'Fee',isAmount:true},{f:'Status'} ] },
+  { key:'staff', label:'Staff (Admin Logins)', collection:null, dupKeys:['email'], targets:[
+      {f:'Name',required:true},{f:'Email',required:true,isEmail:true},{f:'Password',required:true},{f:'Role'} ] }
+];
+function _wizModule(key) { return WIZ_MODULES.find(m => m.key === key); }
+
+// Generic, configuration-driven duplicate check (item 3) — compares every
+// field named in mod.dupKeys between two records. String comparison is
+// trimmed + case-insensitive (a slightly more forgiving match than the old
+// per-module closures used, which is a strict improvement: it can only
+// catch MORE real duplicates, never fewer). A future module needs nothing
+// here — just a dupKeys array on its WIZ_MODULES entry.
+function _wizFieldsEqual(a, b) {
+  if (a == null) a = ''; if (b == null) b = '';
+  if (typeof a === 'number' || typeof b === 'number') return Number(a) === Number(b);
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+function _wizGenericIsDup(record, other, dupKeys) {
+  return dupKeys.every(k => _wizFieldsEqual(record[k], other[k]));
+}
+function _wizIsDupAgainstList(record, list, dupKeys) {
+  return (list || []).some(other => _wizGenericIsDup(record, other, dupKeys));
+}
+function _wizFindExistingMatch(record, list, dupKeys) {
+  return (list || []).find(other => _wizGenericIsDup(record, other, dupKeys));
+}
+
+const WIZ_STEP_LABELS = ['Module','Upload','Preview','Map Columns','Validate','Duplicates & Options','Import','Finish'];
+const WIZ_MAP_KEY = (key) => 'ddtz_import_wizard_map_' + key;
+
+let WIZ = null;
+function _wizFreshState() {
+  return {
+    step: 1, moduleKey: WIZ_MODULES[0].key, file: null, rawRows: [], headers: [],
+    mapping: {}, rowResults: [], // [{rowNum, error?, record?, extraIssues:[]}]
+    mode: 'skip', importing: false, report: null, lastBatchId: null
+  };
+}
+
+function _esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function _wizStatBox(label, value) {
+  return '<div style="background:var(--gray);border-radius:10px;padding:10px 12px">' +
+    '<div style="font-size:11px;color:var(--gray3);margin-bottom:2px">' + _esc(label) + '</div>' +
+    '<div style="font-size:16px;font-weight:700">' + _esc(value) + '</div></div>';
+}
+function _wizEstTime(n) { const secs = Math.max(1, Math.ceil(n / 50)); return secs < 60 ? ('~' + secs + 's') : ('~' + Math.ceil(secs / 60) + 'm'); }
+
+window.openImportWizard = () => {
+  WIZ = _wizFreshState();
+  document.getElementById('wiz-module').innerHTML = WIZ_MODULES.map(m => '<option value="' + m.key + '">' + _esc(m.label) + '</option>').join('');
+  wizOnModuleChange();
+  _wizSetupDropzone();
+  _wizFetchHistory(false);
+  wizRenderStep();
+  openModal('import-wizard-modal');
+};
+
+window.wizOnModuleChange = () => {
+  WIZ.moduleKey = document.getElementById('wiz-module').value;
+  document.getElementById('wiz-module-help').textContent = IMPORT_HELP[WIZ.moduleKey] ||
+    'Duplicate rules and required columns are shown once you upload a file.';
+};
+
+function _wizSetupDropzone() {
+  const zone = document.getElementById('wiz-dropzone');
+  const input = document.getElementById('wiz-file-input');
+  if (zone.dataset.wired) return; // attach listeners once, not on every open
+  zone.dataset.wired = '1';
+  ['dragover', 'dragenter'].forEach(evt => zone.addEventListener(evt, (e) => { e.preventDefault(); zone.style.borderColor = 'var(--primary,#2563eb)'; }));
+  ['dragleave', 'drop'].forEach(evt => zone.addEventListener(evt, (e) => { e.preventDefault(); zone.style.borderColor = 'var(--gray2)'; }));
+  zone.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) _wizHandleFile(e.dataTransfer.files[0]); });
+  input.addEventListener('change', () => { if (input.files[0]) _wizHandleFile(input.files[0]); });
+}
+
+async function _wizHandleFile(file) {
+  const chosenEl = document.getElementById('wiz-file-chosen');
+  const MAX_BYTES = 25 * 1024 * 1024;
+  if (file.size > MAX_BYTES) { showToast('That file is over the 25 MB limit.', 'error'); return; }
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { showToast('Please choose a .csv, .xls, or .xlsx file.', 'error'); return; }
+  if (typeof XLSX === 'undefined') { showToast('Excel/CSV library failed to load — check your internet connection.', 'error'); return; }
+  chosenEl.textContent = 'Reading ' + file.name + '…';
+  try {
+    const data = await file.arrayBuffer();
+    // Item 8 (security) — a file that merely has a .xlsx/.csv extension
+    // but isn't actually one (renamed executable, corrupted upload, etc.)
+    // fails right here: XLSX.read throws on anything it can't genuinely
+    // parse as spreadsheet data, which the catch below turns into a
+    // friendly rejection rather than silently "importing" garbage.
+    const wb = XLSX.read(data, { type: 'array' });
+    if (!wb.SheetNames.length) { chosenEl.textContent = '❌ That file has no readable sheet — it may be corrupted or not a real spreadsheet.'; WIZ.rawRows = []; return; }
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    if (!rows.length) { chosenEl.textContent = '⚠️ No rows found in that file.'; WIZ.rawRows = []; return; }
+    const headers = Object.keys(rows[0] || {});
+    if (headers.length > 200) { chosenEl.textContent = '❌ That file has an unreasonable number of columns (' + headers.length + ') — please check it\'s the right file.'; WIZ.rawRows = []; return; }
+    WIZ.file = file; WIZ.rawRows = rows; WIZ.headers = headers;
+    chosenEl.textContent = '✅ ' + file.name + ' — ' + rows.length + ' row(s), ' + headers.length + ' column(s) found.';
+    if (rows.length > 20000) chosenEl.textContent += ' — large file: this will take a while and may be easier to manage split into smaller batches.';
+  } catch (e) {
+    chosenEl.textContent = "❌ Could not read that file — it may be corrupted, password-protected, or not really a spreadsheet: " + (e.message || e);
+    WIZ.rawRows = [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step rendering / navigation
+// ---------------------------------------------------------------------------
+function wizRenderStep() {
+  document.querySelectorAll('#import-wizard-modal .wiz-step').forEach(el => {
+    el.style.display = (Number(el.dataset.step) === WIZ.step) ? 'block' : 'none';
+  });
+  document.getElementById('wiz-steps-bar').innerHTML = WIZ_STEP_LABELS.map((label, i) => {
+    const n = i + 1, active = n === WIZ.step, done = n < WIZ.step;
+    const bg = active ? 'var(--primary,#2563eb)' : done ? 'var(--gray2)' : 'var(--gray)';
+    const color = active ? '#fff' : 'inherit';
+    return '<div style="flex:1;min-width:70px;text-align:center;padding:5px 4px;border-radius:6px;background:' + bg + ';color:' + color + '">' + n + '. ' + _esc(label) + '</div>';
+  }).join('');
+  const backBtn = document.getElementById('wiz-back-btn'), nextBtn = document.getElementById('wiz-next-btn');
+  backBtn.disabled = WIZ.step === 1 || WIZ.importing;
+  nextBtn.disabled = WIZ.importing;
+  nextBtn.textContent = WIZ.step === 7 ? '🚀 Start Import' : WIZ.step === 8 ? 'Done' : 'Next';
+  nextBtn.style.display = (WIZ.step === 8) ? 'none' : '';
+}
+
+window.wizBack = () => {
+  if (WIZ.importing) return;
+  WIZ.step = Math.max(1, WIZ.step - 1);
+  wizRenderStep();
+};
+
+window.wizNext = async () => {
+  if (WIZ.importing) return;
+  const s = WIZ.step;
+  if (s === 1) {
+    WIZ.moduleKey = document.getElementById('wiz-module').value;
+  } else if (s === 2) {
+    if (!WIZ.rawRows.length) { showToast('Choose a file first.', 'error'); return; }
+    _wizBuildPreview();
+  } else if (s === 3) {
+    _wizRenderMapping();
+  } else if (s === 4) {
+    if (!_wizApplyMappingAndValidate()) return;
+  } else if (s === 5) {
+    await _wizRunDuplicateCheck();
+  } else if (s === 6) {
+    WIZ.mode = document.getElementById('wiz-dup-mode').value;
+    _wizRenderSummaryPre();
+  } else if (s === 7) {
+    await _wizRunImport();
+    return; // _wizRunImport moves to step 8 itself once finished
+  } else if (s === 8) {
+    return;
+  }
+  WIZ.step = Math.min(8, WIZ.step + 1);
+  wizRenderStep();
+};
+
+// ---------------------------------------------------------------------------
+// Step 3: Preview
+// ---------------------------------------------------------------------------
+function _wizBuildPreview() {
+  const rows = WIZ.rawRows;
+  document.getElementById('wiz-preview-stats').innerHTML =
+    _wizStatBox('Rows Found', rows.length) + _wizStatBox('Columns Found', WIZ.headers.length) + _wizStatBox('Est. Import Time', _wizEstTime(rows.length));
+  document.getElementById('wiz-preview-thead').innerHTML = '<tr>' + WIZ.headers.map(h => '<th>' + _esc(h) + '</th>').join('') + '</tr>';
+  document.getElementById('wiz-preview-tbody').innerHTML = rows.slice(0, 5).map(r =>
+    '<tr>' + WIZ.headers.map(h => '<td>' + _esc(r[h]) + '</td>').join('') + '</tr>').join('');
+}
+
+// ---------------------------------------------------------------------------
+// Step 4: Auto-detect & Map Columns (remembers last mapping per module)
+// ---------------------------------------------------------------------------
+function _wizDetectHeader(targetField) {
+  const aliases = WIZ_FIELD_ALIASES[targetField] || [targetField];
+  const norm = h => String(h || '').trim().toLowerCase();
+  for (const alias of aliases) {
+    const found = WIZ.headers.find(h => norm(h) === norm(alias));
+    if (found) return found;
+  }
+  return '';
+}
+function _wizRenderMapping() {
+  const mod = _wizModule(WIZ.moduleKey);
+  let remembered = {};
+  try { remembered = JSON.parse(localStorage.getItem(WIZ_MAP_KEY(mod.key)) || '{}'); } catch (e) {}
+  const rowsHtml = mod.targets.map(t => {
+    const rememberedOk = remembered[t.f] && WIZ.headers.includes(remembered[t.f]);
+    const detected = rememberedOk ? remembered[t.f] : _wizDetectHeader(t.f);
+    WIZ.mapping[t.f] = detected;
+    const options = ['<option value="">— Not in file —</option>'].concat(
+      WIZ.headers.map(h => '<option value="' + _esc(h) + '" ' + (h === detected ? 'selected' : '') + '>' + _esc(h) + '</option>')
+    ).join('');
+    return '<div class="form-group" style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<div style="flex:1;font-size:13px">' + _esc(t.f) + (t.required ? ' <span style="color:var(--red)">*</span>' : '') + '</div>' +
+      '<div style="flex:0 0 20px;text-align:center">→</div>' +
+      '<select style="flex:3" data-wiz-target="' + _esc(t.f) + '" onchange="_wizMappingChanged(this)">' + options + '</select>' +
+      '</div>';
+  }).join('');
+  document.getElementById('wiz-mapping-rows').innerHTML = rowsHtml;
+}
+window._wizMappingChanged = (sel) => { WIZ.mapping[sel.dataset.wizTarget] = sel.value; };
+
+// ---------------------------------------------------------------------------
+// Step 5: Validate — reuses IMPORTERS[key]() (required-field + shape check),
+// plus format checks (dates/times/amounts/email) driven by the `targets`
+// metadata above, so nothing here duplicates business logic that already
+// lives in IMPORTERS.
+// ---------------------------------------------------------------------------
+// Item 8 (security) — formula-injection guard. A cell that starts with
+// =, +, -, or @ is interpreted as a formula by Excel/Sheets; a malicious
+// file could plant something like `=IMPORTXML(...)`, `@SUM(...)`, or the
+// classic `-2+3+cmd|' /C calc'!A0` DDE payload in a text column (Notes,
+// Category, Message, ...) that later executes when that data is opened in
+// a spreadsheet or written back into a live Sheet cell. =, +, and @ are
+// never legitimate leading characters for any field this app imports, so
+// those are always neutralized. A leading "-" is left alone ONLY when the
+// whole value is a plain negative number (so the negative-amount
+// validator downstream still sees "-500" as -500, not sanitized away) —
+// anything else starting with "-" gets the same treatment.
+function _wizSanitizeCell(v) {
+  if (v == null) return v;
+  const s = String(v);
+  if (/^[=+@]/.test(s)) return s.replace(/^[=+@\s]+/, '');
+  if (/^-/.test(s) && !/^-\d+(\.\d+)?$/.test(s.trim())) return s.replace(/^[\-\s]+/, '');
+  return s;
+}
+
+function _wizValidDate(v) { if (!v) return true; const d = new Date(v); return !isNaN(d.getTime()); }
+function _wizValidTime(v) { if (!v) return true; return /^\d{1,2}:\d{2}\s*(AM|PM)?$/i.test(String(v).trim()); }
+function _wizToMinutes(v) {
+  const m = String(v || '').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let h = Number(m[1]); const min = Number(m[2]);
+  if (m[3]) { if (/pm/i.test(m[3]) && h !== 12) h += 12; if (/am/i.test(m[3]) && h === 12) h = 0; }
+  return h * 60 + min;
+}
+
+function _wizApplyMappingAndValidate() {
+  const mod = _wizModule(WIZ.moduleKey);
+  try { localStorage.setItem(WIZ_MAP_KEY(mod.key), JSON.stringify(WIZ.mapping)); } catch (e) {}
+  const importer = IMPORTERS[mod.key];
+  WIZ.rowResults = WIZ.rawRows.map((raw, i) => {
+    const rowNum = i + 2; // account for header row
+    const mappedRow = {};
+    mod.targets.forEach(t => { const src = WIZ.mapping[t.f]; mappedRow[t.f] = src ? _wizSanitizeCell(raw[src]) : ''; });
+    const result = importer(mappedRow);
+    const issues = [];
+    if (result.error) issues.push({ field: '(multiple)', reason: result.error, fix: 'Fill in the required column(s) for this row, or map the correct source column in the previous step.' });
+    mod.targets.forEach(t => {
+      const v = mappedRow[t.f];
+      if (!v) return;
+      if (t.isDate && !_wizValidDate(v)) issues.push({ field: t.f, reason: '"' + v + '" isn\'t a recognizable date', fix: 'Use YYYY-MM-DD or a standard date format.' });
+      if (t.isTime && !_wizValidTime(v)) issues.push({ field: t.f, reason: '"' + v + '" isn\'t a recognizable time', fix: 'Use HH:MM or HH:MM AM/PM.' });
+      if (t.isAmount && Number(String(v).replace(/[^0-9.-]/g, '')) < 0) issues.push({ field: t.f, reason: 'Negative amount', fix: 'Amounts must be zero or positive.' });
+      if (t.isEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) issues.push({ field: t.f, reason: '"' + v + '" isn\'t a valid email', fix: 'Correct the email address format.' });
+    });
+    if (mod.targets.some(t => t.f === 'Start Time') && mod.targets.some(t => t.f === 'End Time')) {
+      const startM = _wizToMinutes(mappedRow['Start Time']), endM = _wizToMinutes(mappedRow['End Time']);
+      if (startM !== null && endM !== null && startM >= endM) issues.push({ field: 'Start Time / End Time', reason: 'Start Time is not before End Time', fix: 'Check the times — End Time must be later than Start Time.' });
+    }
+    const blocking = !!result.error || issues.some(x => /negative|isn't a recognizable|isn't a valid|not before/.test(x.reason));
+    return { rowNum, mappedRow, record: result.record || null, isDup: result.isDup || (() => false), issues, invalid: blocking };
+  });
+  const invalidCount = WIZ.rowResults.filter(r => r.invalid).length;
+  document.getElementById('wiz-validation-summary').innerHTML =
+    '<div style="font-size:13px">' + WIZ.rowResults.length + ' row(s) checked — ' +
+    '<b style="color:' + (invalidCount ? 'var(--red)' : 'inherit') + '">' + invalidCount + ' invalid</b>, ' +
+    (WIZ.rowResults.length - invalidCount) + ' valid. Invalid rows are skipped automatically; nothing here blocks moving on.</div>';
+  document.getElementById('wiz-error-tbody').innerHTML = WIZ.rowResults.flatMap(r =>
+    r.issues.map(x => '<tr><td>' + r.rowNum + '</td><td>' + _esc(x.field) + '</td><td>' + _esc(x.reason) + '</td><td>' + _esc(x.fix) + '</td></tr>')
+  ).join('') || '<tr><td colspan="4" style="color:var(--gray3)">No issues found 🎉</td></tr>';
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Step 6: Duplicate Check + Import Options
+// ---------------------------------------------------------------------------
+async function _wizExistingList() {
+  const mod = _wizModule(WIZ.moduleKey);
+  if (mod.key === 'staff') {
+    const fromServer = await refreshUsersCache();
+    return fromServer || (typeof _getUsersCache === 'function' ? _getUsersCache() : []) || [];
+  }
+  return window.DB[mod.collection] || [];
+}
+async function _wizRunDuplicateCheck() {
+  const mod0 = _wizModule(WIZ.moduleKey);
+  const existing = await _wizExistingList();
+  let dupCount = 0, newCount = 0, invalidCount = 0;
+  const validRecords = WIZ.rowResults.filter(x => !x.invalid && x.record).map(x => x.record);
+  WIZ.rowResults.forEach(r => {
+    if (r.invalid || !r.record) { invalidCount++; r.dup = false; return; }
+    const others = validRecords.filter(rec => rec !== r.record);
+    r.dup = _wizIsDupAgainstList(r.record, existing, mod0.dupKeys) || _wizIsDupAgainstList(r.record, others, mod0.dupKeys);
+    if (r.dup) dupCount++; else newCount++;
+  });
+  document.getElementById('wiz-dup-stats').innerHTML =
+    _wizStatBox('Valid Rows', newCount + dupCount) + _wizStatBox('Duplicate Rows', dupCount) + _wizStatBox('Invalid Rows (skipped)', invalidCount);
+  const mod = _wizModule(WIZ.moduleKey);
+  const appendOnly = ['attendance', 'fees', 'cafeSales'].includes(mod.key);
+  const noteHost = document.querySelector('#import-wizard-modal [data-step="6"] .form-group');
+  const existingNote = noteHost.querySelector('.wiz-append-only-note');
+  if (existingNote) existingNote.remove();
+  if (appendOnly) {
+    noteHost.insertAdjacentHTML('beforeend', '<div class="wiz-append-only-note" style="font-size:11px;color:var(--gray3);margin-top:4px">Note: this module is an append-only ledger in Google Sheets — "Update"/"Replace" will still insert a fresh entry rather than overwrite an old one.</div>');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step 7: Summary before running
+// ---------------------------------------------------------------------------
+function _wizRenderSummaryPre() {
+  const rows = WIZ.rowResults;
+  const dup = rows.filter(r => r.dup).length, valid = rows.filter(r => !r.invalid).length, invalid = rows.length - valid;
+  const modeLabel = { skip: 'Skip Duplicates', importNewOnly: 'Import New Only', update: 'Update Existing', replace: 'Replace Existing' }[WIZ.mode];
+  document.getElementById('wiz-summary-pre').innerHTML =
+    '<div style="font-size:13px;line-height:1.7">' +
+    'Module: <b>' + _esc(_wizModule(WIZ.moduleKey).label) + '</b><br>' +
+    'Duplicate handling: <b>' + _esc(modeLabel) + '</b><br>' +
+    'Will attempt: <b>' + valid + '</b> row(s) &nbsp;|&nbsp; Duplicates among them: <b>' + dup + '</b> &nbsp;|&nbsp; Skipped (invalid): <b>' + invalid + '</b><br>' +
+    'A server backup and a local backup are created automatically before anything is written — see Settings → Backup &amp; Recovery / Recent Backups if you ever need to restore.' +
+    '</div>';
+  document.getElementById('wiz-progress-wrap').style.display = 'none';
+}
+
+// ---------------------------------------------------------------------------
+// Step 7→8: Run the actual import — safety backups, batches of 100 (each
+// batch itself processed with bounded concurrency so a 20,000-row file
+// doesn't mean 20,000 sequential round-trips), non-blocking progress, then
+// the report.
+// ---------------------------------------------------------------------------
+// Runs `worker` over every item in `items`, at most `limit` in flight at
+// once, preserving batch semantics (still O(rows/BATCH_SIZE) UI updates)
+// while letting network round-trips overlap instead of stacking end to
+// end — the actual bottleneck for a large import is round-trip latency to
+// Apps Script, not client CPU, so this is where "support 20,000+ rows
+// without freezing" is really won.
+async function _wizRunWithConcurrency(items, worker, limit) {
+  let next = 0;
+  async function runner() {
+    while (next < items.length) {
+      const i = next++; 
+      await worker(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runner));
+}
+
+async function _wizRunImport() {
+  const mod = _wizModule(WIZ.moduleKey);
+  const toRun = WIZ.rowResults.filter(r => !r.invalid && r.record);
+  const dupInThisRun = toRun.filter(r => r.dup).length;
+
+  // Item 8 — "never overwrite existing data without user confirmation":
+  // a separate, explicit confirmation distinct from the generic
+  // "Start Import" click, only shown when this run will actually change
+  // pre-existing records.
+  if (dupInThisRun > 0 && (WIZ.mode === 'update' || WIZ.mode === 'replace')) {
+    const verb = WIZ.mode === 'update' ? 'update' : 'delete and re-add';
+    if (!confirm(`This will ${verb} ${dupInThisRun} existing record(s) that match your duplicate rule for ${mod.label}. This cannot be undone except via "Undo This Import" immediately after. Continue?`)) {
+      return;
+    }
+  }
+
+  WIZ.importing = true;
+  wizRenderStep();
+  const progressWrap = document.getElementById('wiz-progress-wrap'), bar = document.getElementById('wiz-progress-bar'), label = document.getElementById('wiz-progress-label');
+  progressWrap.style.display = 'block'; bar.style.width = '0%'; label.textContent = 'Creating safety backup…';
+
+  // SAFETY — reuse Phase 1 exactly as-is, no new backup engine.
+  createBackup('auto', 'before_import_wizard');
+  try { await postToGoogleSheet({ type: 'backup_now' }); } catch (e) { /* server backup is best-effort here; local backup above already ran */ }
+
+  const existing = await _wizExistingList();
+  const startedAt = Date.now();
+  let imported = 0, updated = 0, skipped = 0, doneCount = 0;
+  const errors = [];
+  const batchRecords = []; // for rollback manifest: {col, id or staffEmail, action, before}
+
+  const BATCH_SIZE = 100, CONCURRENCY = 8;
+  for (let i = 0; i < toRun.length; i += BATCH_SIZE) {
+    const batch = toRun.slice(i, i + BATCH_SIZE);
+    await _wizRunWithConcurrency(batch, async (r) => {
+      try {
+        if (r.dup && (WIZ.mode === 'skip' || WIZ.mode === 'importNewOnly')) { skipped++; return; }
+
+        if (mod.key === 'staff') {
+          const res = await postUserAction('create', { email: r.record.email, name: r.record.name, password: r.record.password, role: r.record.role });
+          if (!res.ok) { errors.push({ rowNum: r.rowNum, field: 'Email', reason: res.error || 'Could not create login', fix: 'Check whether this email already has an account.' }); return; }
+          batchRecords.push({ col: null, staffEmail: r.record.email, action: 'insert' });
+          imported++;
+          return;
+        }
+
+        const existingMatch = r.dup ? _wizFindExistingMatch(r.record, existing, mod.dupKeys) : null;
+        if (r.dup && (WIZ.mode === 'update' || WIZ.mode === 'replace') && existingMatch && !['attendance', 'fees', 'cafeSales'].includes(mod.key)) {
+          const before = { ...existingMatch };
+          const persisted = await _wizPersistRecord(mod.collection, r.record, WIZ.mode, existingMatch.id);
+          batchRecords.push({ col: mod.collection, id: persisted.withId.id, action: persisted.action, before });
+          updated++;
+        } else {
+          const withId = await _persistImportedRecord(mod.collection, r.record);
+          batchRecords.push({ col: mod.collection, id: withId.id, action: 'insert' });
+          imported++;
+        }
+      } catch (e) {
+        errors.push({ rowNum: r.rowNum, field: '(save)', reason: e.message || 'Save failed', fix: 'Retry the import after checking your connection.' });
+      }
+    }, CONCURRENCY);
+    doneCount += batch.length;
+    const pct = Math.round(Math.min(100, (doneCount / Math.max(1, toRun.length)) * 100));
+    bar.style.width = pct + '%';
+    label.textContent = 'Importing ' + Math.min(doneCount, toRun.length) + ' of ' + toRun.length + '…';
+    await new Promise(res => setTimeout(res, 0)); // yield to keep the UI responsive on large files
+  }
+
+  // Re-render whichever page shows this data, same as the simple importer does.
+  if (mod.key === 'bookings') window.renderBookingCalendar?.();
+  if (mod.key === 'students') window.renderStudents?.();
+  if (mod.key === 'fees') window.renderFees?.();
+  if (mod.key === 'cafeSales') window.renderCafe?.();
+  if (mod.key === 'enquiries') window.renderEnquiries?.();
+  if (mod.key === 'coaches') window.renderCoaches?.();
+  window.renderReports?.();
+  window.renderDashboard?.();
+
+  const invalidRows = WIZ.rowResults.filter(r => r.invalid);
+  invalidRows.forEach(r => r.issues.forEach(x => errors.push({ rowNum: r.rowNum, field: x.field, reason: x.reason, fix: x.fix })));
+
+  const batchId = 'IMP' + Date.now().toString(36).toUpperCase();
+  const device = _wizDeviceLabel();
+  WIZ.report = {
+    id: batchId, timestamp: new Date().toISOString(), module: mod.label, moduleKey: mod.key,
+    fileName: WIZ.file ? WIZ.file.name : '', mode: WIZ.mode, user: CURRENT_USER?.name || 'Unknown', device,
+    imported, updated, skipped, duplicates: toRun.filter(r => r.dup).length, errors: errors.length,
+    timeTakenMs: Date.now() - startedAt, errorDetail: errors
+  };
+  WIZ.lastBatchId = batchId;
+  try { localStorage.setItem('ddtz_import_batch_' + batchId, JSON.stringify({ report: WIZ.report, records: batchRecords })); } catch (e) {}
+  try { localStorage.setItem('ddtz_last_seen_import_id', batchId); } catch (e) {} // don't self-notify for our own import below
+  _wizPushHistory(WIZ.report);
+
+  // Item 1/5/6 — permanent, cross-user Import History entry (Phase 1's
+  // pattern reused: an append-only sheet, exactly like BackupLog/AuditLog).
+  postToGoogleSheet({
+    type: 'import_log', importId: batchId, timestamp: WIZ.report.timestamp, user: WIZ.report.user,
+    module: mod.label, fileName: WIZ.report.fileName, mode: WIZ.mode,
+    imported, updated, skipped, errors: errors.length, duplicates: WIZ.report.duplicates,
+    device, rolledBack: false
+  }).catch(() => {}); // best-effort, same tolerance as every other audit-style write in this app
+
+  // Item 6/7 — one Activity Log entry summarizing the whole batch (not one
+  // per row — that would flood AuditLog on a 20,000-row import). Reuses
+  // the existing audit_log endpoint/schema untouched.
+  postToGoogleSheet({
+    type: 'audit_log', timestamp: WIZ.report.timestamp, user: WIZ.report.user,
+    action: `Import Wizard — Module: ${mod.label}, Mode: ${WIZ.mode}, Imported: ${imported}, Updated: ${updated}, Skipped: ${skipped}, Errors: ${errors.length}, File: ${WIZ.report.fileName}, Device: ${device}`
+  }).catch(() => {});
+
+  WIZ.importing = false;
+  progressWrap.style.display = 'none';
+  WIZ.step = 8;
+  wizRenderStep();
+  _wizRenderReport();
+  _wizPlaySuccessSound();
+  showToast('Import finished: ' + imported + ' imported, ' + updated + ' updated, ' + skipped + ' skipped, ' + errors.length + ' error(s).');
+}
+
+// Short device signature for the Activity Log / Import History — enough
+// to tell "which browser/device did this" apart without storing a raw,
+// overly identifying user-agent string.
+function _wizDeviceLabel() {
+  const ua = navigator.userAgent || '';
+  const os = /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : 'Unknown OS';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Unknown Browser';
+  return `${os} · ${browser}`;
+}
+
+// Item 6 — "success notification with sound". A short two-tone beep
+// synthesized with the Web Audio API so this never depends on an external
+// audio file or CDN. Silently does nothing if the browser blocks audio
+// before any user interaction — the toast + visual report are always
+// shown regardless.
+function _wizPlaySuccessSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1175].forEach((freq, i) => {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.frequency.value = freq; osc.type = 'sine';
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.14);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + i * 0.14 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.14 + 0.18);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.14); osc.stop(ctx.currentTime + i * 0.14 + 0.2);
+    });
+  } catch (e) { /* audio not available in this context — the toast still shows */ }
+}
+
+
+// ---------------------------------------------------------------------------
+// Step 8: Report + downloads
+// ---------------------------------------------------------------------------
+function _wizRenderReport() {
+  const r = WIZ.report;
+  const secs = Math.round(r.timeTakenMs / 100) / 10;
+  document.getElementById('wiz-report').innerHTML =
+    '<div style="font-size:14px;font-weight:700;margin-bottom:8px">✅ Import complete — ' + _esc(r.module) + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">' +
+    _wizStatBox('Imported', r.imported) + _wizStatBox('Updated', r.updated) + _wizStatBox('Skipped', r.skipped) +
+    _wizStatBox('Duplicates', r.duplicates) + _wizStatBox('Errors', r.errors) + _wizStatBox('Time Taken', secs + 's') +
+    '</div>';
+  document.getElementById('wiz-download-errors-btn').style.display = r.errors ? '' : 'none';
+  document.getElementById('wiz-undo-btn').style.display = (r.imported + r.updated) ? '' : 'none';
+  _wizRenderHistory();
+}
+
+window.wizDownloadReport = (fmt) => {
+  const r = WIZ.report; if (!r) return;
+  const rows = [{ Module: r.module, File: r.fileName, Mode: r.mode, Imported: r.imported, Updated: r.updated, Skipped: r.skipped, Duplicates: r.duplicates, Errors: r.errors, TimeTakenMs: r.timeTakenMs, Timestamp: r.timestamp }];
+  if (fmt === 'json') { _wizDownloadBlob(JSON.stringify(r, null, 2), 'import-report-' + r.id + '.json', 'application/json'); return; }
+  if (fmt === 'csv') {
+    const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(rows));
+    _wizDownloadBlob(csv, 'import-report-' + r.id + '.csv', 'text/csv');
+    return;
+  }
+  if (fmt === 'xlsx') {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Report');
+    if (r.errorDetail.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(r.errorDetail), 'Errors');
+    XLSX.writeFile(wb, 'import-report-' + r.id + '.xlsx');
+    return;
+  }
+  if (fmt === 'pdf') {
+    if (typeof window.jspdf === 'undefined') { showToast('PDF library failed to load — check your internet connection.', 'error'); return; }
+    const jsPDF = window.jspdf.jsPDF;
+    const doc = new jsPDF();
+    doc.setFontSize(14); doc.text('DD Turf Zone — Import Report', 14, 16);
+    doc.setFontSize(10);
+    const lines = ['Module: ' + r.module, 'File: ' + r.fileName, 'Mode: ' + r.mode, 'Imported: ' + r.imported, 'Updated: ' + r.updated, 'Skipped: ' + r.skipped, 'Duplicates: ' + r.duplicates, 'Errors: ' + r.errors, 'Time: ' + new Date(r.timestamp).toLocaleString()];
+    lines.forEach((l, i) => doc.text(l, 14, 28 + i * 7));
+    doc.save('import-report-' + r.id + '.pdf');
+  }
+};
+
+window.wizDownloadErrorReport = () => {
+  const r = WIZ.report; if (!r || !r.errorDetail.length) return;
+  const rows = r.errorDetail.map(e => ({ Row: e.rowNum || '', Field: e.field, Reason: e.reason, 'Suggested Fix': e.fix }));
+  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(rows));
+  _wizDownloadBlob(csv, 'import-errors-' + r.id + '.csv', 'text/csv');
+};
+
+function _wizDownloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// ---------------------------------------------------------------------------
+// Rollback — "Undo Last Import" / per-history-row Undo. Item 2: only the
+// single most recent import overall may be undone, a confirmation is
+// always shown, and a fresh backup is taken automatically before anything
+// is reverted (on top of the one already taken before the original
+// import — belt and braces, since Undo is itself a destructive action).
+// ---------------------------------------------------------------------------
+async function _wizRollback(batchId) {
+  // Re-check "is this still the latest?" at click time, not just at
+  // render time — another admin could have started a newer import in
+  // the seconds in between.
+  await _wizFetchHistory(false);
+  if (batchId !== WIZ_LATEST_IMPORT_ID) {
+    showToast('Only the most recent import can be undone, and a newer one has since happened.', 'error');
+    _wizRenderHistory();
+    return;
+  }
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem('ddtz_import_batch_' + batchId) || 'null'); } catch (e) {}
+  if (!stored) { showToast("Nothing to undo — this import's detail is only kept in the browser/session that ran it.", 'error'); return; }
+  if (stored.rolledBack) { showToast('This import was already undone.', 'error'); return; }
+  if (!confirm(`Undo this entire import (${stored.report.imported} imported, ${stored.report.updated} updated)? A fresh backup is taken first. This only reverses records this import touched.`)) return;
+
+  showToast('Creating a safety backup before undoing…', 'info');
+  createBackup('auto', 'before_import_undo');
+  try { await postToGoogleSheet({ type: 'backup_now' }); } catch (e) { /* best-effort, same as every other safety backup in this app */ }
+
+  let undone = 0;
+  for (const rec of stored.records) {
+    try {
+      if (rec.staffEmail) { await postUserAction('delete', { email: rec.staffEmail }); undone++; continue; }
+      if (rec.action === 'insert' || rec.action === 'replace') {
+        await _wizRemoveRecord(rec.col, rec.id);
+      } else if (rec.action === 'update' && rec.before) {
+        await saveDoc(rec.col, rec.before, rec.id);
+        const idx = (window.DB[rec.col] || []).findIndex(x => x.id === rec.id);
+        if (idx !== -1) window.DB[rec.col][idx] = { ...window.DB[rec.col][idx], ...rec.before, id: rec.id };
+        _fireImportAutoSync(rec.col, { ...rec.before, id: rec.id }, 'update');
+      }
+      undone++;
+    } catch (e) { console.error('Undo failed for one record:', e); }
+  }
+  stored.rolledBack = true;
+  try { localStorage.setItem('ddtz_import_batch_' + batchId, JSON.stringify(stored)); } catch (e) {}
+  postToGoogleSheet({ type: 'import_mark_rolled_back', importId: batchId }).catch(() => {});
+  postToGoogleSheet({
+    type: 'audit_log', timestamp: new Date().toISOString(), user: CURRENT_USER?.name || 'Unknown',
+    action: `Import Wizard — Undo of ${batchId} (${stored.report.module}): reverted ${undone} record(s)`
+  }).catch(() => {});
+  const idx = WIZ_HISTORY_CACHE.findIndex(h => h.importId === batchId);
+  if (idx !== -1) WIZ_HISTORY_CACHE[idx] = { ...WIZ_HISTORY_CACHE[idx], rolledBack: true };
+  _wizRenderHistory();
+  window.renderDashboard?.(); window.renderBookingCalendar?.(); window.renderStudents?.(); window.renderFees?.(); window.renderCafe?.(); window.renderEnquiries?.(); window.renderCoaches?.();
+  showToast('Undo complete — reverted ' + undone + ' record(s).');
+}
+window.wizUndoLastImport = () => { if (WIZ.lastBatchId) _wizRollback(WIZ.lastBatchId); };
+
+// ---------------------------------------------------------------------------
+// Import History (item 1) — permanent + cross-user, backed by the new
+// ImportLog sheet (see handleImportHistoryGet in Code.gs), with a small
+// localStorage cache purely as an offline fallback so the panel never goes
+// completely blank. Search/filter are applied client-side over whatever's
+// currently loaded — the server already caps this at the most recent 500
+// imports, which is plenty for in-panel filtering.
+// ---------------------------------------------------------------------------
+const WIZ_HISTORY_CACHE_KEY = 'ddtz_import_history_cache';
+let WIZ_HISTORY_CACHE = [];
+let WIZ_LATEST_IMPORT_ID = null;
+
+async function _wizFetchHistory(showToastOnResult) {
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=importHistory&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (data && data.ok) {
+      WIZ_HISTORY_CACHE = data.history || [];
+      WIZ_LATEST_IMPORT_ID = data.latestImportId || null;
+      try { localStorage.setItem(WIZ_HISTORY_CACHE_KEY, JSON.stringify(WIZ_HISTORY_CACHE)); } catch (e) {}
+      if (showToastOnResult) showToast('Import History refreshed.');
+    } else if (showToastOnResult) {
+      showToast('Could not refresh Import History from the server.', 'error');
+    }
+  } catch (e) {
+    try { WIZ_HISTORY_CACHE = JSON.parse(localStorage.getItem(WIZ_HISTORY_CACHE_KEY) || '[]'); } catch (e2) {}
+    if (showToastOnResult) showToast('Offline — showing last known Import History.', 'error');
+  }
+  _wizPopulateModuleFilter();
+  _wizRenderHistory();
+}
+window._wizFetchHistory = _wizFetchHistory;
+
+function _wizPopulateModuleFilter() {
+  const sel = document.getElementById('wiz-history-module-filter');
+  if (!sel) return;
+  const current = sel.value;
+  const modules = Array.from(new Set(WIZ_HISTORY_CACHE.map(h => h.module))).sort();
+  sel.innerHTML = '<option value="">All modules</option>' + modules.map(m => `<option value="${_esc(m)}" ${m === current ? 'selected' : ''}>${_esc(m)}</option>`).join('');
+}
+
+// Optimistic local update right after THIS browser completes an import —
+// don't wait on a network round-trip to see your own import in the list.
+function _wizPushHistory(report) {
+  WIZ_HISTORY_CACHE.unshift({
+    importId: report.id, timestamp: report.timestamp, user: report.user, module: report.module,
+    fileName: report.fileName, mode: report.mode, imported: report.imported, updated: report.updated,
+    skipped: report.skipped, errors: report.errors, duplicates: report.duplicates, device: report.device, rolledBack: false
+  });
+  WIZ_LATEST_IMPORT_ID = report.id;
+  try { localStorage.setItem(WIZ_HISTORY_CACHE_KEY, JSON.stringify(WIZ_HISTORY_CACHE.slice(0, 500))); } catch (e) {}
+  _wizPopulateModuleFilter();
+  _wizRenderHistory();
+}
+
+function _wizHasLocalManifest(importId) {
+  try { return !!localStorage.getItem('ddtz_import_batch_' + importId); } catch (e) { return false; }
+}
+
+function _wizRenderHistory() {
+  const tbody = document.getElementById('wiz-history-tbody');
+  if (!tbody) return;
+  const search = (document.getElementById('wiz-history-search')?.value || '').trim().toLowerCase();
+  const moduleFilter = document.getElementById('wiz-history-module-filter')?.value || '';
+  const filtered = WIZ_HISTORY_CACHE.filter(h => {
+    if (moduleFilter && h.module !== moduleFilter) return false;
+    if (!search) return true;
+    return [h.user, h.module, h.fileName, h.mode].some(v => String(v || '').toLowerCase().includes(search));
+  });
+  tbody.innerHTML = filtered.length ? filtered.map(h => {
+    const isLatest = h.importId === WIZ_LATEST_IMPORT_ID;
+    let undoCell;
+    if (h.rolledBack) undoCell = '<span style="color:var(--gray3)">Undone</span>';
+    else if (isLatest && _wizHasLocalManifest(h.importId)) undoCell = `<button class="btn btn-secondary btn-sm" onclick="_wizRollback('${h.importId}')">Undo</button>`;
+    else if (isLatest) undoCell = '<span style="color:var(--gray3)" title="Undo only works in the browser/session that ran the import">Undo (original device only)</span>';
+    else undoCell = '<span style="color:var(--gray3)">Only the latest import can be undone</span>';
+    return `<tr>
+      <td>${_esc(new Date(h.timestamp).toLocaleString())}</td><td>${_esc(h.user)}</td><td>${_esc(h.module)}</td>
+      <td>${_esc(h.fileName)}</td><td>${_esc(h.mode)}</td>
+      <td>${h.imported}</td><td>${h.updated}</td><td>${h.skipped}</td><td>${h.errors}</td>
+      <td>${undoCell}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="10" style="color:var(--gray3)">No imports found.</td></tr>';
+}
+
+// ---------------------------------------------------------------------------
+// Item 5/6 — cross-user awareness. Polling (this app has no push/websocket
+// channel — every other "live update" in it, like booking sync, already
+// works the same way) at the same 30s cadence the rest of the app already
+// uses. Only Admins/Managers are notified (Staff excluded), matching the
+// requirement; the importing browser itself is excluded via
+// ddtz_last_seen_import_id, which is set the moment ITS OWN import
+// finishes, so it never "notifies" the person who just did the import.
+// ---------------------------------------------------------------------------
+async function _wizCheckForNewImportsNotification() {
+  if (!CURRENT_USER || CURRENT_USER.role === ROLES.STAFF) return;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=importHistory&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok || !data.latestImportId) return;
+    let lastSeen = null;
+    try { lastSeen = localStorage.getItem('ddtz_last_seen_import_id'); } catch (e) {}
+    if (data.latestImportId !== lastSeen) {
+      const latest = (data.history || [])[0];
+      try { localStorage.setItem('ddtz_last_seen_import_id', data.latestImportId); } catch (e) {}
+      if (latest) {
+        showToast(`📥 ${latest.user} imported ${latest.imported} ${latest.module} record(s)${latest.fileName ? ' from ' + latest.fileName : ''}.`);
+        _wizPlaySuccessSound();
+        // Item 5 — keep this session's own view current without requiring
+        // a manual refresh, the same way every other cross-session change
+        // in this app already propagates.
+        window.renderDashboard?.(); window.renderBookingCalendar?.(); window.renderStudents?.();
+        window.renderFees?.(); window.renderCafe?.(); window.renderEnquiries?.(); window.renderCoaches?.();
+        window.syncBookingsAndBlocksFromSheet?.(); window.fetchPendingRequestsFromSheet?.();
+      }
+    }
+  } catch (e) { /* offline/transient — next 30s tick tries again */ }
+}
+setInterval(_wizCheckForNewImportsNotification, 30000);
+
+
+// ============================================================================
+// PHASE 2.5 — REAL-TIME SYNC, LIVE NOTIFICATIONS, NOTIFICATION CENTER,
+// ACTIVITY LOG
+// ----------------------------------------------------------------------------
+// Everything above this block (30s fullSync, 30s pending-requests poll, 30s
+// import-notification poll, the offline sync queue) is untouched and keeps
+// running exactly as before — those stay as the slow, reliable safety net.
+// This section adds a FAST path on top: it polls the AuditLog-backed
+// syncEvents feed every ~2.5s and, the moment something new shows up,
+// (a) shows a toast + notification-center entry + sound, and (b) nudges
+// only the specific existing render/sync function for whatever changed —
+// never a full page reload. Nothing here bypasses the offline queue, the
+// server-side booking conflict check, or any existing merge logic; it just
+// triggers that same logic sooner than the 30s timer would have.
+// ============================================================================
+const RT_POLL_MS = 2500;
+const RT_POLL_MAX_BACKOFF_MS = 30000;
+const RT_CURSOR_KEY = 'ddtz_rt_cursor';
+const RT_NOTIF_KEY = 'ddtz_notifications';
+const RT_NOTIF_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const RT_NOTIF_MAX_COUNT = 500;
+
+let _rtPolling = false;
+let _rtPollTimer = null;
+let _rtBackoffMs = RT_POLL_MS;
+
+function _rtGetCursor() {
+  const v = parseInt(localStorage.getItem(RT_CURSOR_KEY), 10);
+  return isNaN(v) ? 0 : v;
+}
+function _rtSetCursor(n) { try { localStorage.setItem(RT_CURSOR_KEY, String(n)); } catch (e) {} }
+
+function _rtGetNotifications() {
+  try { return JSON.parse(localStorage.getItem(RT_NOTIF_KEY) || '[]'); } catch (e) { return []; }
+}
+function _rtSaveNotifications(list) {
+  const cutoff = Date.now() - RT_NOTIF_MAX_AGE_MS;
+  const trimmed = list
+    .filter(n => { const t = new Date(n.timestamp).getTime(); return isNaN(t) || t >= cutoff; })
+    .slice(0, RT_NOTIF_MAX_COUNT);
+  try { localStorage.setItem(RT_NOTIF_KEY, JSON.stringify(trimmed)); } catch (e) {}
+  return trimmed;
+}
+
+const RT_MODULE_META = {
+  booking:                { icon: '📅', label: 'Booking' },
+  blocked_slot:           { icon: '🚫', label: 'Slot Block' },
+  booking_request:        { icon: '📝', label: 'Reservation' },
+  booking_request_update: { icon: '📝', label: 'Reservation' },
+  student:                { icon: '🎓', label: 'Student' },
+  attendance:             { icon: '✅', label: 'Attendance' },
+  cafe_sale:              { icon: '☕', label: 'Café Sale' },
+  enquiry:                { icon: '📩', label: 'Enquiry' },
+  import_log:             { icon: '📥', label: 'Import' },
+  backup_now:             { icon: '💾', label: 'Backup' },
+  user:                   { icon: '🔐', label: 'User Account' },
+  siteConfig:             { icon: '🌐', label: 'Website' }
+};
+function _rtModuleMeta(mod) {
+  if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
+  if ((mod || '').indexOf('coaching_') === 0) return { icon: '🥋', label: 'Coaching Fee' };
+  return { icon: '🔔', label: mod || 'Update' };
+}
+
+// Record types this device can merge STRAIGHT from the event's own
+// NewValue snapshot (no extra network round-trip) because the local ID
+// field is unambiguous. Bookings and blocked slots are deliberately NOT
+// in this list — those already have a proven, well-tested merge function
+// (syncBookingsAndBlocksFromSheet, with its conflict/offline-queue
+// awareness baked in) and Phase 2.5 just calls that sooner instead of
+// re-implementing it.
+const RT_MERGE_MAP = {
+  student:    { col: 'students',   idField: 'studentId' },
+  enquiry:    { col: 'enquiries',  idField: 'enquiryId' },
+  attendance: { col: 'attendance', idField: 'attendanceId' }
+};
+
+function _rtMergeRecord(ev) {
+  const map = RT_MERGE_MAP[ev.module];
+  if (!map || !ev.newValue) return false;
+  const recId = ev.newValue[map.idField];
+  if (!recId) return false;
+  try {
+    const list = window.DB[map.col];
+    if (!list) return false;
+    const idx = list.findIndex(r => r[map.idField] === recId);
+    if (idx === -1) {
+      // New record this device hasn't seen — add it with a fresh local id,
+      // the same way every other collection already stores its own `id`.
+      const localId = LS.add(map.col, ev.newValue);
+      list.unshift({ ...ev.newValue, id: localId });
+    } else {
+      // Existing record — the Sheet is the source of truth once a write
+      // reaches it, so merge the new fields in (keep the local `id`).
+      const merged = { ...list[idx], ...ev.newValue, id: list[idx].id };
+      LS.update(map.col, list[idx].id, merged);
+      list[idx] = merged;
+    }
+    return true;
+  } catch (e) { return false; }
+}
+
+// ----------------------------------------------------------------------------
+// PHASE 2.5 (cont.) — EDIT-CONFLICT RESOLUTION (Requirement #5)
+// ----------------------------------------------------------------------------
+// Maps a queuedSync payload.type to where its local copy lives, so the two
+// generic functions below (capture the fresh server timestamp on success /
+// show the resolution modal on conflict) work for every editable record
+// type without a bespoke function per module. Coaching fees and Users are
+// deliberately not in this map — they're edited far less concurrently, and
+// the server-side check still guards them whenever a caller happens to
+// pass expectedUpdatedAt, so nothing is unsafe, there's just no automatic
+// local-timestamp bookkeeping for them yet.
+const SYNC_TYPE_META = {
+  booking:               { col: 'bookings',       idField: 'bookingId', label: 'booking' },
+  blocked_slot:          { col: 'blockedSlots',   idField: 'blockId',    label: 'blocked slot' },
+  student:               { col: 'students',       idField: 'studentId',  label: 'student' },
+  enquiry:               { col: 'enquiries',      idField: 'enquiryId',  label: 'enquiry' },
+  // PHASE 2.5 — Booking Requests now opt in the same way (see
+  // syncBookingRequestUpdate's expectedUpdatedAt above / handleBookingRequestUpdate
+  // in Code.gs). requestId matches what fetchPendingRequestsFromSheet stores
+  // on each local record.
+  booking_request_update: { col: 'bookingRequests', idField: 'requestId', label: 'reservation request' },
+  // 'user' (Staff) is handled by postUserActionSafe/its own reload+overwrite
+  // branch below rather than window.DB — listed here only so the modal can
+  // look up its label.
+  user:                   { col: null,             idField: 'email',      label: 'staff account' }
+};
+
+// Called after every successful queuedSync — stashes the server's fresh
+// UpdatedAt directly into localStorage (bypassing LS.update's own
+// always-stamp-with-now behavior, since we need the SERVER's exact value,
+// not "now") so the next edit's conflict check has an accurate baseline.
+function _rtCaptureUpdatedAt(payload, result) {
+  if (!result || !result.updatedAt) return;
+  const meta = SYNC_TYPE_META[payload.type];
+  if (!meta) return;
+  const idVal = payload[meta.idField];
+  if (!idVal) return;
+  try {
+    const list = window.DB[meta.col];
+    if (list) {
+      const rec = list.find(r => r[meta.idField] === idVal);
+      if (rec) rec.updatedAt = result.updatedAt;
+    }
+    const stored = LS.get(meta.col).map(r => r[meta.idField] === idVal ? { ...r, updatedAt: result.updatedAt } : r);
+    LS.set(meta.col, stored);
+  } catch (e) { /* best-effort — a missed capture just means the next edit on THIS device re-triggers the check, never an unsafe overwrite */ }
+}
+
+// PHASE 2.5 — Conflict Logging (Requirement). Every conflict shown gets an
+// audit_log entry; the SAME entry's fields double as what's needed to
+// answer "who/what/when" later without a bespoke sheet. resolution is
+// 'pending' when first shown, then updated to 'reload' | 'overwrite' |
+// 'cancel' once the person picks. Best-effort, like every other audit call.
+function _logEditConflict(payload, res, resolution) {
+  try {
+    const meta = SYNC_TYPE_META[payload.type] || {};
+    const entry = {
+      type: 'audit_log',
+      timestamp: new Date().toISOString(),
+      user: CURRENT_USER?.name || 'Unknown',
+      role: CURRENT_USER?.role || '',
+      device: _deviceTag(),
+      module: meta.label || payload.type || '',
+      recordId: payload[meta.idField] || _auditRecordId(payload) || '',
+      action: 'Edit conflict',
+      summary: `Edit conflict on ${meta.label || payload.type} — ${resolution}`,
+      prevValue: payload,           // what THIS device tried to save
+      newValue: res.current || {},  // what the server actually had
+      resolution: resolution
+    };
+    if (!navigator.onLine) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); return; }
+    postToGoogleSheet(entry).then(r => { if (!r.ok && !r.skipped) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); } });
+  } catch (e) { /* logging never blocks conflict resolution */ }
+}
+
+let _rtPendingConflict = null; // { payload, res } awaiting the person's choice
+
+// Shows the modal (edit-conflict-modal in the markup) with a plain-language
+// summary of what the OTHER device's version currently looks like. Never
+// applies either side automatically.
+function _rtShowEditConflictModal(payload, res) {
+  _rtPendingConflict = { payload, res };
+  const meta = SYNC_TYPE_META[payload.type] || {};
+  const labelEl = document.getElementById('ec-module-label');
+  if (labelEl) labelEl.textContent = meta.label || 'record';
+
+  const cur = res.current || {};
+  const recordName = cur.name || cur.studentName || cur.email || payload[meta.idField] || '—';
+  const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+  setText('ec-record-name', recordName);
+  setText('ec-record-module', meta.label ? meta.label.replace(/\b\w/g, c => c.toUpperCase()) : payload.type);
+  setText('ec-edited-by', cur.updatedBy || cur.createdBy || cur.UpdatedBy || 'Another device');
+  setText('ec-last-updated', res.currentUpdatedAt ? new Date(res.currentUpdatedAt).toLocaleString() : '—');
+
+  // Collapsed by default — "Compare Changes" reveals this.
+  const compareBox = document.getElementById('ec-compare-box');
+  if (compareBox) compareBox.style.display = 'none';
+
+  const yourBox = document.getElementById('ec-your-changes');
+  if (yourBox) {
+    const { token, syncId, type, action, expectedUpdatedAt, forceOverwrite, ...yours } = payload;
+    const rows = Object.keys(yours)
+      .filter(k => yours[k] !== '' && yours[k] !== null && yours[k] !== undefined)
+      .slice(0, 12)
+      .map(k => `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0"><span style="color:var(--gray3)">${_esc(k)}</span><span style="font-weight:600;text-align:right">${_esc(String(yours[k]))}</span></div>`)
+      .join('');
+    yourBox.innerHTML = rows || '<div style="color:var(--gray3)">(No changed fields to show.)</div>';
+  }
+  const box = document.getElementById('ec-current-summary');
+  if (box) {
+    const rows = Object.keys(cur)
+      .filter(k => k !== '_row' && cur[k] !== '' && cur[k] !== null && cur[k] !== undefined)
+      .slice(0, 12)
+      .map(k => `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0"><span style="color:var(--gray3)">${_esc(k)}</span><span style="font-weight:600;text-align:right">${_esc(String(cur[k]))}</span></div>`)
+      .join('');
+    box.innerHTML = rows || '<div style="color:var(--gray3)">(No details available — reload to see the latest.)</div>';
+  }
+
+  // "Overwrite Anyway" is admin-only (superadmin/admin) — a plain Staff
+  // login can still Reload or Cancel, but can't force-discard someone
+  // else's change. Module-level permission to edit this record at all is
+  // already checked before we ever get here; this is an extra gate on top.
+  const overwriteBtn = document.getElementById('ec-overwrite-btn');
+  if (overwriteBtn) {
+    const isAdmin = CURRENT_USER?.role === ROLES.SUPER_ADMIN || CURRENT_USER?.role === ROLES.ADMIN;
+    overwriteBtn.style.display = isAdmin ? '' : 'none';
+  }
+
+  _logEditConflict(payload, res, 'pending');
+  window.openModal?.('edit-conflict-modal');
+}
+
+window._rtToggleCompareChanges = () => {
+  const box = document.getElementById('ec-compare-box');
+  if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+};
+
+window._rtShowEditConflictModal = _rtShowEditConflictModal;
+window._rtCaptureUpdatedAt = _rtCaptureUpdatedAt;
+
+// "Cancel" — closes the modal and leaves the person's unsaved local edit
+// exactly as it was (still in the open form, or already in local storage
+// from before this attempt); nothing further happens automatically.
+window._rtDismissEditConflict = () => {
+  const pending = _rtPendingConflict;
+  _rtPendingConflict = null;
+  window.closeModal?.('edit-conflict-modal');
+  if (pending) _logEditConflict(pending.payload, pending.res, 'cancel');
+};
+
+// "Reload Latest" — pulls the server's current copy of this record into
+// local storage (overwriting only this one local record, never the
+// person's other pending edits) and refreshes whatever page is showing
+// it, so both people end up looking at the same, real data.
+window._rtReloadAfterConflict = async () => {
+  const pending = _rtPendingConflict;
+  window.closeModal?.('edit-conflict-modal');
+  _rtPendingConflict = null;
+  if (!pending) return;
+  const { payload, res } = pending;
+  const meta = SYNC_TYPE_META[payload.type];
+
+  if (payload.type === 'user') {
+    // Staff accounts live in the password-free cache, not window.DB — just
+    // re-pull the directory from the server and re-render.
+    const users = await refreshUsersCache();
+    _renderUsersTable(users || _getUsersCache());
+    _logEditConflict(payload, res, 'reload');
+    showToast('Reloaded the latest staff account details — your previous edit was discarded, please re-apply any changes.', 'info');
+    return;
+  }
+
+  if (meta && meta.col && res.current) {
+    try {
+      const idVal = payload[meta.idField];
+      const list = window.DB[meta.col];
+      const idx = list ? list.findIndex(r => r[meta.idField] === idVal) : -1;
+      if (idx !== -1) {
+        const merged = { ...list[idx], ...res.current, id: list[idx].id, updatedAt: res.currentUpdatedAt };
+        LS.update(meta.col, list[idx].id, merged);
+        list[idx] = merged;
+      }
+    } catch (e) {}
+  }
+  // Nudge whichever render function is on screen — same targeted-refresh
+  // pattern _rtApplyEvents already uses, never a full page reload.
+  if (payload.type === 'booking' || payload.type === 'blocked_slot') window.syncBookingsAndBlocksFromSheet?.();
+  if (payload.type === 'student' && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
+  if (payload.type === 'enquiry' && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
+  if (payload.type === 'booking' && document.getElementById('page-bookings')?.classList.contains('active')) window.renderBookingCalendar?.();
+  if (payload.type === 'booking_request_update') {
+    fetchPendingRequestsFromSheet(false);
+    if (document.getElementById('page-requests')?.classList.contains('active')) window.renderBookingRequests?.();
+  }
+  _logEditConflict(payload, res, 'reload');
+  showToast('Reloaded the latest version — your previous edit was discarded, please re-apply any changes.', 'info');
+};
+
+// "Overwrite Anyway" — explicit consent to overwrite, resent with
+// forceOverwrite so the server skips the version check this one time.
+// Admin-only, enforced both by hiding the button (above) and re-checked
+// here in case of a stale DOM/dev-tools click.
+window._rtForceOverwriteAfterConflict = async () => {
+  const pending = _rtPendingConflict;
+  window.closeModal?.('edit-conflict-modal');
+  _rtPendingConflict = null;
+  if (!pending) return;
+  const isAdmin = CURRENT_USER?.role === ROLES.SUPER_ADMIN || CURRENT_USER?.role === ROLES.ADMIN;
+  if (!isAdmin) { denyAccess('Only an Admin or Super Admin can overwrite another device\'s change.'); return; }
+
+  if (pending.payload.type === 'user') {
+    const { type, expectedUpdatedAt, action, ...fields } = pending.payload;
+    const res = await postUserAction(action, { ...fields, forceOverwrite: true });
+    if (res.ok) { showToast('✅ Your version was saved (it replaced the other device\'s change).'); refreshUsersCache().then(u => _renderUsersTable(u || _getUsersCache())); }
+    _logEditConflict(pending.payload, pending.res, 'overwrite');
+    return;
+  }
+
+  const retryPayload = { ...pending.payload, forceOverwrite: true, syncId: _genSyncId() };
+  delete retryPayload.expectedUpdatedAt;
+  const res = await queuedSync(retryPayload);
+  if (res.ok) showToast('✅ Your version was saved (it replaced the other device\'s change).');
+  _logEditConflict(pending.payload, pending.res, 'overwrite');
+};
+
+
+
+async function rtPollEvents() {
+  if (_rtPolling || !CURRENT_USER || !window.DDTZ_SHEET_URL || !navigator.onLine) return;
+  _rtPolling = true;
+  try {
+    const since = _rtGetCursor();
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=syncEvents&sinceRow=${since}&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) { _rtBackoffMs = Math.min(_rtBackoffMs * 1.5, RT_POLL_MAX_BACKOFF_MS); return; }
+    _rtBackoffMs = RT_POLL_MS; // reset backoff on a healthy response
+    if (data.maxRow) _rtSetCursor(data.maxRow);
+    const events = data.events || [];
+    if (events.length) _rtApplyEvents(events);
+  } catch (e) {
+    _rtBackoffMs = Math.min(_rtBackoffMs * 1.5, RT_POLL_MAX_BACKOFF_MS); // network hiccup — slow down, don't hammer
+  } finally {
+    _rtPolling = false;
+  }
+}
+
+function _rtApplyEvents(events) {
+  const myDevice = _deviceTag();
+  const affected = new Set();
+  let notifications = _rtGetNotifications();
+  const newNotifs = [];
+
+  events.forEach(ev => {
+    affected.add(ev.module);
+    if (RT_MERGE_MAP[ev.module]) _rtMergeRecord(ev);
+
+    // Don't notify a device about its own write — it already knows.
+    if (ev.device && ev.device === myDevice) return;
+    const meta = _rtModuleMeta(ev.module);
+    newNotifs.push({
+      id: 'N' + ev.row,
+      row: ev.row,
+      timestamp: ev.timestamp,
+      user: ev.user || 'Unknown',
+      role: ev.role || '',
+      module: ev.module,
+      moduleLabel: meta.label,
+      icon: meta.icon,
+      action: ev.summary || ev.action || '',
+      recordId: ev.recordId || '',
+      read: false
+    });
+  });
+
+  if (newNotifs.length) {
+    notifications = _rtSaveNotifications([...newNotifs, ...notifications]);
+    _rtRenderBell();
+    if (document.getElementById('page-activity')?.classList.contains('active')) renderActivityLog();
+    const latest = newNotifs[0];
+    const roleLabel = ROLE_LABELS[latest.role] || latest.role;
+    showToast(`${latest.icon} ${latest.user}${roleLabel ? ' (' + roleLabel + ')' : ''} — ${latest.action}`);
+    _rtPlayNotifySound();
+  }
+
+  // Targeted refresh — only the pieces that could actually be stale.
+  if (affected.has('booking') || affected.has('blocked_slot')) {
+    window.syncBookingsAndBlocksFromSheet?.();
+  }
+  if (affected.has('booking_request') || affected.has('booking_request_update')) {
+    window.fetchPendingRequestsFromSheet?.();
+  }
+  if (affected.has('student') && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
+  if (affected.has('attendance') && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
+  if (affected.has('enquiry') && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
+  if ([...affected].some(m => m.indexOf('coaching_') === 0) && document.getElementById('page-fees')?.classList.contains('active')) window.renderFees?.();
+  if (affected.has('cafe_sale') && document.getElementById('page-cafe')?.classList.contains('active')) window.renderCafe?.();
+  if (newNotifs.length) window.renderDashboard?.();
+}
+
+// Reuses the exact same synthesized two-tone beep already used for import
+// success (Web Audio API, no external file) so this stays self-contained.
+function _rtPlayNotifySound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.frequency.value = 1046.5; osc.type = 'sine';
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.24);
+  } catch (e) { /* audio not available yet — bell badge + toast still show */ }
+}
+
+// ----- Adaptive poll loop: 2.5s baseline, backs off up to 30s on errors,
+// pauses entirely when the tab is hidden (Requirement #7 — don't burn
+// Apps Script quota on a background tab nobody's looking at), and does
+// one immediate catch-up poll the moment the tab/window becomes active
+// again or the device comes back online. -----
+function _rtScheduleNext() {
+  if (_rtPollTimer) clearTimeout(_rtPollTimer);
+  if (document.hidden) return; // resumes via visibilitychange below
+  _rtPollTimer = setTimeout(async () => { await rtPollEvents(); _rtScheduleNext(); }, _rtBackoffMs);
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { rtPollEvents().then(_rtScheduleNext); } else if (_rtPollTimer) { clearTimeout(_rtPollTimer); _rtPollTimer = null; }
+});
+window.addEventListener('online', () => rtPollEvents());
+window.addEventListener('focus', () => { if (CURRENT_USER) rtPollEvents(); });
+_rtScheduleNext();
+
+// ----- Notification Center: bell icon, dropdown, search + filters -----
+function _rtUnreadCount() { return _rtGetNotifications().filter(n => !n.read).length; }
+
+function _rtRenderBell() {
+  const badge = document.getElementById('rt-bell-badge');
+  if (!badge) return;
+  const n = _rtUnreadCount();
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.style.display = n > 0 ? '' : 'none';
+}
+
+window.toggleNotificationPanel = () => {
+  const panel = document.getElementById('rt-notif-panel');
+  if (!panel) return;
+  const opening = panel.style.display === 'none' || !panel.style.display;
+  panel.style.display = opening ? 'flex' : 'none';
+  if (opening) _rtRenderNotifPanel();
+};
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('rt-notif-panel');
+  if (!panel || panel.style.display !== 'flex') return;
+  if (!panel.contains(e.target) && !e.target.closest('[onclick="toggleNotificationPanel()"]')) {
+    panel.style.display = 'none';
+  }
+});
+
+window.markAllNotificationsRead = () => {
+  const list = _rtGetNotifications().map(n => ({ ...n, read: true }));
+  _rtSaveNotifications(list);
+  _rtRenderBell();
+  _rtRenderNotifPanel();
+};
+
+window.markNotificationRead = (id) => {
+  const list = _rtGetNotifications().map(n => n.id === id ? { ...n, read: true } : n);
+  _rtSaveNotifications(list);
+  _rtRenderBell();
+  _rtRenderNotifPanel();
+};
+
+function _rtRenderNotifPanel() {
+  const box = document.getElementById('rt-notif-list');
+  if (!box) return;
+  const searchEl = document.getElementById('rt-notif-search');
+  const filterEl = document.getElementById('rt-notif-filter');
+  const q = (searchEl?.value || '').trim().toLowerCase();
+  const filter = filterEl?.value || 'all';
+
+  let list = _rtGetNotifications();
+  if (filter === 'unread') list = list.filter(n => !n.read);
+  else if (filter !== 'all') list = list.filter(n => n.module === filter);
+  if (q) list = list.filter(n => `${n.user} ${n.action} ${n.moduleLabel}`.toLowerCase().includes(q));
+
+  if (!list.length) {
+    box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray3);font-size:13px">No notifications' + (q || filter !== 'all' ? ' match this search/filter.' : ' yet.') + '</div>';
+    return;
+  }
+  box.innerHTML = list.slice(0, 100).map(n => `
+    <div onclick="markNotificationRead('${n.id}')" style="display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--gray2);cursor:pointer;background:${n.read ? 'transparent' : 'rgba(22,163,74,.06)'}">
+      <div style="font-size:18px;flex-shrink:0">${n.icon}</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12.5px;font-weight:${n.read ? '500' : '700'};color:var(--dark)">${_esc(n.action)}</div>
+        <div style="font-size:11px;color:var(--gray3);margin-top:2px">${_esc(n.user)}${n.role ? ' · ' + _esc(ROLE_LABELS[n.role] || n.role) : ''} · ${_fmtRelativeTime(n.timestamp)}</div>
+      </div>
+      ${n.read ? '' : '<div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;margin-top:5px"></div>'}
+    </div>
+  `).join('');
+}
+
+// ----- Activity Log page: reads straight from the syncEvents/AuditLog
+// feed (server truth), with its own search + filters. Admin/Manager only
+// (Staff excluded), matching how the rest of this app gates sensitive
+// cross-staff visibility (fees, accounts, reports). -----
+let _rtActivityCache = [];
+let _rtActivityLoading = false;
+async function renderActivityLog() {
+  const box = document.getElementById('activity-log-list');
+  if (!box) return;
+  if (!_rtActivityCache.length && !_rtActivityLoading) {
+    _rtActivityLoading = true;
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray3)">Loading…</div>';
+    try {
+      const res = await fetch(`${window.DDTZ_SHEET_URL}?action=syncEvents&sinceRow=1&_=${Date.now()}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data && data.ok) _rtActivityCache = (data.events || []).reverse(); // newest first
+    } catch (e) { /* falls through to whatever's cached, if anything */ }
+    _rtActivityLoading = false;
+  }
+  _rtFilterActivityLog();
+}
+
+window.refreshActivityLog = async () => { _rtActivityCache = []; await renderActivityLog(); };
+
+function _rtFilterActivityLog() {
+  const box = document.getElementById('activity-log-list');
+  if (!box) return;
+  const q = (document.getElementById('activity-search')?.value || '').trim().toLowerCase();
+  const moduleFilter = document.getElementById('activity-module-filter')?.value || 'all';
+  const dateFrom = document.getElementById('activity-date-from')?.value || '';
+  const dateTo = document.getElementById('activity-date-to')?.value || '';
+
+  let rows = _rtActivityCache;
+  if (moduleFilter !== 'all') rows = rows.filter(ev => ev.module === moduleFilter);
+  if (dateFrom) rows = rows.filter(ev => (ev.timestamp || '').slice(0, 10) >= dateFrom);
+  if (dateTo) rows = rows.filter(ev => (ev.timestamp || '').slice(0, 10) <= dateTo);
+  if (q) rows = rows.filter(ev => `${ev.user} ${ev.role} ${ev.device} ${ev.summary} ${ev.module} ${ev.recordId}`.toLowerCase().includes(q));
+
+  if (!rows.length) {
+    box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray3);font-size:13px">No activity found for this search/filter.</div>';
+    return;
+  }
+  box.innerHTML = `<table style="width:100%">
+    <thead><tr><th>Time</th><th>User</th><th>Role</th><th>Device</th><th>Module</th><th>Action</th><th>Record</th></tr></thead>
+    <tbody>${rows.slice(0, 300).map(ev => {
+      const meta = _rtModuleMeta(ev.module);
+      return `<tr>
+        <td style="white-space:nowrap;font-size:12px">${_fmtRelativeTime(ev.timestamp)}</td>
+        <td>${_esc(ev.user || '')}</td>
+        <td>${_esc(ROLE_LABELS[ev.role] || ev.role || '')}</td>
+        <td style="font-size:12px;color:var(--gray3)">${_esc(ev.device || '')}</td>
+        <td>${meta.icon} ${_esc(meta.label)}</td>
+        <td style="font-size:12.5px">${_esc(ev.summary || ev.action || '')}</td>
+        <td style="font-size:12px;color:var(--gray3)">${_esc(ev.recordId || '')}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+// PHASE 2.5 block ends here.
+
 
 window.openNewBookingModal = () => {
   resetBookingForm();
