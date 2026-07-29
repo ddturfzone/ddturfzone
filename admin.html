@@ -668,25 +668,16 @@ tr:hover td{background:#f8fffe}
       <div class="page" id="page-coaches">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
           <div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Coaches</div>
-              <span class="badge badge-yellow" title="Coaches has no Google Sheets table or Apps Script endpoint yet — data lives only in this browser and does not sync across devices.">📱 Local Only</span>
-            </div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Coaches</div>
             <div style="color:var(--gray3);font-size:13px">Manage coaching staff</div>
           </div>
           <button class="btn btn-primary" onclick="openModal('coach-modal')">+ Add Coach</button>
         </div>
-        <!-- PHASE 2.5 — Coaches intentionally has no cross-device sync or
-             conflict detection: there is no Google Sheets table or Apps
-             Script endpoint for this module yet (see CHANGELOG.md, Known
-             Limitation). This banner is the only "sync status" surface for
-             Coaches; it deliberately does NOT reuse the other modules'
-             synced/pending/conflict badges since none of that machinery
-             runs for this collection. Planned for Phase 3. -->
-        <div style="background:#fef9c3;border:1px solid #fde047;color:#854d0e;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:16px;display:flex;align-items:center;gap:8px">
-          <span style="font-size:15px">⚠️</span>
-          <span>Coach records are saved on <strong>this device only</strong> and won't appear on other devices or sync with the Google Sheet. Multi-device sync is planned for Phase 3.</span>
-        </div>
+        <!-- PHASE 3.1 — Coaches now has a real Sheets-backed CRUD endpoint,
+             cross-device sync, and optimistic conflict detection, same as
+             every other module (see autoSyncCoach/syncCoachesFromSheet).
+             The Phase 2.5 "Local Only" badge/banner that used to sit here
+             has been removed since it's no longer accurate. -->
         <div id="coaches-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
       </div>
 
@@ -2236,10 +2227,11 @@ const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZ
 //   - Every conflict shown or resolved now writes a structured entry to
 //     the Activity Log (_logEditConflict): user, role, device, module,
 //     record id, timestamp, previous/current version, resolution.
-//   - NOT done: Coaches has no Google Sheet tab or Apps Script endpoint at
-//     all (local-only via saveDoc/LS) — real multi-device conflict
-//     detection needs a new server tab + endpoint, which is a new backend
-//     feature, not a finish of existing work. Left out pending a decision.
+//   - NOT done at the time: Coaches had no Google Sheet tab or Apps Script
+//     endpoint (local-only via saveDoc/LS) — see CHANGELOG.md's Phase 2.5
+//     Known Limitation entry. RESOLVED in Phase 3.1 — see the "PHASE 3.1 —
+//     Coaches Backend" comments on TABS.COACHES / autoSyncCoach /
+//     syncCoachesFromSheet / handleCoachesGet / handleCoachWrite.
 window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
@@ -2512,6 +2504,10 @@ const ACTION_PERMISSIONS = {
   manageSettings:       [ROLES.SUPER_ADMIN],
   viewAccounts:         [ROLES.SUPER_ADMIN],
   viewReports:          [ROLES.SUPER_ADMIN],
+  // PHASE 3.1 — Coaches Backend. Same roles as PAGE_PERMISSIONS.coaches
+  // (Super Admin + Manager); this is the point-of-action gate that backs
+  // up the page-level one, same as every other module here.
+  manageCoaches:        [ROLES.SUPER_ADMIN, ROLES.ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -2931,6 +2927,8 @@ async function loadAllData() {
   // Pull in any bookings/blocks created on a DIFFERENT admin device since
   // this one was last online — see syncBookingsAndBlocksFromSheet() below.
   syncBookingsAndBlocksFromSheet();
+  // PHASE 3.1 — same idea for Coaches, now that it has a real backend.
+  syncCoachesFromSheet();
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
@@ -3161,11 +3159,62 @@ async function syncBookingsAndBlocksFromSheet() {
     _fullSyncInFlight = false;
   }
 }
-// Same cadence as the reservation-request poll: every 30s, plus instantly
-// on tab focus, so a booking/block made on another device shows up here
-// without anyone needing to manually refresh (Requirement #8).
-setInterval(() => { if (CURRENT_USER) syncBookingsAndBlocksFromSheet(); }, 30000);
-window.addEventListener('focus', () => { if (CURRENT_USER) syncBookingsAndBlocksFromSheet(); });
+// PHASE 3.1 — Coaches Backend. Same merge model as
+// syncBookingsAndBlocksFromSheet just above: never overwrites a full local
+// record with the Sheet's flattened one, only adds missing coaches, adopts
+// field changes on existing ones, and drops coaches soft-deleted elsewhere
+// (unless this device still has a delete for that exact coach queued).
+let _coachSyncInFlight = false;
+async function syncCoachesFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _coachSyncInFlight) return;
+  _coachSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=coaches&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    const remoteCoaches = data.coaches || [];
+    const remoteIds = new Set(remoteCoaches.map(c => c.coachId));
+
+    remoteCoaches.forEach(remote => {
+      if (!remote.coachId) return;
+      const local = window.DB.coaches.find(c => c.coachId === remote.coachId);
+      if (!local) {
+        // New coach this device has never seen — id doubles as coachId,
+        // same reasoning as blocked slots (see _lsAddPreservingId above).
+        _lsAddPreservingId('coaches', { ...remote, id: remote.coachId });
+        window.DB.coaches.unshift({ ...remote, id: remote.coachId });
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        // Sheet has a newer version (edited on another device) — adopt it.
+        const merged = { ...local, ...remote, id: local.id };
+        LS.update('coaches', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    // A coach this device still has locally but the Sheet no longer lists
+    // (soft-deleted elsewhere) — drop it here too, unless this device's
+    // own delete for it hasn't reached the server yet.
+    const stillPendingDelete = new Set(_getSyncQueue().filter(p => p.type === 'coach' && p.action === 'delete').map(p => p.coachId));
+    const beforeCount = window.DB.coaches.length;
+    window.DB.coaches = window.DB.coaches.filter(c => remoteIds.has(c.coachId) || stillPendingDelete.has(c.coachId));
+    if (window.DB.coaches.length !== beforeCount) { changed = true; LS.set('coaches', window.DB.coaches); }
+
+    if (changed && document.getElementById('page-coaches')?.classList.contains('active')) renderCoaches();
+  } catch (e) {
+    // Network hiccup — local data (and the offline sync queue) is
+    // unaffected; the next periodic call or focus event will retry.
+  } finally {
+    _coachSyncInFlight = false;
+  }
+}
+// Same cadence as syncBookingsAndBlocksFromSheet: every 30s, plus instantly
+// on tab focus.
+setInterval(() => { if (CURRENT_USER) syncCoachesFromSheet(); }, 30000);
+window.addEventListener('focus', () => { if (CURRENT_USER) syncCoachesFromSheet(); });
 
 // Purely diagnostic — never modifies or restores data itself. Flags a
 // browser-storage-key so that if this device previously had real booking
@@ -5758,6 +5807,31 @@ function autoSyncEnquiry(enq, action) {
   return queuedSync(payload);
 }
 
+// PHASE 3.1 — Coaches Backend. Same shape as autoSyncStudent/autoSyncEnquiry
+// above: fire-and-forget through the same offline-aware queuedSync() every
+// other module uses, so Coaches gets the identical retry/offline-queue/
+// edit-conflict behavior for free instead of a bespoke sync path.
+function autoSyncCoach(coach, action) {
+  const SHEET_URL = window.DDTZ_SHEET_URL || '';
+  if (!SHEET_URL) return;
+  const payload = {
+    type: 'coach',
+    action,                     // 'create' | 'update' | 'delete'
+    coachId: coach.coachId || coach.id,
+    name: coach.name || '',
+    phone: coach.phone || '',
+    sport: coach.sport || '',
+    salary: coach.salary || 0,
+    joined: coach.joined || '',
+    status: coach.status || '',
+    createdBy: CURRENT_USER?.name || '',
+    // PHASE 3.1 — same opt-in optimistic-concurrency baseline every other
+    // synced module sends (see autoSyncStudent above).
+    expectedUpdatedAt: action !== 'create' ? (coach.updatedAt || '') : undefined
+  };
+  return queuedSync(payload);
+}
+
 // ===== RESET BOOKING FORM =====
 function resetBookingForm() {
   _creatingReservation = false;
@@ -7076,24 +7150,41 @@ window.deleteFee = async (id) => {
 };
 
 // ===== COACHES =====
+// PHASE 3.1 — Coaches Backend. saveCoach/deleteCoach still write local-first
+// through saveDoc/deleteDoc2 exactly as before (nothing about that changed),
+// but now also push to the Sheet via autoSyncCoach — same "local write
+// always wins immediately, sync follows in the background" model every
+// other module (Students, Enquiries, ...) already uses.
 window.saveCoach = async () => {
+  if (!can('manageCoaches')) { denyAccess('Only Admins and the Super Admin can manage coaches.'); return; }
   const name=document.getElementById('co-name').value.trim();
   const phone=document.getElementById('co-phone').value.trim();
   if(!name||!phone){showToast('Fill required fields','error');return;}
   const data={name,phone,sport:document.getElementById('co-sport').value,salary:Number(document.getElementById('co-salary').value)||0,joined:document.getElementById('co-joined').value||getToday(),status:document.getElementById('co-status').value};
   const existId=document.getElementById('co-id').value;
+  if (existId) {
+    // Carry the existing coachId/updatedAt forward so autoSyncCoach can
+    // find the right Sheet row and the conflict check has a real baseline.
+    const existing = window.DB.coaches.find(x=>x.id===existId) || {};
+    data.coachId = existing.coachId || existId;
+    data.updatedAt = existing.updatedAt || '';
+  }
   const id=await saveDoc('coaches',data,existId||null);
-  if(!existId){data.id=id;window.DB.coaches.push(data);}
+  if(!existId){data.id=id;data.coachId=id;window.DB.coaches.push(data);}
   else{const idx=window.DB.coaches.findIndex(x=>x.id===existId);if(idx>=0)window.DB.coaches[idx]={...data,id:existId};}
+  autoSyncCoach(data, existId ? 'update' : 'create');
   closeModal('coach-modal');
   renderCoaches(); renderDashboard();
   showToast('Coach saved! ✅');
 };
 
 window.deleteCoach = async (id) => {
+  if (!can('manageCoaches')) { denyAccess('Only Admins and the Super Admin can manage coaches.'); return; }
   if(!confirm('Delete this coach?'))return;
+  const c = window.DB.coaches.find(x=>x.id===id);
   await deleteDoc2('coaches',id);
   window.DB.coaches=window.DB.coaches.filter(x=>x.id!==id);
+  if (c) autoSyncCoach(c, 'delete');
   renderCoaches();
   showToast('Coach deleted');
 };
@@ -8534,6 +8625,7 @@ function _fireImportAutoSync(col, withId, action) {
   else if (col === 'fees') autoSyncFee(withId);
   else if (col === 'cafeSales') autoSyncCafeSale(withId);
   else if (col === 'enquiries') autoSyncEnquiry(withId, action);
+  else if (col === 'coaches') autoSyncCoach(withId, action); // PHASE 3.1 — Coaches Backend
   else if (col === 'bookingRequests') {
     postToGoogleSheet({
       type: 'booking_request', requestId: withId.id, name: withId.name, phone: withId.phone,
@@ -8542,10 +8634,12 @@ function _fireImportAutoSync(col, withId, action) {
       status: withId.status || 'PENDING', createdAt: withId.createdAt || new Date().toISOString()
     });
   }
-  // 'expenses' and 'coaches' have no Google Sheet module in the current
-  // sync scope (Accounts is a derived report over Bookings + Expenses;
-  // Coaches has always been local-only) — saved locally only, exactly
-  // like one entered by hand.
+  // 'expenses' has no Google Sheet module in the current sync scope
+  // (Accounts is a derived report over Bookings + Expenses) — saved
+  // locally only, exactly like one entered by hand. 'coaches' used to be
+  // local-only too (see CHANGELOG.md's Phase 2.5 Known Limitation entry)
+  // but got a real backend in Phase 3.1 — see the _fireImportAutoSync
+  // branch above.
 }
 
 // ===== PHASE 2 — IMPORT WIZARD ONLY: mode-aware persist/remove =====
@@ -8582,6 +8676,7 @@ async function _wizRemoveRecord(col, id, opts) {
   if (col === 'bookings' && rec) autoSyncBooking({ ...rec, status: 'cancelled' });
   else if (col === 'students' && rec) autoSyncStudent({ ...rec, id }, 'delete');
   else if (col === 'enquiries' && rec) autoSyncEnquiry({ ...rec, id }, 'delete');
+  else if (col === 'coaches' && rec) autoSyncCoach({ ...rec, id }, 'delete'); // PHASE 3.1
   else if (col === 'bookingRequests' && rec) {
     // No true delete endpoint for requests — mark it Rejected instead,
     // same as declining a request by hand would.
@@ -9514,7 +9609,8 @@ const RT_MODULE_META = {
   import_log:             { icon: '📥', label: 'Import' },
   backup_now:             { icon: '💾', label: 'Backup' },
   user:                   { icon: '🔐', label: 'User Account' },
-  siteConfig:             { icon: '🌐', label: 'Website' }
+  siteConfig:             { icon: '🌐', label: 'Website' },
+  coach:                  { icon: '👨‍🏫', label: 'Coach' } // PHASE 3.1 — Coaches Backend
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
@@ -9532,7 +9628,8 @@ function _rtModuleMeta(mod) {
 const RT_MERGE_MAP = {
   student:    { col: 'students',   idField: 'studentId' },
   enquiry:    { col: 'enquiries',  idField: 'enquiryId' },
-  attendance: { col: 'attendance', idField: 'attendanceId' }
+  attendance: { col: 'attendance', idField: 'attendanceId' },
+  coach:      { col: 'coaches',    idField: 'coachId' } // PHASE 3.1 — Coaches Backend
 };
 
 function _rtMergeRecord(ev) {
@@ -9581,6 +9678,9 @@ const SYNC_TYPE_META = {
   // in Code.gs). requestId matches what fetchPendingRequestsFromSheet stores
   // on each local record.
   booking_request_update: { col: 'bookingRequests', idField: 'requestId', label: 'reservation request' },
+  // PHASE 3.1 — Coaches Backend. saveCoach() sends expectedUpdatedAt exactly
+  // like Students/Enquiries once a coach has a server updatedAt.
+  coach:                  { col: 'coaches',          idField: 'coachId',   label: 'coach' },
   // 'user' (Staff) is handled by postUserActionSafe/its own reload+overwrite
   // branch below rather than window.DB — listed here only so the modal can
   // look up its label.
@@ -9854,6 +9954,7 @@ function _rtApplyEvents(events) {
   if (affected.has('student') && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
   if (affected.has('attendance') && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
   if (affected.has('enquiry') && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
+  if (affected.has('coach') && document.getElementById('page-coaches')?.classList.contains('active')) window.renderCoaches?.(); // PHASE 3.1
   if ([...affected].some(m => m.indexOf('coaching_') === 0) && document.getElementById('page-fees')?.classList.contains('active')) window.renderFees?.();
   if (affected.has('cafe_sale') && document.getElementById('page-cafe')?.classList.contains('active')) window.renderCafe?.();
   if (newNotifs.length) window.renderDashboard?.();
