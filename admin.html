@@ -329,6 +329,10 @@ tr:hover td{background:#f8fffe}
 .scan-history-row{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid var(--gray2);font-size:12.5px}
 .scan-history-row:last-child{border-bottom:none}
 .scan-offline-banner{background:#fff3cd;border:1.5px solid #f0c36d;color:#7a5b00;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;text-align:center}
+/* ====== PHASE 3.4b — FEE COLLECTION ====== */
+#fee-student-info{background:var(--gray);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.8}
+#fee-student-info b{color:var(--gray3);font-weight:700}
+#fee-student-info .fsi-name{font-size:14px;font-weight:800;color:var(--dark);margin-bottom:4px}
 </style>
 </head>
 <body>
@@ -745,7 +749,7 @@ tr:hover td{background:#f8fffe}
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Fee Collection</div>
             <div style="color:var(--gray3);font-size:13px">Track coaching fee payments</div>
           </div>
-          <button class="btn btn-primary" onclick="openModal('fee-modal')">+ Record Payment</button>
+          <button class="btn btn-primary" data-requires-action="manageFees" onclick="resetFeeForm();openModal('fee-modal')">+ Record Payment</button>
         </div>
         <div class="stats-grid" id="fee-stats" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"></div>
         <div class="filter-bar">
@@ -763,8 +767,8 @@ tr:hover td{background:#f8fffe}
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Student</th><th>Sport</th><th>Month</th><th>Fee Amount</th>
-              <th>Paid</th><th>Pending</th><th>Mode</th><th>Date</th><th>Status</th><th>Actions</th>
+              <th>Receipt No.</th><th>Student</th><th>Sport</th><th>Due Month</th><th>Payable</th>
+              <th>Received</th><th>Pending</th><th>Method</th><th>Date</th><th>Status</th><th>Actions</th>
             </tr></thead>
             <tbody id="fees-tbody"></tbody>
           </table>
@@ -2192,15 +2196,23 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
-<!-- FEE MODAL -->
+<!-- FEE MODAL — PHASE 3.4b: Fee Collection -->
 <div class="modal-overlay" id="fee-modal">
-  <div class="modal">
-    <div class="modal-title">💰 Record Fee Payment</div>
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title" id="fee-modal-title">💰 Record Fee Payment</div>
     <input type="hidden" id="fee-id">
+    <input type="hidden" id="fee-receipt-no">
     <div class="form-grid">
-      <div class="form-group full"><label>Student *</label>
-        <select id="fee-student-select" onchange="onFeeStudentChange()"></select>
+      <div class="form-group full">
+        <label>Search Student *</label>
+        <input type="text" id="fee-student-search" placeholder="🔍 Search by name, ID, or phone..." oninput="filterFeeStudents()">
+        <select id="fee-student-select" onchange="onFeeStudentChange()" style="margin-top:6px"></select>
       </div>
+      <div class="form-group full" id="fee-student-info" style="display:none"></div>
+
+      <div class="form-group"><label>Receipt No.</label><input type="text" id="fee-receipt-display" readonly placeholder="Auto-generated on save"></div>
+      <div class="form-group"><label>Receipt Date *</label><input type="date" id="fee-date"></div>
+
       <div class="form-group"><label>Fee Type *</label>
         <select id="fee-type-select" onchange="toggleFeeTypeFields()">
           <option value="monthly">Monthly</option>
@@ -2208,7 +2220,7 @@ tr:hover td{background:#f8fffe}
           <option value="yearly">Yearly</option>
         </select>
       </div>
-      <div class="form-group" id="fee-month-wrap"><label>Month *</label>
+      <div class="form-group" id="fee-month-wrap"><label>Due Month *</label>
         <select id="fee-month-select">
           <option value="January">January</option><option value="February">February</option>
           <option value="March">March</option><option value="April">April</option>
@@ -2218,7 +2230,7 @@ tr:hover td{background:#f8fffe}
           <option value="November">November</option><option value="December">December</option>
         </select>
       </div>
-      <div class="form-group" id="fee-quarter-wrap" style="display:none"><label>Quarter *</label>
+      <div class="form-group" id="fee-quarter-wrap" style="display:none"><label>Due Quarter *</label>
         <select id="fee-quarter-select">
           <option value="Q1">Quarter 1 (Jan–Mar)</option>
           <option value="Q2">Quarter 2 (Apr–Jun)</option>
@@ -2227,32 +2239,34 @@ tr:hover td{background:#f8fffe}
         </select>
       </div>
       <div class="form-group"><label>Year</label><input type="number" id="fee-year" value="2025"></div>
-      <div class="form-group"><label>Fee Amount (₹) *</label><input type="number" id="fee-amount" placeholder="Monthly fee"></div>
+
+      <div class="form-group"><label>Amount Payable (₹) *</label><input type="number" id="fee-amount" placeholder="Amount due" oninput="calcFeePending()"></div>
       <!-- PHASE 3.4a — only shown when the selected student has a Joining Fee set -->
       <div class="form-group full" id="fee-joining-fee-wrap" style="display:none">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
           <input type="checkbox" id="fee-include-joining" onchange="toggleIncludeJoiningFee()"> Include this student's one-time Joining Fee (₹<span id="fee-joining-fee-amount">0</span>) in this payment
         </label>
       </div>
-      <div class="form-group"><label>Amount Paid (₹) *</label><input type="number" id="fee-paid" placeholder="Amount received" oninput="calcFeePending()"></div>
-      <div class="form-group"><label>Pending (₹)</label><input type="text" id="fee-pending" readonly></div>
+
+      <div class="form-group"><label>Amount Received (₹) *</label><input type="number" id="fee-paid" placeholder="Amount received" oninput="calcFeePending()"></div>
+      <div class="form-group"><label>Pending Balance (₹)</label><input type="text" id="fee-pending" readonly></div>
+      <div class="form-group full" id="fee-payment-type-preview" style="font-size:12.5px;color:var(--gray3)"></div>
+
       <div class="form-group full"><label>Payment Method</label>
         <div class="pay-methods">
-          <button class="pay-method active" onclick="selectFeeMethod(this,'Cash')">💵 Cash</button>
-          <button class="pay-method" onclick="selectFeeMethod(this,'GPay')">📱 GPay</button>
-          <button class="pay-method" onclick="selectFeeMethod(this,'PhonePe')">🟣 PhonePe</button>
-          <button class="pay-method" onclick="selectFeeMethod(this,'UPI')">🔗 UPI</button>
-          <button class="pay-method" onclick="selectFeeMethod(this,'Bank')">🏦 Bank</button>
+          <button type="button" class="pay-method active" data-value="Cash" onclick="selectFeeMethod(this,'Cash')">💵 Cash</button>
+          <button type="button" class="pay-method" data-value="UPI" onclick="selectFeeMethod(this,'UPI')">🔗 UPI</button>
+          <button type="button" class="pay-method" data-value="Bank Transfer" onclick="selectFeeMethod(this,'Bank Transfer')">🏦 Bank Transfer</button>
+          <button type="button" class="pay-method" data-value="Card" onclick="selectFeeMethod(this,'Card')">💳 Card</button>
         </div>
         <input type="hidden" id="fee-payment-method" value="Cash">
       </div>
-      <div class="form-group"><label>Payment Date</label><input type="date" id="fee-date"></div>
       <div class="form-group full"><label>Notes</label><textarea id="fee-notes" rows="2" placeholder="Any notes..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('fee-modal')">Cancel</button>
-      <button class="btn btn-whatsapp" onclick="saveFeeAndWhatsApp()">💬 Save & WhatsApp</button>
-      <button class="btn btn-primary" onclick="saveFee()">💾 Save Payment</button>
+      <button class="btn btn-whatsapp" data-requires-action="manageFees" onclick="saveFeeAndWhatsApp()">💬 Save & WhatsApp</button>
+      <button class="btn btn-primary" data-requires-action="manageFees" onclick="saveFee()">💾 Save Payment</button>
     </div>
   </div>
 </div>
@@ -2685,7 +2699,12 @@ const PAGE_PERMISSIONS = {
   // already has access to from the Students page).
   scanner:    [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   attendance: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
-  fees:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.4b — Fee Collection. Previously Admin-only (Staff couldn't
+  // see the page at all); 3.4b's own role matrix explicitly opens it to
+  // Staff as View Only, matching Students/Attendance/Scanner — an
+  // intentional widening carried by this phase's spec, not a regression.
+  // See ACTION_PERMISSIONS.manageFees below for the Create/Edit gate.
+  fees:       [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   coaches:    [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   enquiries:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   cafe:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
@@ -2738,6 +2757,12 @@ const ACTION_PERMISSIONS = {
   // access (Staff included), matching the documented "Staff: View Only"
   // row of this feature's role matrix.
   generateIdCard:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.4b — Fee Collection. Super Admin + Manager: Create/Edit
+  // (Record Payment, Edit, Delete). Staff keeps page access (View Only)
+  // via PAGE_PERMISSIONS.fees above, but every mutating action re-checks
+  // this gate, same as every other module's "don't rely on hiding
+  // buttons alone" layer.
+  manageFees:           [ROLES.SUPER_ADMIN, ROLES.ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -3162,6 +3187,8 @@ async function loadAllData() {
   syncCoachesFromSheet();
   // PHASE 3.2a — same idea for Students, now that it has a real GET reader.
   syncStudentsFromSheet();
+  // PHASE 3.4b — same idea for Fees, now that it has a real GET reader.
+  syncFeesFromSheet();
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
@@ -4588,11 +4615,29 @@ function updatePendingDisplay() {
 
 window.calcPending = updatePendingDisplay; // backward compat alias
 
+// PHASE 3.4b — Pending Balance is clamped to never go negative (an
+// overpayment is a Payment Type of its own — "Advance" — not a negative
+// due). Payment Type itself is a pure computed label (full/partial/
+// advance), never a manual selector, which is what makes "Amount cannot
+// exceed payable" and "Advance Payment is a supported type" both true at
+// once: exceeding payable is exactly what turns a payment into an
+// Advance, and Advance is an allowed, clearly-labelled outcome rather
+// than a blocked one.
 window.calcFeePending = () => {
   const amt  = Number(document.getElementById('fee-amount').value) || 0;
   const paid = Number(document.getElementById('fee-paid').value)   || 0;
-  document.getElementById('fee-pending').value = amt - paid;
+  document.getElementById('fee-pending').value = Math.max(0, amt - paid);
+  const preview = document.getElementById('fee-payment-type-preview');
+  if (!preview) return;
+  const type = _computeFeePaymentType(amt, paid);
+  const labels = { full: '✅ Full Payment', partial: '⚠️ Partial Payment — balance remains pending', advance: '⏫ Advance Payment — received more than the amount payable' };
+  preview.textContent = paid > 0 ? `Payment Type: ${labels[type]}` : '';
 };
+function _computeFeePaymentType(payable, received) {
+  if (received > payable) return 'advance';
+  if (received < payable) return 'partial';
+  return 'full';
+}
 
 // ===== SAVE BOOKING =====
 window.saveBooking = async () => {
@@ -5460,6 +5505,7 @@ async function flushSyncQueue() {
   const remaining = [];
   const rejected = [];
   let idsReconciled = false;
+  let feeIdsReconciled = false; // PHASE 3.4b
   for (const payload of q) {
     const res = await postToGoogleSheet(payload);
     if (!res.ok) {
@@ -5476,9 +5522,25 @@ async function flushSyncQueue() {
         local.bookingId = res.bookingId;
         idsReconciled = true;
       }
+    } else if (payload.type === 'fee' && payload.action === 'create' && res.result && res.result.receiptNo) {
+      // PHASE 3.4b — this payment was recorded offline with a blank
+      // ReceiptNo and has now actually reached the server, which minted
+      // the real sequential one — reconcile it so the receipt this
+      // device displays matches the Sheet instead of staying blank
+      // forever. Matched by localId (the payload always carries the
+      // local record's own id, since ReceiptNo doesn't exist yet at
+      // queue time).
+      const local = (window.DB.fees || []).find(f => f.id === payload.localId);
+      if (local && local.receiptNo !== res.result.receiptNo) {
+        LS.update('fees', local.id, { receiptNo: res.result.receiptNo, updatedAt: res.result.updatedAt || local.updatedAt });
+        local.receiptNo = res.result.receiptNo;
+        if (res.result.updatedAt) local.updatedAt = res.result.updatedAt;
+        feeIdsReconciled = true;
+      }
     }
   }
   if (idsReconciled) { renderBookings(); renderBookingCalendar(); }
+  if (feeIdsReconciled && document.getElementById('page-fees')?.classList.contains('active')) renderFees();
   _setSyncQueue(remaining);
   _syncQueueFlushing = false;
   updateSyncStatus(remaining.length ? 'offline' : 'synced');
@@ -5982,37 +6044,102 @@ function autoSyncCafeSale(sale) {
   return queuedSync(payload);
 }
 
-// Coaching fee payments — routed by sport (football/cricket/taekwondo) into
-// their own separate monthly sheets, never mixed with turf bookings or each
-// other. type is e.g. 'coaching_football', which the Apps Script maps to a
-// "Football Coaching - <Mon YYYY>" tab.
+// PHASE 3.4b — Fee Collection. Replaces the old per-sport-per-month push
+// (type: coaching_<sport>, no GET reader, no cross-device sync — see the
+// TABS.FEES comment in Code.gs for why) with a real create/update against
+// the consolidated Fees tab. `localId` lets flushSyncQueue() reconcile
+// this device's optimistic blank ReceiptNo once an offline-queued
+// "create" finally reaches the server and gets the real one assigned —
+// same idea as the (never-actually-exercised) provisional booking-ID
+// pattern elsewhere in this file, done correctly end-to-end here.
 function autoSyncFee(fee) {
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
-  if (!SHEET_URL) return;
-  const sport = (fee.sport || '').toLowerCase();
-  if (!['football','cricket','taekwondo'].includes(sport)) return; // unknown sport — nothing safe to route to
+  if (!SHEET_URL) return Promise.resolve({ ok: false, skipped: true });
   const payload = {
-    type: `coaching_${sport}`,
+    type: 'fee',
+    action: fee.receiptNo ? 'update' : 'create',
+    localId: fee.id,
+    receiptNo: fee.receiptNo || '',
     studentId: fee.studentId,
     studentName: fee.studentName,
     sport: fee.sport,
+    batch: fee.batch || '',
+    coach: fee.coach || '',
     feeType: fee.feeType || 'monthly',
-    month: fee.month,
-    quarter: fee.quarter || '',
+    dueMonth: fee.dueMonth || '',
     year: fee.year,
-    amount: fee.amount,
-    paid: fee.paid,
+    amountPayable: fee.amountPayable,
+    amountReceived: fee.amountReceived,
     pending: fee.pending,
     paymentMethod: fee.paymentMethod,
-    date: fee.date,
+    paymentType: fee.paymentType,
     status: fee.status,
+    receiptDate: fee.receiptDate || fee.date,
     notes: fee.notes || '',
-    includesJoiningFee: fee.includesJoiningFee || false, // PHASE 3.4a
-    // PHASE 2.5 — see autoSyncBlockedSlot comment above.
-    expectedUpdatedAt: fee.updatedAt || undefined
+    includesJoiningFee: fee.includesJoiningFee || false,
+    createdBy: CURRENT_USER?.name || '',
+    // PHASE 2.5 — opt-in optimistic conflict check; a brand-new payment
+    // (no receiptNo yet) has no baseline to check against, same reasoning
+    // as every other module's "isNewRecord" case.
+    expectedUpdatedAt: fee.receiptNo ? (fee.updatedAt || '') : undefined
   };
   return queuedSync(payload);
 }
+
+// ---- Local "don't resurrect a locally-deleted payment" exclusion list ----
+// Fees has no server-side delete (see deleteFee's comment) — this is what
+// stops a payment removed via deleteFee from reappearing the next time
+// syncFeesFromSheet() pulls the still-present remote row.
+function _getLocallyDeletedFeeIds() {
+  try { return JSON.parse(localStorage.getItem('ddtz_fees_locally_deleted') || '[]'); } catch(e) { return []; }
+}
+function _addLocallyDeletedFeeId(receiptNo) {
+  try {
+    const ids = _getLocallyDeletedFeeIds();
+    if (!ids.includes(receiptNo)) { ids.push(receiptNo); localStorage.setItem('ddtz_fees_locally_deleted', JSON.stringify(ids)); }
+  } catch(e) {}
+}
+
+// GET pull — same merge model as syncCoachesFromSheet/syncStudentsFromSheet:
+// adds a payment this device has never seen, adopts field changes on an
+// existing one (another device edited it), and skips anything this device
+// has locally deleted (see _getLocallyDeletedFeeIds above).
+let _feeSyncInFlight = false;
+async function syncFeesFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _feeSyncInFlight) return;
+  _feeSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=fees&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    const deletedIds = new Set(_getLocallyDeletedFeeIds());
+    const remoteFees = (data.fees || []).filter(f => f.receiptNo && !deletedIds.has(f.receiptNo));
+
+    remoteFees.forEach(remote => {
+      const local = window.DB.fees.find(f => f.receiptNo === remote.receiptNo);
+      if (!local) {
+        _lsAddPreservingId('fees', { ...remote, id: remote.receiptNo });
+        window.DB.fees.unshift({ ...remote, id: remote.receiptNo });
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        const merged = { ...local, ...remote, id: local.id };
+        LS.update('fees', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    if (changed && document.getElementById('page-fees')?.classList.contains('active')) renderFees();
+  } catch (e) {
+    // Network hiccup — local data (and the offline sync queue) is unaffected.
+  } finally {
+    _feeSyncInFlight = false;
+  }
+}
+setInterval(() => { if (CURRENT_USER) syncFeesFromSheet(); }, 30000);
+window.addEventListener('focus', () => { if (CURRENT_USER) syncFeesFromSheet(); });
 
 // ----- The four modules the sync was requested for but that had no
 // autoSync function at all. `autoSyncBlockedSlot` in particular was already
@@ -8307,41 +8434,61 @@ window.saveAttendance = async () => {
 };
 
 // ===== FEES =====
-function populateFeeStudentSelect(){
+// PHASE 3.4b — Student Selection: live search filters the dropdown by
+// name/ID/phone; picking a student also renders the info panel (ID,
+// Name, Sport, Batch, Coach, Current Fee Plan, Effective Fee) so there's
+// no need to leave this modal to check what they're actually on the
+// hook for.
+function populateFeeStudentSelect(searchTerm){
   const sel=document.getElementById('fee-student-select');
-  sel.innerHTML=window.DB.students.filter(s=>!s.archived).map(s=>{
+  const q=(searchTerm||'').toLowerCase().trim();
+  const list=window.DB.students.filter(s=>!s.archived).filter(s=>{
+    if(!q) return true;
+    return s.name.toLowerCase().includes(q) || (s.studentId||s.id||'').toLowerCase().includes(q) || (s.phone||'').includes(q);
+  });
+  sel.innerHTML = list.length ? list.map(s=>{
     const effective = Math.round(_computeEffectiveFee(s.feeStructure==='yearly'?s.yearlyFee:s.feeStructure==='quarterly'?s.qfee:s.fee, s.discountType, s.discountValue));
     const period = s.feeStructure==='yearly'?'/yr':s.feeStructure==='quarterly'?'/qtr':'/mo';
     return `<option value="${s.id}" data-fee="${s.fee||0}" data-qfee="${s.qfee||0}" data-yearlyfee="${s.yearlyFee||0}" data-discounttype="${s.discountType||'none'}" data-discountvalue="${s.discountValue||0}" data-joiningfee="${s.joiningFee||0}" data-structure="${s.feeStructure||'monthly'}" data-sport="${s.sport}">${s.name} (${s.sport}) — ₹${effective.toLocaleString('en-IN')}${period}</option>`;
-  }).join('');
+  }).join('') : '<option value="">No matching students</option>';
   onFeeStudentChange();
 }
-// Prefills Fee Type + Fee Amount from the selected student's own fee
-// structure (PHASE 3.4a: now the EFFECTIVE, post-discount amount, using
-// the same _computeEffectiveFee the Student modal's live preview uses),
-// so the common case (collecting exactly what they owe) needs no manual
-// entry — amount stays editable for one-off adjustments. Also surfaces
-// the "Include Joining Fee" checkbox only when this student actually has
-// one set.
+window.filterFeeStudents = () => populateFeeStudentSelect(document.getElementById('fee-student-search').value);
+
+// Prefills Fee Type + Amount Payable from the selected student's own fee
+// structure (the EFFECTIVE, post-discount amount, via the same
+// _computeEffectiveFee the Student modal's live preview uses) and
+// renders the Student Selection info panel — amount stays editable for
+// one-off adjustments. Also surfaces "Include Joining Fee" only when set.
 window.onFeeStudentChange = () => {
   const opt = document.getElementById('fee-student-select')?.selectedOptions?.[0];
-  if (!opt) return;
+  const info = document.getElementById('fee-student-info');
+  if (!opt || !opt.value) { if(info) info.style.display='none'; return; }
+  const s = window.DB.students.find(x=>x.id===opt.value);
   const structure = opt.dataset.structure || 'monthly';
   document.getElementById('fee-type-select').value = structure;
   toggleFeeTypeFields();
   const base = structure==='yearly' ? opt.dataset.yearlyfee : structure==='quarterly' ? opt.dataset.qfee : opt.dataset.fee;
-  document.getElementById('fee-amount').value = Math.round(_computeEffectiveFee(base, opt.dataset.discounttype, opt.dataset.discountvalue));
+  const effective = Math.round(_computeEffectiveFee(base, opt.dataset.discounttype, opt.dataset.discountvalue));
+  document.getElementById('fee-amount').value = effective;
   const joiningFee = Number(opt.dataset.joiningfee) || 0;
   const jfWrap = document.getElementById('fee-joining-fee-wrap');
   const jfCheckbox = document.getElementById('fee-include-joining');
   jfWrap.style.display = joiningFee > 0 ? '' : 'none';
   jfCheckbox.checked = false;
   document.getElementById('fee-joining-fee-amount').textContent = joiningFee.toLocaleString('en-IN');
+  if (s && info) {
+    const planLabel = structure==='yearly'?'Yearly':structure==='quarterly'?'Quarterly':'Monthly';
+    const period = structure==='yearly'?'/yr':structure==='quarterly'?'/qtr':'/mo';
+    info.innerHTML = `<div class="fsi-name">${s.name}</div>
+      <b>Student ID</b> ${s.studentId||s.id} &nbsp;&nbsp; <b>Sport</b> ${categoryLabel(s.sport)||s.sport} &nbsp;&nbsp; <b>Batch</b> ${s.batch||'-'} &nbsp;&nbsp; <b>Coach</b> ${s.coach||'-'}<br>
+      <b>Current Fee Plan</b> ${planLabel} — ₹${Math.round(Number(base)||0).toLocaleString('en-IN')}${period} &nbsp;&nbsp; <b>Effective Fee</b> ₹${effective.toLocaleString('en-IN')}${period}`;
+    info.style.display = '';
+  }
   calcFeePending();
 };
-// Adds/removes the student's one-time Joining Fee from the Fee Amount
-// field when the checkbox is toggled, without touching anything else the
-// person may have already typed into Amount Paid.
+// Adds/removes the student's one-time Joining Fee from Amount Payable
+// when the checkbox is toggled, without touching Amount Received.
 window.toggleIncludeJoiningFee = () => {
   const opt = document.getElementById('fee-student-select')?.selectedOptions?.[0];
   if (!opt) return;
@@ -8365,38 +8512,131 @@ function populateFeeMonthFilter(){
   document.getElementById('fee-month-select').value=cur;
   document.getElementById('fee-year').value=new Date().getFullYear();
 }
+// A single human-readable "Due Month" label from whichever period fields
+// are relevant for the selected Fee Type — used for the Sheet's DueMonth
+// column and every receipt/table/WhatsApp display.
+function _feeDueMonthLabel(feeType, month, quarter, year) {
+  if (feeType==='quarterly') return `${quarter} ${year}`;
+  if (feeType==='yearly') return `Annual ${year}`;
+  return `${month} ${year}`;
+}
+
+// Resets the modal to a blank "new payment" state — needed now that Edit
+// reuses this same modal (previously there was no Edit at all, so
+// "+ Record Payment" never needed to clear a stale previous selection).
+window.resetFeeForm = () => {
+  document.getElementById('fee-id').value = '';
+  document.getElementById('fee-receipt-no').value = '';
+  document.getElementById('fee-receipt-display').value = '';
+  document.getElementById('fee-modal-title').textContent = '💰 Record Fee Payment';
+  document.getElementById('fee-student-search').value = '';
+  document.getElementById('fee-paid').value = '';
+  document.getElementById('fee-notes').value = '';
+  document.getElementById('fee-date').valueAsDate = new Date();
+  document.getElementById('fee-include-joining').checked = false;
+  document.querySelectorAll('#fee-modal .pay-methods .pay-method').forEach(b=>b.classList.toggle('active', b.dataset.value==='Cash'));
+  document.getElementById('fee-payment-method').value = 'Cash';
+  document.getElementById('fee-payment-type-preview').textContent = '';
+  populateFeeStudentSelect();
+  populateFeeMonthFilter();
+};
+
+// Edit an existing fee payment (Super Admin/Manager only — gated the
+// same way the button itself is). Reuses this same modal, keyed by
+// ReceiptNo rather than minting a new one.
+window.editFee = (id) => {
+  if (!can('manageFees')) { denyAccess(); return; }
+  const f = window.DB.fees.find(x=>x.id===id);
+  if (!f) return;
+  resetFeeForm();
+  document.getElementById('fee-id').value = f.id;
+  document.getElementById('fee-receipt-no').value = f.receiptNo || '';
+  document.getElementById('fee-receipt-display').value = f.receiptNo || '(pending sync)';
+  document.getElementById('fee-modal-title').textContent = `✏️ Edit Payment${f.receiptNo?' — '+f.receiptNo:''}`;
+  populateFeeStudentSelect();
+  const matchId = window.DB.students.find(s=>(s.studentId||s.id)===f.studentId)?.id || '';
+  document.getElementById('fee-student-select').value = matchId;
+  onFeeStudentChange();
+  document.getElementById('fee-type-select').value = f.feeType||'monthly';
+  toggleFeeTypeFields();
+  if (f.feeType==='quarterly') document.getElementById('fee-quarter-select').value = f.quarter || 'Q1';
+  else if (f.feeType!=='yearly') document.getElementById('fee-month-select').value = f.month || '';
+  document.getElementById('fee-year').value = f.year || new Date().getFullYear();
+  document.getElementById('fee-amount').value = f.amountPayable ?? f.amount ?? 0;
+  document.getElementById('fee-paid').value = f.amountReceived ?? f.paid ?? 0;
+  document.getElementById('fee-include-joining').checked = !!f.includesJoiningFee;
+  document.querySelectorAll('#fee-modal .pay-methods .pay-method').forEach(b=>b.classList.toggle('active', b.dataset.value===f.paymentMethod));
+  document.getElementById('fee-payment-method').value = f.paymentMethod||'Cash';
+  document.getElementById('fee-date').value = f.receiptDate || f.date || getToday();
+  document.getElementById('fee-notes').value = f.notes||'';
+  calcFeePending();
+  openModal('fee-modal');
+};
 
 window.saveFee = async (sendWA=false) => {
+  if (!can('manageFees')) { denyAccess(); return; }
   const stId=document.getElementById('fee-student-select').value;
   const st=window.DB.students.find(s=>s.id===stId);
-  if(!st){showToast('Select a student','error');return;}
+  if(!st){showToast('Search and select a student','error');return;}
+  const receiptDate=document.getElementById('fee-date').value;
+  if(!receiptDate){showToast('Receipt Date is required','error');return;}
+  const feeType=document.getElementById('fee-type-select').value;
+  const month=feeType==='monthly' ? document.getElementById('fee-month-select').value : '';
+  const quarter=feeType==='quarterly' ? document.getElementById('fee-quarter-select').value : '';
+  const year=document.getElementById('fee-year').value;
   const amount=Number(document.getElementById('fee-amount').value)||0;
   const paid=Number(document.getElementById('fee-paid').value)||0;
-  if(!amount||!paid){showToast('Fill fee and paid amount','error');return;}
-  const feeType=document.getElementById('fee-type-select').value;
-  const data = {
-    studentId:stId, studentName:st.name, sport:st.sport,
-    feeType,
-    month:feeType==='monthly' ? document.getElementById('fee-month-select').value : '',
-    quarter:feeType==='quarterly' ? document.getElementById('fee-quarter-select').value : '',
-    year:document.getElementById('fee-year').value,
-    amount, paid, pending:amount-paid,
-    paymentMethod:document.getElementById('fee-payment-method').value,
-    date:document.getElementById('fee-date').value||getToday(),
-    notes:document.getElementById('fee-notes').value,
-    status:paid>=amount?'paid':paid>0?'partial':'pending',
-    // PHASE 3.4a — recorded purely for future reporting (3.4e); doesn't
-    // change how this payment is saved or synced otherwise.
-    includesJoiningFee: document.getElementById('fee-include-joining').checked
-  };
+  if(!amount){showToast('Enter the Amount Payable','error');return;}
+  if(!paid){showToast('Enter the Amount Received','error');return;}
+  // PHASE 3.4b — "Amount cannot exceed payable" is enforced as a confirm
+  // gate, not a hard block: exceeding the payable amount is exactly what
+  // an Advance Payment is (an explicitly supported Payment Type below),
+  // so this just guards against an accidental typo rather than refusing
+  // a legitimate advance.
+  if (paid > amount) {
+    if (!confirm(`Amount Received (₹${paid.toLocaleString('en-IN')}) is more than Amount Payable (₹${amount.toLocaleString('en-IN')}). Record this as an Advance Payment?`)) return;
+  }
   const existId=document.getElementById('fee-id').value;
+  const existingRecord = existId ? window.DB.fees.find(x=>x.id===existId) : null;
+  const data = {
+    studentId: st.studentId||st.id, studentName:st.name, sport:st.sport,
+    batch: st.batch||'', coach: st.coach||'',
+    feeType, month, quarter, year,
+    dueMonth: _feeDueMonthLabel(feeType, month, quarter, year),
+    amountPayable: amount, amountReceived: paid, pending: Math.max(0, amount-paid),
+    paymentMethod: document.getElementById('fee-payment-method').value,
+    paymentType: _computeFeePaymentType(amount, paid),
+    receiptDate, date: receiptDate, // `date` kept alongside for anything still reading the pre-3.4b field name
+    notes: document.getElementById('fee-notes').value,
+    status: paid<=0 ? 'pending' : paid<amount ? 'partial' : 'paid',
+    includesJoiningFee: document.getElementById('fee-include-joining').checked,
+    receiptNo: existingRecord?.receiptNo || '',
+    updatedAt: existingRecord?.updatedAt || ''
+  };
   const id=await saveDoc('fees',data,existId||null);
-  if(!existId){data.id=id;window.DB.fees.unshift(data);}
-  else{const idx=window.DB.fees.findIndex(x=>x.id===existId);if(idx>=0)window.DB.fees[idx]={...data,id:existId};}
-  autoSyncFee(data);
-  closeModal('fee-modal');
+  data.id=id;
+  if(!existId){window.DB.fees.unshift(data);}
+  else{const idx=window.DB.fees.findIndex(x=>x.id===existId);if(idx>=0)window.DB.fees[idx]=data;}
   renderFees(); renderDashboard(); renderAccounts();
-  showToast('Fee payment saved! ✅');
+  closeModal('fee-modal');
+
+  const syncRes = await autoSyncFee(data);
+  // A brand-new payment gets its real ReceiptNo back from the server (see
+  // handleFeeWrite in Code.gs) — reconcile the locally-optimistic blank
+  // one the instant it's known, same idea as the provisional-booking-ID
+  // reconciliation elsewhere in this file.
+  if (syncRes && syncRes.ok && syncRes.result && syncRes.result.receiptNo && syncRes.result.receiptNo !== data.receiptNo) {
+    data.receiptNo = syncRes.result.receiptNo;
+    data.updatedAt = syncRes.result.updatedAt || data.updatedAt;
+    LS.update('fees', data.id, { receiptNo: data.receiptNo, updatedAt: data.updatedAt });
+    const idx = window.DB.fees.findIndex(x=>x.id===data.id);
+    if (idx>=0) window.DB.fees[idx] = data;
+    renderFees();
+  }
+  if (syncRes && syncRes.ok) showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
+  else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
+  else showToast('Payment saved locally. Sync will retry automatically.', 'error');
+
   if(sendWA){
     // Rebuilt per spec: plain aligned text, no emoji clusters. The old
     // message packed emoji like 🏟️/🙏 (multi-codepoint sequences with
@@ -8407,12 +8647,13 @@ window.saveFee = async (sendWA=false) => {
     const lines = [
       '✅ Fee Payment Confirmed',
       '',
+      `Receipt : ${data.receiptNo || '(pending sync)'}`,
       `Student : ${st.name}`,
       `Sport   : ${st.sport.charAt(0).toUpperCase()+st.sport.slice(1)} Coaching`,
-      `Period  : ${feeType==='quarterly' ? data.quarter : feeType==='yearly' ? 'Annual' : data.month} ${data.year}`,
-      `Fee     : ₹${amount.toLocaleString('en-IN')}`,
-      `Paid    : ₹${paid.toLocaleString('en-IN')}`,
-      `Pending : ₹${Math.max(0, amount-paid).toLocaleString('en-IN')}`,
+      `Period  : ${data.dueMonth}`,
+      `Payable : ₹${amount.toLocaleString('en-IN')}`,
+      `Received: ₹${paid.toLocaleString('en-IN')}`,
+      `Pending : ₹${data.pending.toLocaleString('en-IN')}`,
       `Mode    : ${data.paymentMethod}`,
       '',
       'Thank you for your payment!',
@@ -8431,14 +8672,21 @@ window.renderFees = () => {
   const search=document.getElementById('fee-search')?.value.toLowerCase()||'';
   const status=document.getElementById('fee-status-filter')?.value||'';
   const month=document.getElementById('fee-month-filter')?.value||'';
+  // Backward-compatible readers — a fee record saved before 3.4b only has
+  // the old amount/paid/month field names; new records have amountPayable/
+  // amountReceived/dueMonth. Falling back keeps pre-existing local records
+  // displaying correctly with no data migration needed.
+  const payableOf = f => f.amountPayable ?? f.amount ?? 0;
+  const receivedOf = f => f.amountReceived ?? f.paid ?? 0;
+  const dueMonthOf = f => f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year);
   let list=window.DB.fees.filter(f=>{
     const ms=!search||f.studentName?.toLowerCase().includes(search);
     const mst=!status||f.status===status;
-    const mm=!month||f.month===month;
+    const mm=!month||f.month===month||dueMonthOf(f).indexOf(month)===0;
     return ms&&mst&&mm;
   });
-  const collected=list.filter(f=>f.status==='paid').reduce((s,f)=>s+f.paid,0);
-  const pending=list.filter(f=>f.status!=='paid').reduce((s,f)=>s+f.pending,0);
+  const collected=list.filter(f=>f.status==='paid').reduce((s,f)=>s+receivedOf(f),0);
+  const pending=list.filter(f=>f.status!=='paid').reduce((s,f)=>s+Math.max(0,f.pending ?? (payableOf(f)-receivedOf(f))),0);
   const partial=list.filter(f=>f.status==='partial').length;
   document.getElementById('fee-stats').innerHTML=`
     <div class="stat-card green"><div class="stat-icon">💰</div><div class="stat-val">₹${collected.toLocaleString()}</div><div class="stat-label">Collected</div></div>
@@ -8446,27 +8694,45 @@ window.renderFees = () => {
     <div class="stat-card yellow"><div class="stat-icon">⚠️</div><div class="stat-val">${partial}</div><div class="stat-label">Partial Payments</div></div>
     <div class="stat-card blue"><div class="stat-icon">📋</div><div class="stat-val">${list.length}</div><div class="stat-label">Total Records</div></div>`;
   const tbody=document.getElementById('fees-tbody');
-  if(!list.length){tbody.innerHTML=`<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">💰</div><p>No fee records found</p></div></td></tr>`;return;}
-  tbody.innerHTML=list.map(f=>`<tr>
+  if(!list.length){tbody.innerHTML=`<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">💰</div><p>No fee records found</p></div></td></tr>`;return;}
+  const canEdit = can('manageFees');
+  tbody.innerHTML=list.map(f=>{
+    const payable=payableOf(f), received=receivedOf(f), pend=Math.max(0, f.pending ?? (payable-received));
+    const statusLabels={paid:'badge-green ✅ Paid',partial:'badge-yellow ⚠️ Partially Paid',pending:'badge-red ❌ Pending'};
+    const [cls,...rest]=(statusLabels[f.status]||'badge-gray '+f.status).split(' ');
+    const actions = canEdit
+      ? `<button class="btn btn-info btn-sm" onclick="editFee('${f.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="deleteFee('${f.id}')">🗑️</button>`
+      : '';
+    return `<tr>
+    <td style="font-size:11px;font-family:monospace">${f.receiptNo || '<span style="color:var(--gray3)">Pending sync…</span>'}</td>
     <td style="font-weight:600">${f.studentName}</td>
     <td>${sportBadge(f.sport)}</td>
-    <td>${f.feeType==='quarterly' ? (f.quarter||'') : (f.month||'')} ${f.year}</td>
-    <td>₹${f.amount}</td>
-    <td style="color:var(--green);font-weight:700">₹${f.paid}</td>
-    <td style="color:${f.pending>0?'var(--red)':'var(--green)'};font-weight:700">₹${f.pending}</td>
+    <td>${dueMonthOf(f)}</td>
+    <td>₹${payable.toLocaleString('en-IN')}</td>
+    <td style="color:var(--green);font-weight:700">₹${received.toLocaleString('en-IN')}</td>
+    <td style="color:${pend>0?'var(--red)':'var(--green)'};font-weight:700">₹${pend.toLocaleString('en-IN')}</td>
     <td>${f.paymentMethod}</td>
-    <td>${formatDate(f.date)}</td>
-    <td>${statusBadge(f.status)}</td>
-    <td><div style="display:flex;gap:4px">
-      <button class="btn btn-danger btn-sm" onclick="deleteFee('${f.id}')">🗑️</button>
-    </div></td>
-  </tr>`).join('');
+    <td>${formatDate(f.receiptDate||f.date)}</td>
+    <td><span class="badge ${cls}">${rest.join(' ')}</span></td>
+    <td><div style="display:flex;gap:4px">${actions}</div></td>
+  </tr>`;
+  }).join('');
 };
 
+// Local-only removal — same as before 3.4b, with one new caveat: now that
+// Fees has a real GET reader (syncFeesFromSheet), a locally-deleted
+// payment would normally reappear on the next sync poll since there is
+// no server-side delete for Fees. _addLocallyDeletedFeeId (see
+// syncFeesFromSheet below) is what prevents that resurrection — a
+// lightweight local exclusion list, not a real remote delete. Voiding a
+// receipt server-side is out of scope for 3.4b.
 window.deleteFee = async (id) => {
+  if (!can('manageFees')) { denyAccess(); return; }
   if(!confirm('Delete this fee record?'))return;
+  const f = window.DB.fees.find(x=>x.id===id);
   await deleteDoc2('fees',id);
   window.DB.fees=window.DB.fees.filter(x=>x.id!==id);
+  if (f && f.receiptNo) _addLocallyDeletedFeeId(f.receiptNo);
   renderFees(); renderDashboard();
   showToast('Fee record deleted');
 };
@@ -10949,7 +11215,8 @@ const RT_MODULE_META = {
   siteConfig:             { icon: '🌐', label: 'Website' },
   coach:                  { icon: '👨‍🏫', label: 'Coach' }, // PHASE 3.1 — Coaches Backend
   student_card:           { icon: '🪪', label: 'ID Card' },  // PHASE 3.2b-ii
-  scan_log:               { icon: '📷', label: 'QR Scan' }   // PHASE 3.2b-iii
+  scan_log:               { icon: '📷', label: 'QR Scan' },  // PHASE 3.2b-iii
+  fee:                    { icon: '💰', label: 'Fee Payment' } // PHASE 3.4b — Fee Collection
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
@@ -10968,7 +11235,17 @@ const RT_MERGE_MAP = {
   student:    { col: 'students',   idField: 'studentId' },
   enquiry:    { col: 'enquiries',  idField: 'enquiryId' },
   attendance: { col: 'attendance', idField: 'attendanceId' },
-  coach:      { col: 'coaches',    idField: 'coachId' } // PHASE 3.1 — Coaches Backend
+  coach:      { col: 'coaches',    idField: 'coachId' }, // PHASE 3.1 — Coaches Backend
+  // PHASE 3.4b — Fee Collection. A brand-new payment's audit entry still
+  // has a blank ReceiptNo at the moment it's logged (the server hasn't
+  // assigned one yet when offline, and even online the audit write and
+  // the real ReceiptNo assignment are two different response fields) —
+  // _rtMergeRecord's own !recId guard below skips those, so a new peer
+  // payment shows up via the next syncFeesFromSheet() 30s poll instead of
+  // the ~2.5s fast path. An EDIT to an already-existing payment (which
+  // does have a ReceiptNo) still merges instantly here, same as everything
+  // else in this map.
+  fee:        { col: 'fees',       idField: 'receiptNo' }
 };
 
 function _rtMergeRecord(ev) {
@@ -11023,7 +11300,12 @@ const SYNC_TYPE_META = {
   // 'user' (Staff) is handled by postUserActionSafe/its own reload+overwrite
   // branch below rather than window.DB — listed here only so the modal can
   // look up its label.
-  user:                   { col: null,             idField: 'email',      label: 'staff account' }
+  user:                   { col: null,             idField: 'email',      label: 'staff account' },
+  // PHASE 3.4b — Fee Collection. Only meaningful for an EDIT (an existing
+  // payment already has a ReceiptNo to key off); a brand-new payment's
+  // expectedUpdatedAt is intentionally undefined (see autoSyncFee), same
+  // as every other module's create case.
+  fee:                    { col: 'fees',             idField: 'receiptNo', label: 'fee payment' }
 };
 
 // Called after every successful queuedSync — stashes the server's fresh
@@ -11296,7 +11578,11 @@ function _rtApplyEvents(events) {
   if (affected.has('attendance') && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
   if (affected.has('enquiry') && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
   if (affected.has('coach') && document.getElementById('page-coaches')?.classList.contains('active')) window.renderCoaches?.(); // PHASE 3.1
-  if ([...affected].some(m => m.indexOf('coaching_') === 0) && document.getElementById('page-fees')?.classList.contains('active')) window.renderFees?.();
+  // PHASE 3.4b — 'fee' is the new consolidated-Fees-tab module; the
+  // coaching_* check is kept alongside it purely so any already-queued
+  // old-format event from before this update still triggers a refresh.
+  if ((affected.has('fee') || [...affected].some(m => m.indexOf('coaching_') === 0)) && document.getElementById('page-fees')?.classList.contains('active')) window.renderFees?.();
+  if (affected.has('fee')) window.syncFeesFromSheet?.();
   if (affected.has('cafe_sale') && document.getElementById('page-cafe')?.classList.contains('active')) window.renderCafe?.();
   if (newNotifs.length) window.renderDashboard?.();
 }
