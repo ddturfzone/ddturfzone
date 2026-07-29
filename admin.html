@@ -281,6 +281,54 @@ tr:hover td{background:#f8fffe}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 @media(max-width:600px){.grid-2,.grid-3{grid-template-columns:1fr}}
+/* ====== PHASE 3.2b-ii — STUDENT ID CARD ======
+   CR80 card ratio (85.6mm x 54mm ≈ 1.585:1). Sized in px for on-screen
+   preview/html2canvas capture; the same ratio is reused as mm for the
+   print/PDF paths so nothing looks stretched between preview and output. */
+.idcard-pair{display:flex;gap:20px;flex-wrap:wrap;justify-content:center}
+.idcard{width:338px;height:213px;border-radius:14px;overflow:hidden;position:relative;box-shadow:var(--shadow-lg);font-family:'Inter',sans-serif;background:white;flex-shrink:0}
+.idcard-front .idcard-head{background:linear-gradient(135deg,var(--dark) 0%,var(--green-dark) 60%,var(--green) 100%);color:white;padding:10px 12px;display:flex;align-items:center;gap:8px}
+.idcard-front .idcard-head img{width:26px;height:26px;object-fit:contain;border-radius:5px;background:white;padding:2px}
+.idcard-front .idcard-head-text{line-height:1.15}
+.idcard-front .idcard-head-text .brand{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:800;letter-spacing:.3px}
+.idcard-front .idcard-head-text .sub{font-size:8.5px;opacity:.85;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+.idcard-front .idcard-body{display:flex;gap:10px;padding:10px 12px}
+.idcard-front .idcard-photo{width:64px;height:64px;border-radius:10px;object-fit:cover;border:2px solid var(--gray2);background:var(--gray);flex-shrink:0}
+.idcard-front .idcard-photo-ph{width:64px;height:64px;border-radius:10px;background:var(--gray);border:2px solid var(--gray2);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+.idcard-front .idcard-info{flex:1;min-width:0}
+.idcard-front .idcard-name{font-size:14px;font-weight:800;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.idcard-front .idcard-idrow{font-size:9.5px;color:var(--green-dark);font-weight:700;background:var(--green-bg);display:inline-block;padding:1px 6px;border-radius:5px;margin-top:2px}
+.idcard-front .idcard-fields{margin-top:5px;font-size:9.5px;color:var(--text);line-height:1.55}
+.idcard-front .idcard-fields b{color:var(--gray3);font-weight:700}
+.idcard-front .idcard-qr{position:absolute;right:10px;bottom:8px;width:46px;height:46px;background:white;border-radius:6px;padding:2px;box-shadow:var(--shadow)}
+.idcard-front .idcard-qr img,.idcard-front .idcard-qr canvas{width:100%;height:100%}
+.idcard-front .idcard-foot{position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,var(--green),var(--yellow))}
+.idcard-back{display:flex;flex-direction:column;border:1.5px solid var(--gray2)}
+.idcard-back .idcard-back-head{background:var(--dark);color:white;padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+.idcard-back .idcard-back-body{padding:9px 12px;font-size:9.5px;line-height:1.5;flex:1;overflow:hidden}
+.idcard-back .idcard-back-body b{color:var(--gray3);font-weight:700}
+.idcard-back .idcard-medical{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:6px;padding:4px 7px;margin-top:5px;font-size:9px}
+.idcard-back .idcard-terms{margin-top:6px;font-size:8px;color:var(--gray3);line-height:1.45}
+.idcard-back .idcard-back-foot{background:var(--gray);padding:5px 12px;font-size:8.5px;color:var(--gray3);text-align:center;font-weight:600}
+/* ====== PHASE 3.2b-iii — QR SCANNER ====== */
+.qr-scanner-wrap{max-width:420px;margin:0 auto}
+#qr-scanner-viewport{width:100%;aspect-ratio:1/1;background:#000;border-radius:14px;overflow:hidden;box-shadow:var(--shadow-lg)}
+#qr-scanner-viewport video{border-radius:14px}
+.qr-scanner-placeholder{width:100%;aspect-ratio:1/1;background:var(--dark);border-radius:14px;display:flex;align-items:center;justify-content:center;color:white;font-size:14px;text-align:center;padding:20px;flex-direction:column;gap:10px}
+.qr-scanner-controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
+.qr-scanner-mode-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;font-size:13px;color:var(--gray3)}
+.scan-result{border-radius:12px;padding:16px;margin-top:16px}
+.scan-result-ok{background:var(--green-bg);border:1.5px solid var(--green-light)}
+.scan-result-warn{background:#fffbeb;border:1.5px solid #fde68a;color:#92400e;text-align:center;font-weight:700;padding:20px}
+.scan-result-invalid{background:#fef2f2;border:1.5px solid #fecaca;color:#991b1b;text-align:center;font-weight:700;padding:20px}
+.scan-result-student{display:flex;gap:14px;align-items:center}
+.scan-result-student img,.scan-result-student .ph{width:64px;height:64px;border-radius:50%;object-fit:cover;background:var(--gray);border:2px solid var(--gray2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px}
+.scan-result-fields{font-size:12.5px;color:var(--text);line-height:1.6}
+.scan-result-fields b{color:var(--gray3);font-weight:700}
+.scan-result-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.scan-history-row{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid var(--gray2);font-size:12.5px}
+.scan-history-row:last-child{border-bottom:none}
+.scan-offline-banner{background:#fff3cd;border:1.5px solid #f0c36d;color:#7a5b00;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;text-align:center}
 </style>
 </head>
 <body>
@@ -335,6 +383,7 @@ tr:hover td{background:#f8fffe}
       <div class="nav-section">
         <div class="nav-section-label">Coaching</div>
         <button class="nav-item" data-page-nav="students" onclick="showPage('students')"><span class="nav-icon">🎓</span>Coaching</button>
+        <button class="nav-item" data-page-nav="scanner" onclick="showPage('scanner')"><span class="nav-icon">📷</span>QR Scanner</button>
         <button class="nav-item" data-page-nav="attendance" onclick="showPage('attendance')"><span class="nav-icon">✅</span>Attendance</button>
         <button class="nav-item" data-page-nav="fees" onclick="showPage('fees')"><span class="nav-icon">💰</span>Fee Collection</button>
         <button class="nav-item" data-page-nav="coaches" onclick="showPage('coaches')"><span class="nav-icon">👨‍🏫</span>Coaches</button>
@@ -574,11 +623,11 @@ tr:hover td{background:#f8fffe}
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary" onclick="openCategoriesManager()">⚙️ Categories</button>
             <button class="btn btn-secondary" data-requires-action="downloadExcel" onclick="downloadCoachingReportExcel()">⬇️ Excel Report</button>
-            <button class="btn btn-primary" onclick="resetStudentForm();openModal('student-modal')">+ Add Student</button>
+            <button class="btn btn-primary" data-requires-action="manageStudents" onclick="resetStudentForm();openModal('student-modal')">+ Add Student</button>
           </div>
         </div>
         <div class="filter-bar">
-          <input type="text" id="student-search" placeholder="🔍 Search student..." oninput="renderStudents()">
+          <input type="text" id="student-search" placeholder="🔍 Search ID, admission no., name, parent mobile, coach, batch..." oninput="renderStudents()" style="min-width:240px">
           <select id="student-sport-filter" onchange="renderStudents()">
             <option value="">All Sports</option>
             <option value="football">⚽ Football</option>
@@ -590,15 +639,73 @@ tr:hover td{background:#f8fffe}
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <select id="student-coach-filter" onchange="renderStudents()">
+            <option value="">All Coaches</option>
+          </select>
+          <select id="student-batch-filter" onchange="renderStudents()">
+            <option value="">All Batches</option>
+          </select>
+          <input type="month" id="student-joined-month-filter" onchange="renderStudents()" title="Filter by joining month" style="min-width:150px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray3);white-space:nowrap;padding:0 4px">
+            <input type="checkbox" id="student-show-archived" onchange="renderStudents()"> Show Archived
+          </label>
+        </div>
+        <!-- PHASE 3.2b-i — Bulk action toolbar. Hidden until 1+ row is
+             selected; which buttons show depends both on role permission
+             and on whether the current view is the active or archived list
+             (Bulk Archive only makes sense on active rows, Bulk Restore
+             only on archived ones). -->
+        <div id="student-bulk-toolbar" class="card mb-16" style="display:none;margin-bottom:14px;padding:10px 14px;align-items:center;gap:8px;flex-wrap:wrap;background:var(--gray)">
+          <span id="student-bulk-count" style="font-weight:700;font-size:13px"></span>
+          <button class="btn btn-secondary btn-sm" onclick="bulkDeselectAllStudents()">✖️ Clear</button>
+          <button class="btn btn-secondary btn-sm" id="student-bulk-archive-btn" data-requires-action="archiveStudents" onclick="bulkArchiveStudents()">🗄️ Archive</button>
+          <button class="btn btn-secondary btn-sm" id="student-bulk-restore-btn" data-requires-action="archiveStudents" onclick="bulkRestoreStudents()" style="display:none">♻️ Restore</button>
+          <button class="btn btn-secondary btn-sm" data-requires-action="bulkAssignCoach" onclick="openBulkAssignCoachModal()">👨‍🏫 Assign Coach</button>
+          <button class="btn btn-secondary btn-sm" data-requires-action="bulkChangeBatch" onclick="openBulkChangeBatchModal()">🔀 Change Batch</button>
+          <button class="btn btn-secondary btn-sm" data-requires-action="bulkChangeStatus" onclick="openBulkChangeStatusModal()">🔁 Change Status</button>
+          <button class="btn btn-secondary btn-sm" data-requires-action="generateIdCard" onclick="bulkPrintIdCards()">🪪 Print ID Cards</button>
+          <button class="btn btn-danger btn-sm" data-requires-action="bulkDeleteStudents" onclick="bulkDeleteStudents()">🗑️ Delete Permanently</button>
         </div>
         <div class="table-wrap">
           <table>
             <thead><tr>
+              <th><input type="checkbox" id="student-select-all" onchange="toggleSelectAllStudents(this.checked)"></th>
               <th></th><th>ID</th><th>Name</th><th>Parent</th><th>Phone</th><th>Category</th>
               <th>Batch</th><th>Coach</th><th>Admission</th><th>Fee</th><th>Status</th><th>Actions</th>
             </tr></thead>
             <tbody id="students-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- PHASE 3.2b-iii — QR SCANNER -->
+      <div class="page" id="page-scanner">
+        <div style="margin-bottom:20px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">📷 QR Scanner</div>
+          <div style="color:var(--gray3);font-size:13px">Scan a student's ID card to open their profile — camera or a photo of the QR code, either works.</div>
+        </div>
+        <div id="scanner-offline-banner" class="scan-offline-banner" style="display:none">📴 You're offline — scans will still work and sync to Activity Log once you're back online.</div>
+        <div class="card">
+          <div class="qr-scanner-wrap">
+            <div id="qr-scanner-viewport"></div>
+            <div class="qr-scanner-controls">
+              <button class="btn btn-primary btn-sm" id="scanner-start-btn" onclick="startQrScanner()">▶️ Start Scanner</button>
+              <button class="btn btn-secondary btn-sm" id="scanner-stop-btn" onclick="stopQrScanner()" style="display:none">⏹️ Stop</button>
+              <button class="btn btn-secondary btn-sm" id="scanner-pause-btn" onclick="pauseQrScanner()" style="display:none">⏸️ Pause</button>
+              <button class="btn btn-secondary btn-sm" id="scanner-resume-btn" onclick="resumeQrScanner()" style="display:none">▶️ Resume</button>
+              <button class="btn btn-secondary btn-sm" id="scanner-switch-cam-btn" onclick="toggleQrScannerCamera()" style="display:none">🔄 Switch Camera</button>
+              <button class="btn btn-secondary btn-sm" id="scanner-flash-btn" onclick="toggleQrFlash()" style="display:none">🔦 Flash</button>
+              <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin-bottom:0">📁 Scan from Image<input type="file" accept="image/*" style="display:none" onchange="scanQrFromImage(event)"></label>
+            </div>
+            <div class="qr-scanner-mode-row">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="scanner-continuous-mode"> Continuous Scan Mode (don't pause between scans)</label>
+            </div>
+            <div id="scanner-result"></div>
+          </div>
+        </div>
+        <div class="card mt-16" style="margin-top:16px">
+          <div class="card-title">🕒 Recent Scans</div>
+          <div id="scanner-history-list"><div style="padding:20px;text-align:center;color:var(--gray3)">Loading…</div></div>
         </div>
       </div>
 
@@ -1958,6 +2065,7 @@ tr:hover td{background:#f8fffe}
     </div>
     <div class="form-grid">
       <div class="form-group"><label>Student Name *</label><input type="text" id="st-name" placeholder="Full name"></div>
+      <div class="form-group"><label>Admission No.</label><input type="text" id="st-admission-no" placeholder="e.g. matches your physical admission register"></div>
       <div class="form-group"><label>Coaching Category *</label>
         <select id="st-sport">
           <option value="football">⚽ Football</option>
@@ -2000,7 +2108,69 @@ tr:hover td{background:#f8fffe}
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('student-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveStudent()">💾 Save Student</button>
+      <button class="btn btn-primary" id="student-modal-save-btn" onclick="saveStudent()">💾 Save Student</button>
+    </div>
+  </div>
+</div>
+
+<!-- PHASE 3.2b-ii — STUDENT ID CARD -->
+<div class="modal-overlay" id="idcard-modal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-title">🪪 Student ID Card</div>
+    <input type="hidden" id="idcard-student-id">
+    <div class="idcard-pair" id="idcard-preview-area">
+      <div class="idcard idcard-front" id="idcard-front"></div>
+      <div class="idcard idcard-back" id="idcard-back"></div>
+    </div>
+    <div id="idcard-view-only-note" style="display:none;text-align:center;font-size:12px;color:var(--gray3);margin-top:14px">
+      View only — ask a Manager or Super Admin to print or download this card.
+    </div>
+    <div class="modal-footer" style="justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="closeModal('idcard-modal')">Close</button>
+      <button class="btn btn-secondary" data-requires-action="generateIdCard" onclick="printCurrentIdCard()">🖨️ Print</button>
+      <button class="btn btn-secondary" data-requires-action="generateIdCard" onclick="downloadIdCardPDF()">📄 Download PDF</button>
+      <button class="btn btn-secondary" data-requires-action="generateIdCard" onclick="downloadIdCardPNG()">🖼️ Download PNG</button>
+    </div>
+  </div>
+</div>
+
+<!-- PHASE 3.2b-i — BULK ASSIGN COACH -->
+<div class="modal-overlay" id="bulk-assign-coach-modal">
+  <div class="modal">
+    <div class="modal-title">👨‍🏫 Bulk Assign Coach</div>
+    <div style="font-size:13px;color:var(--gray3);margin-bottom:10px" id="bulk-assign-coach-count"></div>
+    <div class="form-group"><label>Coach / Trainer</label><input type="text" id="bulk-coach-value" placeholder="Coach name"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('bulk-assign-coach-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="bulkAssignCoach()">Apply to Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- PHASE 3.2b-i — BULK CHANGE BATCH -->
+<div class="modal-overlay" id="bulk-change-batch-modal">
+  <div class="modal">
+    <div class="modal-title">🔀 Bulk Change Batch</div>
+    <div style="font-size:13px;color:var(--gray3);margin-bottom:10px" id="bulk-change-batch-count"></div>
+    <div class="form-group"><label>Batch</label><input type="text" id="bulk-batch-value" placeholder="e.g. Evening Batch A"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('bulk-change-batch-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="bulkChangeBatch()">Apply to Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- PHASE 3.2b-i — BULK CHANGE STATUS -->
+<div class="modal-overlay" id="bulk-change-status-modal">
+  <div class="modal">
+    <div class="modal-title">🔁 Bulk Change Status</div>
+    <div style="font-size:13px;color:var(--gray3);margin-bottom:10px" id="bulk-change-status-count"></div>
+    <div class="form-group"><label>Status</label>
+      <select id="bulk-status-value"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('bulk-change-status-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="bulkChangeStatus()">Apply to Selected</button>
     </div>
   </div>
 </div>
@@ -2201,6 +2371,16 @@ tr:hover td{background:#f8fffe}
 <!-- SheetJS for Excel export -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- PHASE 3.2b-ii — Student ID Card: html2canvas rasterizes the on-screen
+     card preview for PNG/PDF export; qrcodejs renders the per-student QR
+     entirely client-side (no network call per card, synchronous <canvas>
+     output we can read back with toDataURL immediately). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- PHASE 3.2b-iii — QR Scanner: camera access + decode + file-image decode,
+     all client-side (works fully offline once the library itself is
+     cached by the browser — no per-scan network call). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 
 <script>
 // ===== PRODUCTION GOOGLE APPS SCRIPT URL =====
@@ -2475,6 +2655,11 @@ const PAGE_PERMISSIONS = {
   bookings:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   customers:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   students:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
+  // PHASE 3.2b-iii — QR Scanner. View & Scan only for every role (no
+  // separate action gate exists — there's nothing editable on this page;
+  // "View Full Profile" opens the same read-only viewStudent() every role
+  // already has access to from the Students page).
+  scanner:    [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   attendance: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   fees:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   coaches:    [ROLES.SUPER_ADMIN, ROLES.ADMIN],
@@ -2508,6 +2693,27 @@ const ACTION_PERMISSIONS = {
   // (Super Admin + Manager); this is the point-of-action gate that backs
   // up the page-level one, same as every other module here.
   manageCoaches:        [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.2a — Student Core. Originally open to Staff too; PHASE 3.2b-i
+  // tightens this to match the documented role matrix (Super Admin: full
+  // access; Manager: Add/Edit + Archive/Restore + Bulk Assign
+  // Coach/Change Batch; Staff: View Only). This is an intentional
+  // permission change carried by 3.2b-i's own roadmap, not a regression —
+  // see CHANGELOG.md.
+  manageStudents:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  archiveStudents:      [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.2b-i — Bulk Operations. Assign Coach / Change Batch match
+  // Manager's documented access; Change Status and permanent Delete are
+  // Super-Admin-only, same reasoning as every other irreversible or
+  // broad-blast-radius action in this app.
+  bulkAssignCoach:      [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  bulkChangeBatch:      [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  bulkChangeStatus:     [ROLES.SUPER_ADMIN],
+  bulkDeleteStudents:   [ROLES.SUPER_ADMIN],
+  // PHASE 3.2b-ii — Student ID Card. Gates Generate/Print/Download only;
+  // the preview modal itself is reachable by anyone with Students page
+  // access (Staff included), matching the documented "Staff: View Only"
+  // row of this feature's role matrix.
+  generateIdCard:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -2775,10 +2981,11 @@ async function doLogin() {
     localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
   } catch (e) {}
   _enterApp(sessionUser);
-  loadAllData().then(() => renderDashboard());
+  loadAllData().then(() => { renderDashboard(); _consumeStudentDeepLinkIfAny(); });
 }
 
 function doLogout() {
+  window.stopQrScanner?.(); // PHASE 3.2b-iii — never leave the camera running past logout
   try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
   CURRENT_USER = null;
   document.getElementById('auth-screen').style.display = 'flex';
@@ -2819,7 +3026,7 @@ window.logoutUser = doLogout;
           role: cached ? cached.role : localSession.role
         };
         _enterApp(sessionUser);
-        loadAllData().then(() => renderDashboard());
+        loadAllData().then(() => { renderDashboard(); _consumeStudentDeepLinkIfAny(); });
 
         // Background re-check against the live Sheet — never blocks the UI,
         // and its own failure (network down, Sheet unreachable) must never
@@ -2929,6 +3136,8 @@ async function loadAllData() {
   syncBookingsAndBlocksFromSheet();
   // PHASE 3.1 — same idea for Coaches, now that it has a real backend.
   syncCoachesFromSheet();
+  // PHASE 3.2a — same idea for Students, now that it has a real GET reader.
+  syncStudentsFromSheet();
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
@@ -3216,6 +3425,74 @@ async function syncCoachesFromSheet() {
 setInterval(() => { if (CURRENT_USER) syncCoachesFromSheet(); }, 30000);
 window.addEventListener('focus', () => { if (CURRENT_USER) syncCoachesFromSheet(); });
 
+// PHASE 3.2a — Student Core. Same merge model as syncCoachesFromSheet just
+// above: never overwrites a full local record with the Sheet's flattened
+// one, only adds missing students, adopts field changes on existing ones,
+// and drops students archived elsewhere (unless this device still has an
+// archive for that exact student queued) — this is what makes Students'
+// cross-device sync real for a brand-new device instead of best-effort
+// (previously there was no GET reader for Students at all).
+let _studentSyncInFlight = false;
+async function syncStudentsFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _studentSyncInFlight) return;
+  _studentSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=students&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    const remoteStudents = data.students || [];
+    const remoteIds = new Set(remoteStudents.map(s => s.studentId));
+    // A permanent_delete this device already applied locally (row removed
+    // from window.DB.students) but hasn't reached the server yet — don't
+    // let the merge below resurrect it just because the Sheet still lists
+    // it as present.
+    const stillPendingPermanentDelete = new Set(_getSyncQueue().filter(p => p.type === 'student' && p.action === 'permanent_delete').map(p => p.studentId));
+
+    remoteStudents.forEach(remote => {
+      if (!remote.studentId || stillPendingPermanentDelete.has(remote.studentId)) return;
+      const local = window.DB.students.find(s => s.studentId === remote.studentId);
+      if (!local) {
+        // New student this device has never seen — id doubles as
+        // studentId, same reasoning as coaches/blocked slots.
+        _lsAddPreservingId('students', { ...remote, id: remote.studentId });
+        window.DB.students.unshift({ ...remote, id: remote.studentId });
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        // Sheet has a newer version (edited on another device) — adopt it.
+        // Photo stays whatever this device already has locally (Phase 3.2a
+        // never syncs it), so it's excluded from the merge on purpose.
+        const { photo, ...remoteNoPhoto } = remote;
+        const merged = { ...local, ...remoteNoPhoto, id: local.id };
+        LS.update('students', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    // A student this device still has locally but the Sheet no longer
+    // lists as active (archived elsewhere) — drop it here too, unless this
+    // device's own archive for it hasn't reached the server yet.
+    const stillPendingArchive = new Set(_getSyncQueue().filter(p => p.type === 'student' && (p.action === 'archive' || p.action === 'delete')).map(p => p.studentId));
+    const beforeCount = window.DB.students.length;
+    window.DB.students = window.DB.students.filter(s => remoteIds.has(s.studentId) || stillPendingArchive.has(s.studentId));
+    if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students); }
+
+    if (changed) {
+      populateFeeStudentSelect();
+      if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
+    }
+  } catch (e) {
+    // Network hiccup — local data (and the offline sync queue) is
+    // unaffected; the next periodic call or focus event will retry.
+  } finally {
+    _studentSyncInFlight = false;
+  }
+}
+setInterval(() => { if (CURRENT_USER) syncStudentsFromSheet(); }, 30000);
+window.addEventListener('focus', () => { if (CURRENT_USER) syncStudentsFromSheet(); });
+
 // Purely diagnostic — never modifies or restores data itself. Flags a
 // browser-storage-key so that if this device previously had real booking
 // data and a later load finds none, staff get a visible warning instead of
@@ -3261,16 +3538,22 @@ window.showPage = (page) => {
       return; // stay on whatever page was already open
     }
   }
+  // PHASE 3.2b-iii — release the camera the moment we leave the Scanner
+  // page (navigating anywhere else, including re-showing the same page
+  // isn't a "leave"). A live getUserMedia stream left running in the
+  // background is both a privacy issue and a battery drain on mobile.
+  const _leavingScannerPage = document.getElementById('page-scanner')?.classList.contains('active') && page !== 'scanner';
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
+  if (_leavingScannerPage) window.stopQrScanner?.();
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',students:'Students',scanner:'QR Scanner',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,students:renderStudents,scanner:renderScannerPage,fees:renderFees,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -5743,8 +6026,9 @@ function autoSyncStudent(student, action) {
   if (!SHEET_URL) return;
   const payload = {
     type: 'student',
-    action,                      // 'create' | 'update' | 'delete'
+    action,                      // 'create' | 'update' | 'archive' | 'restore' | 'permanent_delete'
     studentId: student.studentId || student.id,
+    admissionNo: student.admissionNo || '',
     studentName: student.name || '',
     phone: student.phone || '',
     altPhone: student.altPhone || '',
@@ -5756,6 +6040,7 @@ function autoSyncStudent(student, action) {
     bloodGroup: student.bloodGroup || '',
     school: student.school || '',
     emergencyContact: student.emergencyContact || '',
+    address: student.address || '',
     sport: student.sport || '',
     batch: student.batch || student.coach || '',
     coach: student.coach || '',
@@ -5766,8 +6051,11 @@ function autoSyncStudent(student, action) {
     medicalNotes: student.medicalNotes || '',
     remarks: student.remarks || '',
     status: student.status || '',
-    // PHASE 2.5 — see autoSyncBlockedSlot comment above.
-    expectedUpdatedAt: action !== 'create' ? (student.updatedAt || '') : undefined
+    // PHASE 2.5 — see autoSyncBlockedSlot comment above. Archive/Restore/
+    // permanent delete skip the version check server-side (see
+    // handleStudentWrite), so this is only ever meaningful for a real
+    // create/update.
+    expectedUpdatedAt: (action !== 'create' && action !== 'archive' && action !== 'restore' && action !== 'permanent_delete') ? (student.updatedAt || '') : undefined
   };
   return queuedSync(payload);
 }
@@ -6688,6 +6976,7 @@ window.renderCustomers = () => {
 
 // ===== STUDENTS =====
 window.saveStudent = async () => {
+  if (!can('manageStudents')) { denyAccess(); return; }
   const name=document.getElementById('st-name').value.trim();
   const phone=document.getElementById('st-phone').value.trim();
   const feeStructure=document.getElementById('st-fee-structure').value;
@@ -6696,8 +6985,10 @@ window.saveStudent = async () => {
   if (!name||!phone) { showToast('Fill required fields','error'); return; }
   if (feeStructure==='monthly' && !fee) { showToast('Enter the monthly fee','error'); return; }
   if (feeStructure==='quarterly' && !qfee) { showToast('Enter the quarterly fee','error'); return; }
+  const existId=document.getElementById('st-id').value;
   const data = {
     name, phone,
+    admissionNo: document.getElementById('st-admission-no').value,
     fee:Number(fee)||0,
     qfee:Number(qfee)||0,
     feeStructure,
@@ -6719,9 +7010,12 @@ window.saveStudent = async () => {
     address: document.getElementById('st-address').value,
     medicalNotes: document.getElementById('st-medical').value,
     remarks: document.getElementById('st-remarks').value,
-    photo: document.getElementById('st-photo').value || ''
+    photo: document.getElementById('st-photo').value || '',
+    // PHASE 3.2a — Archive/Restore live on a dedicated action instead of
+    // this form, so a normal Add/Edit save never flips this; carry the
+    // existing value forward on edit, default to false on a new record.
+    archived: existId ? (window.DB.students.find(x=>x.id===existId)?.archived || false) : false
   };
-  const existId=document.getElementById('st-id').value;
   // Student ID = the record's own sequential id (e.g. CO0001XYZ, already
   // minted once by saveDoc/LS.add on first creation). No separate ID is
   // generated here — the old code minted a brand-new "ST<timestamp>" value
@@ -6788,7 +7082,7 @@ window.handleStudentPhotoUpload = (event) => {
 };
 
 function resetStudentForm(){
-  ['st-id','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-coach','st-batch','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo'].forEach(id=>document.getElementById(id).value='');
+  ['st-id','st-admission-no','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-coach','st-batch','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('st-dob').value='';
   document.getElementById('st-joined').valueAsDate=new Date();
   document.getElementById('st-gender').value='';
@@ -6800,11 +7094,32 @@ function resetStudentForm(){
   document.getElementById('st-photo-preview').style.display='none';
   document.getElementById('st-photo-placeholder').style.display='';
   document.getElementById('student-modal-title').textContent='🎓 Add Student';
+  setStudentFormReadOnly(false);
 }
 
-window.editStudent = (id) => {
+// PHASE 3.2a — View Student. Locks every field in the same modal used for
+// Add/Edit and hides Save, rather than building a second modal, so the
+// profile always renders with the identical layout/fields as editing.
+function setStudentFormReadOnly(readOnly){
+  document.querySelectorAll('#student-modal input, #student-modal select, #student-modal textarea').forEach(el=>{
+    if (el.id === 'st-id') return; // hidden field, irrelevant either way
+    el.disabled = readOnly;
+  });
+  const saveBtn = document.getElementById('student-modal-save-btn');
+  if (saveBtn) saveBtn.style.display = readOnly ? 'none' : '';
+}
+
+window.viewStudent = (id) => {
+  editStudent(id);
+  document.getElementById('student-modal-title').textContent = '👁️ View Student';
+  setStudentFormReadOnly(true);
+};
+
+window.editStudent = (id, _readOnlyReset) => {
+  setStudentFormReadOnly(false);
   const s=window.DB.students.find(x=>x.id===id);if(!s)return;
   document.getElementById('st-id').value=s.id;
+  document.getElementById('st-admission-no').value=s.admissionNo||'';
   document.getElementById('st-name').value=s.name;
   document.getElementById('st-parent').value=s.parent||'';
   document.getElementById('st-mother').value=s.mother||'';
@@ -6846,34 +7161,286 @@ window.editStudent = (id) => {
   openModal('student-modal');
 };
 
-window.deleteStudent = async (id) => {
-  if(!confirm('Delete this student?'))return;
+window.archiveStudent = async (id) => {
+  if (!can('archiveStudents')) { denyAccess(); return; }
+  if(!confirm('Archive this student? They will be hidden from active lists but can be restored anytime.'))return;
   const s = window.DB.students.find(x=>x.id===id);
-  await deleteDoc2('students',id);
-  window.DB.students=window.DB.students.filter(x=>x.id!==id);
-  if (s) autoSyncStudent(s, 'delete');
+  if (!s) return;
+  const updated = { ...s, archived: true };
+  await saveDoc('students', updated, id);
+  const idx = window.DB.students.findIndex(x=>x.id===id);
+  if (idx>=0) window.DB.students[idx] = updated;
+  autoSyncStudent(updated, 'archive');
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
-  showToast('Student deleted');
+  showToast('Student archived 🗄️');
+};
+
+window.restoreStudent = async (id) => {
+  if (!can('archiveStudents')) { denyAccess(); return; }
+  const s = window.DB.students.find(x=>x.id===id);
+  if (!s) return;
+  const updated = { ...s, archived: false };
+  await saveDoc('students', updated, id);
+  const idx = window.DB.students.findIndex(x=>x.id===id);
+  if (idx>=0) window.DB.students[idx] = updated;
+  autoSyncStudent(updated, 'restore');
+  renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  showToast('Student restored ✅');
+};
+
+// ============================================================================
+// PHASE 3.2b-i — BULK OPERATIONS
+// ============================================================================
+// Every bulk action here is client-side orchestration over the SAME
+// per-record primitives Phase 3.2a already built (saveDoc/autoSyncStudent/
+// handleStudentWrite) — looped once per selected student, each iteration
+// individually offline-queued, individually conflict-checked, and
+// individually logged to the Activity Log (queuedSync already does this
+// for every call — see logAudit). Nothing new is added server-side except
+// the one genuinely new capability, permanent delete, since every other
+// bulk action is just "the existing single-record action, run N times."
+let SELECTED_STUDENT_IDS = new Set();
+
+window.toggleStudentSelect = (id, checked) => {
+  if (checked) SELECTED_STUDENT_IDS.add(id); else SELECTED_STUDENT_IDS.delete(id);
+  _syncStudentBulkToolbarUI();
+};
+
+window.toggleSelectAllStudents = (checked) => {
+  // Select All only ever applies to the currently filtered/visible rows,
+  // not every student that ever existed — same expectation as any
+  // spreadsheet-style bulk select.
+  document.querySelectorAll('#students-tbody .student-row-checkbox').forEach(cb => {
+    cb.checked = checked;
+    if (checked) SELECTED_STUDENT_IDS.add(cb.dataset.id); else SELECTED_STUDENT_IDS.delete(cb.dataset.id);
+  });
+  _syncStudentBulkToolbarUI();
+};
+
+window.bulkDeselectAllStudents = () => {
+  _clearStudentSelectionState();
+  renderStudents();
+};
+
+// Clears selection state AND the header checkbox — every bulk action that
+// finishes needs both, so this is the one place that does it instead of
+// each bulk function repeating the same lines.
+function _clearStudentSelectionState() {
+  SELECTED_STUDENT_IDS.clear();
+  const selAll = document.getElementById('student-select-all');
+  if (selAll) selAll.checked = false;
+}
+
+function _syncStudentBulkToolbarUI() {
+  const toolbar = document.getElementById('student-bulk-toolbar');
+  if (!toolbar) return;
+  const count = SELECTED_STUDENT_IDS.size;
+  toolbar.style.display = count ? 'flex' : 'none';
+  const countEl = document.getElementById('student-bulk-count');
+  if (countEl) countEl.textContent = `${count} selected`;
+  // Archive and Restore are mutually exclusive depending on which list is
+  // showing — bulk-archiving from the archived view (or vice versa) makes
+  // no sense, so only the relevant one of the pair is ever shown, and only
+  // if the role can use it at all (data-requires-action already hid it at
+  // login for a role that can never use it — this only adds the
+  // view-dependent half of the toggle on top of that).
+  const showingArchived = document.getElementById('student-show-archived')?.checked;
+  const archiveBtn = document.getElementById('student-bulk-archive-btn');
+  const restoreBtn = document.getElementById('student-bulk-restore-btn');
+  if (archiveBtn) archiveBtn.style.display = (!showingArchived && can('archiveStudents')) ? '' : 'none';
+  if (restoreBtn) restoreBtn.style.display = (showingArchived && can('archiveStudents')) ? '' : 'none';
+}
+
+// Shared driver for every bulk field-level change (Assign Coach / Change
+// Batch / Change Status) — one place doing the loop, offline queueing,
+// local DB patch, and re-render, so those three don't each duplicate it.
+async function _bulkUpdateSelectedStudents(mutator, toastVerb) {
+  const ids = [...SELECTED_STUDENT_IDS];
+  if (!ids.length) return;
+  let count = 0;
+  for (const id of ids) {
+    const s = window.DB.students.find(x=>x.id===id);
+    if (!s || s.archived) continue; // field edits don't apply to archived records
+    const updated = mutator({ ...s });
+    await saveDoc('students', updated, id);
+    const idx = window.DB.students.findIndex(x=>x.id===id);
+    if (idx>=0) window.DB.students[idx] = updated;
+    autoSyncStudent(updated, 'update');
+    count++;
+  }
+  _clearStudentSelectionState();
+  renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  showToast(`${toastVerb} for ${count} student${count===1?'':'s'} ✅`);
+}
+
+window.bulkArchiveStudents = async () => {
+  if (!can('archiveStudents')) { denyAccess(); return; }
+  const ids = [...SELECTED_STUDENT_IDS];
+  if (!ids.length) return;
+  if (!confirm(`Archive ${ids.length} selected student(s)? They can be restored anytime.`)) return;
+  let count = 0;
+  for (const id of ids) {
+    const s = window.DB.students.find(x=>x.id===id);
+    if (!s || s.archived) continue;
+    const updated = { ...s, archived: true };
+    await saveDoc('students', updated, id);
+    const idx = window.DB.students.findIndex(x=>x.id===id);
+    if (idx>=0) window.DB.students[idx] = updated;
+    autoSyncStudent(updated, 'archive');
+    count++;
+  }
+  _clearStudentSelectionState();
+  renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  showToast(`${count} student(s) archived 🗄️`);
+};
+
+window.bulkRestoreStudents = async () => {
+  if (!can('archiveStudents')) { denyAccess(); return; }
+  const ids = [...SELECTED_STUDENT_IDS];
+  if (!ids.length) return;
+  let count = 0;
+  for (const id of ids) {
+    const s = window.DB.students.find(x=>x.id===id);
+    if (!s || !s.archived) continue;
+    const updated = { ...s, archived: false };
+    await saveDoc('students', updated, id);
+    const idx = window.DB.students.findIndex(x=>x.id===id);
+    if (idx>=0) window.DB.students[idx] = updated;
+    autoSyncStudent(updated, 'restore');
+    count++;
+  }
+  _clearStudentSelectionState();
+  renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  showToast(`${count} student(s) restored ✅`);
+};
+
+// Super Admin only, and the ONLY genuinely permanent action Students has
+// ever had — everything else in this module is soft/recoverable. Typed
+// confirmation (not just a Yes/No dialog) because a misclick here can't
+// be undone, unlike every other destructive action in this module.
+window.bulkDeleteStudents = async () => {
+  if (!can('bulkDeleteStudents')) { denyAccess(); return; }
+  const ids = [...SELECTED_STUDENT_IDS];
+  if (!ids.length) return;
+  const typed = prompt(`This PERMANENTLY deletes ${ids.length} student(s) and cannot be undone. Type DELETE to confirm.`);
+  if (typed !== 'DELETE') { showToast('Bulk delete cancelled'); return; }
+  let count = 0;
+  for (const id of ids) {
+    const s = window.DB.students.find(x=>x.id===id);
+    if (!s) continue;
+    await deleteDoc2('students', id);
+    window.DB.students = window.DB.students.filter(x=>x.id!==id);
+    autoSyncStudent(s, 'permanent_delete');
+    count++;
+  }
+  _clearStudentSelectionState();
+  renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  showToast(`${count} student(s) permanently deleted`);
+};
+
+window.openBulkAssignCoachModal = () => {
+  if (!can('bulkAssignCoach')) { denyAccess(); return; }
+  if (!SELECTED_STUDENT_IDS.size) { showToast('Select at least one student first','error'); return; }
+  document.getElementById('bulk-assign-coach-count').textContent = `${SELECTED_STUDENT_IDS.size} student(s) selected`;
+  document.getElementById('bulk-coach-value').value = '';
+  openModal('bulk-assign-coach-modal');
+};
+window.bulkAssignCoach = async () => {
+  if (!can('bulkAssignCoach')) { denyAccess(); return; }
+  const coach = document.getElementById('bulk-coach-value').value.trim();
+  if (!coach) { showToast('Enter a coach name','error'); return; }
+  closeModal('bulk-assign-coach-modal');
+  await _bulkUpdateSelectedStudents(s => ({ ...s, coach }), 'Coach assigned');
+};
+
+window.openBulkChangeBatchModal = () => {
+  if (!can('bulkChangeBatch')) { denyAccess(); return; }
+  if (!SELECTED_STUDENT_IDS.size) { showToast('Select at least one student first','error'); return; }
+  document.getElementById('bulk-change-batch-count').textContent = `${SELECTED_STUDENT_IDS.size} student(s) selected`;
+  document.getElementById('bulk-batch-value').value = '';
+  openModal('bulk-change-batch-modal');
+};
+window.bulkChangeBatch = async () => {
+  if (!can('bulkChangeBatch')) { denyAccess(); return; }
+  const batch = document.getElementById('bulk-batch-value').value.trim();
+  if (!batch) { showToast('Enter a batch name','error'); return; }
+  closeModal('bulk-change-batch-modal');
+  await _bulkUpdateSelectedStudents(s => ({ ...s, batch }), 'Batch changed');
+};
+
+window.openBulkChangeStatusModal = () => {
+  if (!can('bulkChangeStatus')) { denyAccess(); return; }
+  if (!SELECTED_STUDENT_IDS.size) { showToast('Select at least one student first','error'); return; }
+  document.getElementById('bulk-change-status-count').textContent = `${SELECTED_STUDENT_IDS.size} student(s) selected`;
+  openModal('bulk-change-status-modal');
+};
+window.bulkChangeStatus = async () => {
+  if (!can('bulkChangeStatus')) { denyAccess(); return; }
+  const status = document.getElementById('bulk-status-value').value;
+  closeModal('bulk-change-status-modal');
+  await _bulkUpdateSelectedStudents(s => ({ ...s, status }), 'Status changed');
 };
 
 window.renderStudents = () => {
   const search=document.getElementById('student-search')?.value.toLowerCase()||'';
   const sport=document.getElementById('student-sport-filter')?.value||'';
   const status=document.getElementById('student-status-filter')?.value||'';
+  const coachFilter=document.getElementById('student-coach-filter')?.value||'';
+  const batchFilter=document.getElementById('student-batch-filter')?.value||'';
+  const joinedMonthFilter=document.getElementById('student-joined-month-filter')?.value||''; // "YYYY-MM"
+  const showArchived=document.getElementById('student-show-archived')?.checked||false;
+
+  // PHASE 3.2b-i — Advanced Search/Filters. Coach & Batch options are
+  // derived from whatever values already exist on students, so the
+  // dropdown always matches real data with no separate list to maintain.
+  _populateStudentCoachBatchFilters();
+
   const list=window.DB.students.filter(s=>{
-    const ms=!search||s.name.toLowerCase().includes(search)||s.phone.includes(search)||(s.studentId||s.id||'').toLowerCase().includes(search)||(s.batch||'').toLowerCase().includes(search)||(s.coach||'').toLowerCase().includes(search);
+    const ms=!search
+      ||s.name.toLowerCase().includes(search)
+      ||s.phone.includes(search)
+      ||(s.altPhone||'').includes(search)
+      ||(s.studentId||s.id||'').toLowerCase().includes(search)
+      ||(s.admissionNo||'').toLowerCase().includes(search)
+      ||(s.batch||'').toLowerCase().includes(search)
+      ||(s.coach||'').toLowerCase().includes(search)
+      ||(s.sport||'').toLowerCase().includes(search)
+      ||(s.status||'').toLowerCase().includes(search);
     const msp=!sport||s.sport===sport;
     const mst=!status||s.status===status;
-    return ms&&msp&&mst;
+    const mco=!coachFilter||s.coach===coachFilter;
+    const mba=!batchFilter||s.batch===batchFilter;
+    const mjm=!joinedMonthFilter||(s.joined||'').slice(0,7)===joinedMonthFilter;
+    // PHASE 3.2a — archived students are hidden from the default view (same
+    // idea as soft-deleted Coaches never showing in the active list), and
+    // only surfaced when "Show Archived" is checked, so nobody accidentally
+    // counts them in day-to-day search/filter/attendance/fee flows.
+    const march=showArchived?!!s.archived:!s.archived;
+    return ms&&msp&&mst&&mco&&mba&&mjm&&march;
   });
   const tbody=document.getElementById('students-tbody');
-  if(!list.length){tbody.innerHTML=`<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">🎓</div><p>No students yet. Add your first student!</p></div></td></tr>`;return;}
+  // PHASE 3.2b-i — selection state persists across re-renders, but only
+  // for rows still actually in view (an id that scrolled out of the
+  // current filter/search stays selected in memory; one no longer part of
+  // window.DB.students at all — archived permanently deleted — is pruned).
+  const liveIds = new Set(window.DB.students.map(s=>s.id));
+  SELECTED_STUDENT_IDS.forEach(id => { if (!liveIds.has(id)) SELECTED_STUDENT_IDS.delete(id); });
+  if(!list.length){tbody.innerHTML=`<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">🎓</div><p>${showArchived?'No archived students.':'No students yet. Add your first student!'}</p></div></td></tr>`;_syncStudentBulkToolbarUI();return;}
   tbody.innerHTML=list.map(s=>{
     const feeLabel = s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`;
     const photoCell = s.photo ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">` : `<div style="width:32px;height:32px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:14px">🎓</div>`;
-    return `<tr>
+    const actions = s.archived
+      ? `<button class="btn btn-info btn-sm" onclick="viewStudent('${s.id}')">👁️</button>
+         <button class="btn btn-secondary btn-sm" onclick="openIdCardModal('${s.id}')">🪪</button>
+         <button class="btn btn-secondary btn-sm" data-requires-action="archiveStudents" onclick="restoreStudent('${s.id}')">♻️ Restore</button>`
+      : `<button class="btn btn-info btn-sm" onclick="viewStudent('${s.id}')">👁️</button>
+         <button class="btn btn-info btn-sm" onclick="editStudent('${s.id}')">✏️</button>
+         <button class="btn btn-secondary btn-sm" onclick="openIdCardModal('${s.id}')">🪪</button>
+         <button class="btn btn-danger btn-sm" data-requires-action="archiveStudents" onclick="archiveStudent('${s.id}')">🗄️</button>`;
+    return `<tr${s.archived?' style="opacity:.6"':''}>
+    <td><input type="checkbox" class="student-row-checkbox" data-id="${s.id}" ${SELECTED_STUDENT_IDS.has(s.id)?'checked':''} onchange="toggleStudentSelect('${s.id}', this.checked)"></td>
     <td>${photoCell}</td>
-    <td><code style="font-size:11px;background:var(--gray);padding:2px 6px;border-radius:4px">${s.studentId||s.id}</code></td>
+    <td><code style="font-size:11px;background:var(--gray);padding:2px 6px;border-radius:4px">${s.studentId||s.id}</code>${s.admissionNo?`<div style="font-size:10px;color:var(--gray3);margin-top:2px">Adm# ${s.admissionNo}</div>`:''}</td>
     <td><div style="font-weight:600">${s.name}</div></td>
     <td style="color:var(--gray3)">${s.parent||'-'}</td>
     <td>${s.phone}</td>
@@ -6882,21 +7449,650 @@ window.renderStudents = () => {
     <td>${s.coach||'-'}</td>
     <td>${formatDate(s.joined)}</td>
     <td style="font-weight:700;color:var(--green)">${feeLabel}</td>
-    <td>${statusBadge(s.status)}</td>
+    <td>${s.archived?'<span class="badge badge-gray">Archived</span>':statusBadge(s.status)}</td>
     <td><div style="display:flex;gap:4px">
-      <button class="btn btn-info btn-sm" onclick="editStudent('${s.id}')">✏️</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteStudent('${s.id}')">🗑️</button>
+      ${actions}
     </div></td>
   </tr>`;
   }).join('');
+  _syncStudentBulkToolbarUI();
 };
+
+// PHASE 3.2b-i — fills the Coach/Batch filter dropdowns from whatever
+// values already exist on students, preserving the currently selected
+// value if it's still present. Cheap enough to call on every render (a
+// handful of string ops over the in-memory student list).
+function _populateStudentCoachBatchFilters() {
+  const coachSel = document.getElementById('student-coach-filter');
+  const batchSel = document.getElementById('student-batch-filter');
+  if (!coachSel || !batchSel) return;
+  const coaches = [...new Set(window.DB.students.map(s=>s.coach).filter(Boolean))].sort();
+  const batches = [...new Set(window.DB.students.map(s=>s.batch).filter(Boolean))].sort();
+  const rebuild = (sel, values) => {
+    const current = sel.value;
+    sel.innerHTML = `<option value="">All ${sel===coachSel?'Coaches':'Batches'}</option>` +
+      values.map(v=>`<option value="${v}">${v}</option>`).join('');
+    if (values.includes(current)) sel.value = current;
+  };
+  rebuild(coachSel, coaches);
+  rebuild(batchSel, batches);
+}
+
+// ===== PHASE 3.2b-ii — STUDENT ID CARD =====
+// Fully derived from the existing Student profile every time it's opened —
+// no separate "card" record, no new Sheet column. That's what makes
+// "Auto-refresh when student profile changes" and "Reprint anytime" free:
+// there's nothing cached to go stale, only window.DB.students to re-read.
+
+function _idCardBizSettings() {
+  let biz = {};
+  try { biz = JSON.parse(localStorage.getItem('ddtz_business_settings') || '{}'); } catch(e) {}
+  return {
+    name: biz.name || 'DD Turf Zone',
+    address: biz.address || 'Madambakkam, Chennai',
+    contact: biz.contact || '7305123765'
+  };
+}
+
+// Reuses whichever logo is already loaded in the sidebar/login screen
+// (custom upload from Settings, or the app's built-in default) instead of
+// embedding a third copy of that base64 image just for this feature.
+function _idCardLogoUrl() {
+  const img = document.querySelector('.ddtz-logo-img');
+  return img ? img.src : '';
+}
+
+// QR payload is a deep link back into this same admin.html with
+// ?student=<id> — kept generic (not "?card=...") so the future Attendance
+// scanning milestone (3.2b-iii) can reuse the exact same param instead of
+// needing a second QR format per student.
+function _studentDeepLinkUrl(studentId) {
+  return `${location.origin}${location.pathname}?student=${encodeURIComponent(studentId)}`;
+}
+
+// Renders a QR code entirely client-side into a detached, off-screen node
+// (qrcodejs draws synchronously — no network round-trip per card) and
+// hands back a PNG data URL, safe to drop into an <img> anywhere,
+// including a popup print window that never loaded the QR library itself.
+function _genQrDataUrl(text, size) {
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px';
+  document.body.appendChild(holder);
+  try {
+    new QRCode(holder, { text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+    const canvas = holder.querySelector('canvas');
+    if (canvas) return canvas.toDataURL('image/png');
+    const img = holder.querySelector('img');
+    return img ? img.src : '';
+  } catch (e) {
+    return '';
+  } finally {
+    document.body.removeChild(holder);
+  }
+}
+
+function _idCardFrontHTML(s, qrDataUrl, logoUrl) {
+  const photoHtml = s.photo
+    ? `<img class="idcard-photo" src="${s.photo}">`
+    : `<div class="idcard-photo-ph">🎓</div>`;
+  return `
+    <div class="idcard-head">
+      ${logoUrl ? `<img src="${logoUrl}">` : ''}
+      <div class="idcard-head-text">
+        <div class="brand">DD TURF ZONE</div>
+        <div class="sub">Student ID Card</div>
+      </div>
+    </div>
+    <div class="idcard-body">
+      ${photoHtml}
+      <div class="idcard-info">
+        <div class="idcard-name">${s.name || ''}</div>
+        <div class="idcard-idrow">${s.studentId || s.id}</div>
+        <div class="idcard-fields">
+          <b>Adm#</b> ${s.admissionNo || '-'}<br>
+          <b>Sport</b> ${categoryLabel(s.sport) || s.sport || '-'}<br>
+          <b>Batch</b> ${s.batch || '-'}<br>
+          <b>Coach</b> ${s.coach || '-'}<br>
+          <b>Emerg.</b> ${s.emergencyContact || s.phone || '-'}
+        </div>
+      </div>
+    </div>
+    <div class="idcard-qr">${qrDataUrl ? `<img src="${qrDataUrl}">` : ''}</div>
+    <div class="idcard-foot"></div>
+  `;
+}
+
+function _idCardBackHTML(s, biz) {
+  return `
+    <div class="idcard-back-head">Parent / Emergency Details</div>
+    <div class="idcard-back-body">
+      <b>Guardian</b> ${s.parent || '-'}<br>
+      <b>Parent Mobile</b> ${s.phone || '-'}${s.altPhone ? ` / ${s.altPhone}` : ''}<br>
+      <b>Address</b> ${s.address || '-'}
+      ${s.medicalNotes ? `<div class="idcard-medical">⚕️ ${s.medicalNotes}</div>` : ''}
+      <div class="idcard-terms">
+        This card is the property of ${biz.name} and must be shown on request.
+        In case of emergency, please contact the parent/guardian above, or
+        ${biz.contact}. If found, please return to ${biz.name}, ${biz.address}.
+      </div>
+    </div>
+    <div class="idcard-back-foot">${biz.name} · ${biz.contact}</div>
+  `;
+}
+
+window.openIdCardModal = (id) => {
+  const s = window.DB.students.find(x=>x.id===id);
+  if (!s) { showToast('Student not found', 'error'); return; }
+  document.getElementById('idcard-student-id').value = id;
+  const qr = _genQrDataUrl(_studentDeepLinkUrl(s.studentId || s.id), 120);
+  document.getElementById('idcard-front').innerHTML = _idCardFrontHTML(s, qr, _idCardLogoUrl());
+  document.getElementById('idcard-back').innerHTML = _idCardBackHTML(s, _idCardBizSettings());
+  // Staff gets the preview (View Only per the role matrix); the
+  // Print/PDF/PNG buttons themselves are already hidden for that role via
+  // data-requires-action="generateIdCard" — this note just explains why.
+  document.getElementById('idcard-view-only-note').style.display = can('generateIdCard') ? 'none' : '';
+  openModal('idcard-modal');
+};
+
+// Live-refreshes an already-open ID card if the record that just changed
+// (via real-time sync or a poll merge) is the one currently on screen —
+// this is what makes "Auto-refresh when student profile changes" apply
+// while the modal is open, not just the next time it's opened.
+window._refreshOpenIdCardIfNeeded = () => {
+  const modal = document.getElementById('idcard-modal');
+  if (!modal || !modal.classList.contains('open')) return;
+  const id = document.getElementById('idcard-student-id')?.value;
+  if (id) openIdCardModal(id);
+};
+
+// PHASE 3.2b-iii FIX: this used to log with type/module 'student' — but
+// 'student' is one of the types _rtMergeRecord() field-merges straight
+// into window.DB.students on every OTHER connected device (see
+// RT_MERGE_MAP). This payload only ever carries {action, studentId,
+// studentName} (no real profile fields), so a peer device would merge
+// those three keys onto its local copy of that student on its next RT
+// poll — harmless to the real fields (spread only touches keys actually
+// present), but it silently added a bogus `action`/`studentName` key to
+// the record. Using a distinct module ('student_card', not in
+// RT_MERGE_MAP — see below) keeps this purely an Activity Log/
+// notification entry, never a merge target.
+function _logIdCardActivity(s, action) {
+  logAudit({ type: 'student_card', action, studentId: s.studentId || s.id, studentName: s.name || '' });
+}
+
+// Same inline-CSS-in-a-popup approach as printCollectionReport() above —
+// a window.open('','_blank') document doesn't inherit this page's
+// stylesheet, so the .idcard-* rules are restated here in mm (matching
+// real CR80 card dimensions, 85.6mm x 54mm) instead of the px preview
+// sizing, since physical print size is what actually matters here.
+function _idCardPrintCss() {
+  return `
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,Helvetica,sans-serif;padding:8mm;background:#fff}
+    .idcard-print-grid{display:flex;flex-wrap:wrap;gap:6mm}
+    .card-pair{page-break-inside:avoid;display:flex;gap:6mm;margin-bottom:6mm}
+    .idcard{width:85.6mm;height:54mm;border-radius:3mm;overflow:hidden;position:relative;border:0.3mm solid #e2e8f0}
+    .idcard-front .idcard-head{background:linear-gradient(135deg,#0B0C0E 0%,#0A3327 60%,#0F7A45 100%);color:#fff;padding:2.6mm 3mm;display:flex;align-items:center;gap:2mm}
+    .idcard-front .idcard-head img{width:7mm;height:7mm;object-fit:contain;border-radius:1.2mm;background:#fff;padding:0.5mm}
+    .idcard-front .idcard-head-text .brand{font-size:4mm;font-weight:800;letter-spacing:.2mm}
+    .idcard-front .idcard-head-text .sub{font-size:2.1mm;opacity:.85;font-weight:600;letter-spacing:.2mm;text-transform:uppercase}
+    .idcard-front .idcard-body{display:flex;gap:2.5mm;padding:2.6mm 3mm}
+    .idcard-front .idcard-photo{width:16mm;height:16mm;border-radius:2.4mm;object-fit:cover;border:0.3mm solid #e2e8f0}
+    .idcard-front .idcard-photo-ph{width:16mm;height:16mm;border-radius:2.4mm;background:#f8fafc;border:0.3mm solid #e2e8f0;display:flex;align-items:center;justify-content:center;font-size:6mm}
+    .idcard-front .idcard-info{flex:1;min-width:0}
+    .idcard-front .idcard-name{font-size:3.6mm;font-weight:800;color:#0B0C0E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .idcard-front .idcard-idrow{font-size:2.4mm;color:#0A3327;font-weight:700;background:#f0fdf4;display:inline-block;padding:0.3mm 1.5mm;border-radius:1.2mm;margin-top:0.5mm}
+    .idcard-front .idcard-fields{margin-top:1.3mm;font-size:2.4mm;color:#1e293b;line-height:1.5}
+    .idcard-front .idcard-fields b{color:#94a3b8;font-weight:700}
+    .idcard-front .idcard-qr{position:absolute;right:2.6mm;bottom:2mm;width:11.5mm;height:11.5mm;background:#fff;border-radius:1.5mm;padding:0.5mm;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+    .idcard-front .idcard-qr img{width:100%;height:100%}
+    .idcard-front .idcard-foot{position:absolute;left:0;right:0;bottom:0;height:1.3mm;background:linear-gradient(90deg,#0F7A45,#eab308)}
+    .idcard-back{border:0.3mm solid #e2e8f0;display:flex;flex-direction:column}
+    .idcard-back .idcard-back-head{background:#0B0C0E;color:#fff;padding:1.8mm 3mm;font-size:2.8mm;font-weight:800;letter-spacing:.3mm;text-transform:uppercase}
+    .idcard-back .idcard-back-body{padding:2.3mm 3mm;font-size:2.4mm;line-height:1.5;flex:1}
+    .idcard-back .idcard-back-body b{color:#94a3b8;font-weight:700}
+    .idcard-back .idcard-medical{background:#fef2f2;border:0.3mm solid #fecaca;color:#991b1b;border-radius:1.5mm;padding:1mm 1.8mm;margin-top:1.3mm;font-size:2.2mm}
+    .idcard-back .idcard-terms{margin-top:1.5mm;font-size:2mm;color:#94a3b8;line-height:1.5}
+    .idcard-back .idcard-back-foot{background:#f8fafc;padding:1.3mm 3mm;font-size:2.1mm;color:#94a3b8;text-align:center;font-weight:600}
+    @media print { @page{size:A4;margin:8mm} body{padding:0} }
+  `;
+}
+
+function _buildIdCardPrintHTML(students) {
+  const biz = _idCardBizSettings();
+  const logoUrl = _idCardLogoUrl();
+  const cardsHtml = students.map(s => {
+    const qr = _genQrDataUrl(_studentDeepLinkUrl(s.studentId || s.id), 200);
+    return `<div class="card-pair">
+      <div class="idcard idcard-front">${_idCardFrontHTML(s, qr, logoUrl)}</div>
+      <div class="idcard idcard-back">${_idCardBackHTML(s, biz)}</div>
+    </div>`;
+  }).join('');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD Turf Zone - Student ID Card(s)</title>
+<style>${_idCardPrintCss()}</style></head><body>
+  <div class="idcard-print-grid">${cardsHtml}</div>
+</body></html>`;
+}
+
+function _openIdCardPrintWindow(students) {
+  const html = _buildIdCardPrintHTML(students);
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Please allow popups to print ID cards', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  const doPrint = () => { try { w.focus(); w.print(); } catch(e) {} };
+  w.onload = doPrint;
+  setTimeout(doPrint, 400); // fallback if onload doesn't fire in time
+}
+
+window.printCurrentIdCard = () => {
+  if (!can('generateIdCard')) { denyAccess(); return; }
+  const id = document.getElementById('idcard-student-id').value;
+  const s = window.DB.students.find(x=>x.id===id);
+  if (!s) return;
+  _openIdCardPrintWindow([s]);
+  _logIdCardActivity(s, 'id_card_print');
+};
+
+// PHASE 3.2b-ii — "Print (A4 multiple cards)". Reuses the exact same
+// Select checkbox/bulk-toolbar mechanism Phase 3.2b-i already built
+// (SELECTED_STUDENT_IDS) instead of a separate multi-select UI just for
+// this feature.
+window.bulkPrintIdCards = () => {
+  if (!can('generateIdCard')) { denyAccess(); return; }
+  const ids = [...SELECTED_STUDENT_IDS];
+  if (!ids.length) { showToast('Select at least one student first', 'error'); return; }
+  const students = ids.map(id => window.DB.students.find(x=>x.id===id)).filter(Boolean);
+  if (!students.length) return;
+  _openIdCardPrintWindow(students);
+  students.forEach(s => _logIdCardActivity(s, 'id_card_bulk_print'));
+};
+
+window.downloadIdCardPDF = async () => {
+  if (!can('generateIdCard')) { denyAccess(); return; }
+  const id = document.getElementById('idcard-student-id').value;
+  const s = window.DB.students.find(x=>x.id===id);
+  if (!s) return;
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PDF…', 'info');
+  const frontCanvas = await html2canvas(document.getElementById('idcard-front'), { scale: 3, backgroundColor: '#ffffff' });
+  const backCanvas = await html2canvas(document.getElementById('idcard-back'), { scale: 3, backgroundColor: '#ffffff' });
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [85.6, 54] });
+  doc.addImage(frontCanvas.toDataURL('image/png'), 'PNG', 0, 0, 85.6, 54);
+  doc.addPage([85.6, 54], 'landscape');
+  doc.addImage(backCanvas.toDataURL('image/png'), 'PNG', 0, 0, 85.6, 54);
+  doc.save(`ID_Card_${s.studentId || s.id}.pdf`);
+  showToast('ID card PDF downloaded ✅');
+  _logIdCardActivity(s, 'id_card_pdf');
+};
+
+window.downloadIdCardPNG = async () => {
+  if (!can('generateIdCard')) { denyAccess(); return; }
+  const id = document.getElementById('idcard-student-id').value;
+  const s = window.DB.students.find(x=>x.id===id);
+  if (!s) return;
+  if (typeof html2canvas === 'undefined') {
+    showToast('Export library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PNG…', 'info');
+  const frontCanvas = await html2canvas(document.getElementById('idcard-front'), { scale: 3, backgroundColor: '#ffffff' });
+  const backCanvas = await html2canvas(document.getElementById('idcard-back'), { scale: 3, backgroundColor: '#ffffff' });
+  const dl = (canvas, suffix) => {
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `ID_Card_${s.studentId || s.id}_${suffix}.png`;
+    a.click();
+  };
+  dl(frontCanvas, 'front');
+  dl(backCanvas, 'back');
+  showToast('ID card PNG downloaded ✅');
+  _logIdCardActivity(s, 'id_card_png');
+};
+
+// PHASE 3.2b-ii — QR deep link: a scanned card's QR opens this same
+// admin.html with ?student=<id>, which should land straight on that
+// student's profile instead of the Dashboard. Consumed once per page
+// load, only after students are actually loaded into window.DB (so the
+// lookup can succeed), and the query param is stripped immediately after
+// so reloading or sharing the resulting URL doesn't keep re-triggering it.
+function _consumeStudentDeepLinkIfAny() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const wantedId = params.get('student');
+    if (!wantedId) return;
+    history.replaceState({}, '', location.pathname);
+    if (!hasPageAccess('students')) return;
+    const s = window.DB.students.find(x => (x.studentId || x.id) === wantedId);
+    if (!s) { showToast("That QR code's student profile was not found on this device.", 'error'); return; }
+    showPage('students');
+    viewStudent(s.id);
+  } catch (e) { /* best-effort only — must never block normal app load */ }
+}
+
+// ===== PHASE 3.2b-iii — QR SCANNER =====
+// Camera + decode is entirely client-side (html5-qrcode reads frames off
+// the local video stream) — it keeps working with no internet at all.
+// Only what happens AFTER a successful decode (looking the student up,
+// writing an Activity Log entry) touches anything remote, and both of
+// those already go through offline-safe paths that exist elsewhere in
+// this file (window.DB.students is the same locally-cached copy every
+// other page reads, and logAudit() already queues itself when offline).
+//
+// "Future Ready": every step from a raw decoded string to "here's the
+// matched student" lives in _parseStudentIdFromScannedText/
+// _lookupScannedStudent below, deliberately factored out of the
+// camera/UI plumbing so a later phase (Attendance, Fee Collection,
+// Parent Check-In, Tournament Registration) can call the same two
+// functions from its own trigger instead of re-implementing QR parsing.
+// No attendance (or any other) record is created by this phase — a scan
+// only ever opens a profile or logs to Activity Log.
+
+let _qrScanner = null;          // Html5Qrcode instance, alive only while the Scanner page has a running camera
+let _qrCameras = [];             // [{id, label}, ...] from Html5Qrcode.getCameras()
+let _qrCameraIdx = 0;
+let _qrScannerRunning = false;
+let _qrScannerPaused = false;
+let _qrTorchOn = false;
+let _qrLastScanText = null;
+let _qrLastScanAt = 0;
+const QR_SCAN_DEBOUNCE_MS = 4000; // ignore an identical re-decode of the same still-in-frame card for this long
+
+window.renderScannerPage = () => {
+  document.getElementById('scanner-result').innerHTML = '';
+  _updateScannerOfflineBanner();
+  _loadScanHistory();
+};
+
+function _updateScannerOfflineBanner() {
+  const banner = document.getElementById('scanner-offline-banner');
+  if (banner) banner.style.display = navigator.onLine ? 'none' : '';
+}
+window.addEventListener('online', _updateScannerOfflineBanner);
+window.addEventListener('offline', _updateScannerOfflineBanner);
+
+// Extracts the ?student=<id> deep link this same app's ID Card QR encodes
+// (see _studentDeepLinkUrl in the Phase 3.2b-ii block above). Anything
+// that isn't a URL, or is a URL without that param, is not one of ours.
+function _parseStudentIdFromScannedText(text) {
+  try {
+    const url = new URL(text);
+    return url.searchParams.get('student') || null;
+  } catch (e) {
+    return null; // not a URL at all — not a QR this app generated
+  }
+}
+function _lookupScannedStudent(studentId) {
+  return window.DB.students.find(x => (x.studentId || x.id) === studentId) || null;
+}
+
+window.startQrScanner = async () => {
+  if (_qrScannerRunning) return;
+  if (typeof Html5Qrcode === 'undefined') { showToast('Scanner library failed to load — check your internet connection.', 'error'); return; }
+  const viewport = document.getElementById('qr-scanner-viewport');
+  viewport.innerHTML = '';
+  try {
+    _qrCameras = await Html5Qrcode.getCameras();
+  } catch (e) {
+    // getUserMedia was denied, or no camera exists at all — the person can
+    // still use "Scan from Image" below, so this isn't a dead end.
+    viewport.innerHTML = `<div class="qr-scanner-placeholder">🚫 Camera access denied or unavailable.<br>You can still use "📁 Scan from Image" below.</div>`;
+    showToast('Camera permission was denied (or no camera is available).', 'error');
+    return;
+  }
+  if (!_qrCameras || !_qrCameras.length) {
+    viewport.innerHTML = `<div class="qr-scanner-placeholder">No camera found on this device.<br>Use "📁 Scan from Image" instead.</div>`;
+    showToast('No camera found on this device.', 'error');
+    return;
+  }
+  // Prefer a rear/back/environment-labelled camera by default (typical on
+  // phones/tablets at a front desk); front cameras are still reachable via
+  // "Switch Camera".
+  _qrCameraIdx = _qrCameras.findIndex(c => /back|rear|environment/i.test(c.label || ''));
+  if (_qrCameraIdx < 0) _qrCameraIdx = 0;
+  await _qrStartWithCurrentCamera();
+};
+
+async function _qrStartWithCurrentCamera() {
+  const viewport = document.getElementById('qr-scanner-viewport');
+  try {
+    if (_qrScanner) { try { await _qrScanner.stop(); } catch (e) {} }
+    _qrScanner = new Html5Qrcode('qr-scanner-viewport');
+    await _qrScanner.start(
+      _qrCameras[_qrCameraIdx].id,
+      { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1.0 },
+      (decodedText) => _handleScannedText(decodedText),
+      () => {} // per-frame "no QR found yet" — expected noise, not an error
+    );
+    _qrScannerRunning = true;
+    _qrScannerPaused = false;
+    document.getElementById('scanner-start-btn').style.display = 'none';
+    document.getElementById('scanner-stop-btn').style.display = '';
+    document.getElementById('scanner-pause-btn').style.display = '';
+    document.getElementById('scanner-resume-btn').style.display = 'none';
+    document.getElementById('scanner-switch-cam-btn').style.display = _qrCameras.length > 1 ? '' : 'none';
+    _qrDetectTorchSupport();
+  } catch (e) {
+    viewport.innerHTML = `<div class="qr-scanner-placeholder">Could not start the camera.<br>${_esc(e.message || String(e))}</div>`;
+    showToast('Could not start the camera: ' + (e.message || e), 'error');
+  }
+}
+
+window.stopQrScanner = async () => {
+  if (!_qrScanner || !_qrScannerRunning) return;
+  try { await _qrScanner.stop(); _qrScanner.clear(); } catch (e) {}
+  _qrScannerRunning = false;
+  _qrScannerPaused = false;
+  _qrTorchOn = false;
+  document.getElementById('scanner-start-btn').style.display = '';
+  document.getElementById('scanner-stop-btn').style.display = 'none';
+  document.getElementById('scanner-pause-btn').style.display = 'none';
+  document.getElementById('scanner-resume-btn').style.display = 'none';
+  document.getElementById('scanner-switch-cam-btn').style.display = 'none';
+  document.getElementById('scanner-flash-btn').style.display = 'none';
+};
+
+window.toggleQrScannerCamera = async () => {
+  if (!_qrCameras.length) return;
+  _qrCameraIdx = (_qrCameraIdx + 1) % _qrCameras.length;
+  await _qrStartWithCurrentCamera();
+};
+
+// Best-effort flash/torch support — not every camera/browser exposes this,
+// so the button only appears once html5-qrcode confirms the currently
+// running track actually supports it, and every step is wrapped so an
+// unsupported device just never shows the button instead of erroring.
+function _qrDetectTorchSupport() {
+  const btn = document.getElementById('scanner-flash-btn');
+  try {
+    const capabilities = _qrScanner.getRunningTrackCameraCapabilities();
+    const torch = capabilities.torchFeature();
+    btn.style.display = torch.isSupported() ? '' : 'none';
+  } catch (e) {
+    btn.style.display = 'none';
+  }
+}
+window.toggleQrFlash = async () => {
+  try {
+    const capabilities = _qrScanner.getRunningTrackCameraCapabilities();
+    const torch = capabilities.torchFeature();
+    if (!torch.isSupported()) return;
+    _qrTorchOn = !_qrTorchOn;
+    await torch.apply(_qrTorchOn);
+    document.getElementById('scanner-flash-btn').textContent = _qrTorchOn ? '🔦 Flash On' : '🔦 Flash';
+  } catch (e) { showToast('Flash is not supported on this camera.', 'error'); }
+};
+
+window.pauseQrScanner = () => {
+  if (!_qrScannerRunning || _qrScannerPaused) return;
+  try { _qrScanner.pause(true); } catch (e) {}
+  _qrScannerPaused = true;
+  document.getElementById('scanner-pause-btn').style.display = 'none';
+  document.getElementById('scanner-resume-btn').style.display = '';
+};
+window.resumeQrScanner = () => {
+  if (!_qrScannerRunning || !_qrScannerPaused) return;
+  try { _qrScanner.resume(); } catch (e) {}
+  _qrScannerPaused = false;
+  document.getElementById('scanner-pause-btn').style.display = '';
+  document.getElementById('scanner-resume-btn').style.display = 'none';
+};
+
+// "Scan from Image" — works even with no camera at all (permission
+// denied, desktop with no webcam, etc.), and doesn't require the live
+// scanner to be running.
+window.scanQrFromImage = (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = ''; // allow re-selecting the same file next time
+  if (!file) return;
+  if (typeof Html5Qrcode === 'undefined') { showToast('Scanner library failed to load — check your internet connection.', 'error'); return; }
+  const tempId = 'qr-image-scan-temp';
+  let tempDiv = document.getElementById(tempId);
+  if (!tempDiv) { tempDiv = document.createElement('div'); tempDiv.id = tempId; tempDiv.style.display = 'none'; document.body.appendChild(tempDiv); }
+  const scanner = new Html5Qrcode(tempId);
+  scanner.scanFile(file, false)
+    .then((decodedText) => _handleScannedText(decodedText))
+    .catch(() => { _recordScanActivity(null, 'invalid'); _showScanResult('invalid'); })
+    .finally(() => { try { scanner.clear(); } catch (e) {} });
+};
+
+// Continuous Scan Mode: skip the auto-pause-after-a-result below, so an
+// operator can run a queue of students past the camera without tapping
+// "Scan Next" each time. The debounce above still stops the SAME card
+// (one still sitting in frame) from being logged repeatedly.
+function _continuousModeOn() {
+  return !!document.getElementById('scanner-continuous-mode')?.checked;
+}
+
+async function _handleScannedText(text) {
+  const now = Date.now();
+  if (text === _qrLastScanText && (now - _qrLastScanAt) < QR_SCAN_DEBOUNCE_MS) return;
+  _qrLastScanText = text;
+  _qrLastScanAt = now;
+
+  const scannedId = _parseStudentIdFromScannedText(text);
+  if (!scannedId) {
+    _recordScanActivity(null, 'invalid');
+    _showScanResult('invalid');
+    return;
+  }
+  const student = _lookupScannedStudent(scannedId);
+  if (!student) {
+    _recordScanActivity(scannedId, 'not_found');
+    _showScanResult('not_found', null, scannedId);
+    return;
+  }
+  _recordScanActivity(student, 'success');
+  _showScanResult('success', student);
+}
+
+function _recordScanActivity(studentOrId, result) {
+  const isStudent = studentOrId && typeof studentOrId === 'object';
+  const studentId = isStudent ? (studentOrId.studentId || studentOrId.id) : (studentOrId || '');
+  const studentName = isStudent ? (studentOrId.name || '') : '';
+  // logAudit() writes to the exact same Activity Log every other module
+  // already uses — this is what gives scanning Real-Time Sync (peer
+  // devices see it via the same syncEvents poll), Notifications (the
+  // existing bell/toast/sound in _rtApplyEvents fires for any module with
+  // an RT_MODULE_META entry — see 'scan_log' above), and Backup (the
+  // Audit sheet is included in every full-spreadsheet server backup) all
+  // for free, with zero new endpoints.
+  logAudit({ type: 'scan_log', action: result, studentId, studentName });
+  _pushScanHistoryLocal({
+    timestamp: new Date().toISOString(),
+    user: CURRENT_USER?.name || 'Unknown',
+    role: CURRENT_USER?.role || '',
+    device: _deviceTag(),
+    result, studentId, studentName
+  });
+}
+
+function _showScanResult(kind, student, extra) {
+  const box = document.getElementById('scanner-result');
+  if (kind === 'invalid') {
+    box.innerHTML = `<div class="scan-result scan-result-invalid">❌ Invalid Student QR Code
+      <div class="scan-result-actions" style="justify-content:center"><button class="btn btn-secondary btn-sm" onclick="_scanResultNext()">🔄 Scan Next</button></div></div>`;
+  } else if (kind === 'not_found') {
+    box.innerHTML = `<div class="scan-result scan-result-warn">⚠️ Student Not Found${extra ? ` <div style="font-weight:400;font-size:11px;margin-top:4px">(ID: ${_esc(extra)})</div>` : ''}
+      <div class="scan-result-actions" style="justify-content:center"><button class="btn btn-secondary btn-sm" onclick="_scanResultNext()">🔄 Scan Next</button></div></div>`;
+  } else {
+    const photoHtml = student.photo ? `<img src="${student.photo}">` : `<div class="ph">🎓</div>`;
+    box.innerHTML = `<div class="scan-result scan-result-ok">
+      <div class="scan-result-student">
+        ${photoHtml}
+        <div class="scan-result-fields">
+          <div style="font-size:15px;font-weight:800;color:var(--dark)">${_esc(student.name || '')}</div>
+          <b>ID</b> ${_esc(student.studentId || student.id)}<br>
+          <b>Sport</b> ${_esc(categoryLabel(student.sport) || student.sport || '-')}<br>
+          <b>Batch</b> ${_esc(student.batch || '-')}<br>
+          <b>Coach</b> ${_esc(student.coach || '-')}<br>
+          <b>Status</b> ${student.archived ? 'Archived' : (student.status === 'active' ? 'Active' : 'Inactive')}
+        </div>
+      </div>
+      <div class="scan-result-actions">
+        <button class="btn btn-primary btn-sm" onclick="viewStudent('${student.id}')">👁️ View Full Profile</button>
+        <button class="btn btn-secondary btn-sm" onclick="_scanResultClose()">Close</button>
+        <button class="btn btn-secondary btn-sm" onclick="_scanResultNext()">🔄 Scan Next</button>
+      </div>
+    </div>`;
+  }
+  // Pause after every result (Pause/Resume Scanner) unless Continuous Scan
+  // Mode is on, in which case the debounce window alone is what stops the
+  // same still-in-frame card from re-triggering.
+  if (_qrScannerRunning && !_continuousModeOn()) window.pauseQrScanner();
+}
+window._scanResultNext = () => { document.getElementById('scanner-result').innerHTML = ''; window.resumeQrScanner(); };
+window._scanResultClose = () => { document.getElementById('scanner-result').innerHTML = ''; };
+
+// ---- Scan History (Recent Scans panel) ----
+// Deliberately NOT a new collection/endpoint — it's the exact same
+// Activity Log (syncEvents) every other module's history already comes
+// from, just filtered to module === 'scan_log' client-side.
+let _scanHistoryCache = [];
+async function _loadScanHistory() {
+  const box = document.getElementById('scanner-history-list');
+  if (!box) return;
+  if (!_scanHistoryCache.length) {
+    try {
+      const res = await fetch(`${window.DDTZ_SHEET_URL}?action=syncEvents&sinceRow=1&_=${Date.now()}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data && data.ok) _scanHistoryCache = (data.events || []).filter(ev => ev.module === 'scan_log').reverse();
+    } catch (e) { /* offline/unreachable — show whatever's already cached (nothing, on a cold load) */ }
+  }
+  _renderScanHistory();
+}
+function _renderScanHistory() {
+  const box = document.getElementById('scanner-history-list');
+  if (!box) return;
+  if (!_scanHistoryCache.length) { box.innerHTML = '<div class="empty-state"><div class="empty-icon">📷</div><p>No scans yet.</p></div>'; return; }
+  box.innerHTML = _scanHistoryCache.slice(0, 30).map(ev => {
+    const badge = ev.action === 'success' ? '✅' : ev.action === 'not_found' ? '⚠️' : '❌';
+    const who = ev.recordId ? `${_esc(ev.recordId)}${ev.summary ? '' : ''}` : (ev.action === 'invalid' ? 'Unrecognized QR' : 'Unknown student');
+    return `<div class="scan-history-row">
+      <span>${badge} ${who}</span>
+      <span style="color:var(--gray3)">${_esc(ev.user || '')} · ${_fmtRelativeTime(ev.timestamp)}</span>
+    </div>`;
+  }).join('');
+}
+// Optimistic local prepend right after THIS device's own scan — matches
+// the same "don't wait on a round-trip to see your own action" pattern
+// the Import Wizard's history panel already uses.
+function _pushScanHistoryLocal(entry) {
+  _scanHistoryCache.unshift({
+    timestamp: entry.timestamp, user: entry.user, role: entry.role, device: entry.device,
+    module: 'scan_log', action: entry.result, recordId: entry.studentId || '', summary: entry.studentName || ''
+  });
+  _renderScanHistory();
+}
 
 // ===== ATTENDANCE =====
 document.getElementById('att-date').valueAsDate=new Date();
 window.loadAttendance = () => {
   const sport=document.getElementById('att-sport').value;
   const date=document.getElementById('att-date').value;
-  const students=window.DB.students.filter(s=>s.sport===sport&&s.status==='active');
+  const students=window.DB.students.filter(s=>s.sport===sport&&s.status==='active'&&!s.archived);
   const container=document.getElementById('attendance-list');
   if(!students.length){container.innerHTML=`<div class="empty-state"><div class="empty-icon">🎓</div><p>No active ${sport} students found.</p></div>`;return;}
 
@@ -6979,7 +8175,7 @@ window.markAtt = (id, val) => {
 // Fast-path for marking a whole batch at once — the "faster marking" ask.
 window.markAllAtt = (val) => {
   const sport=document.getElementById('att-sport').value;
-  const students=window.DB.students.filter(s=>s.sport===sport&&s.status==='active');
+  const students=window.DB.students.filter(s=>s.sport===sport&&s.status==='active'&&!s.archived);
   students.forEach(s => { attMarks[s.id]=val; refreshAttButtonStyle(s.id); saveOneAttendance(s.id, val); });
   updateAttCountSummary(students.length);
 };
@@ -7006,7 +8202,7 @@ async function saveOneAttendance(studentId, status) {
 window.saveAttendance = async () => {
   const date=document.getElementById('att-date').value;
   const sport=document.getElementById('att-sport').value;
-  const students=window.DB.students.filter(s=>s.sport===sport&&s.status==='active');
+  const students=window.DB.students.filter(s=>s.sport===sport&&s.status==='active'&&!s.archived);
   if(!students.length){showToast('No students to save','error');return;}
   for(const s of students){
     await saveOneAttendance(s.id, attMarks[s.id]||'A');
@@ -7017,7 +8213,7 @@ window.saveAttendance = async () => {
 // ===== FEES =====
 function populateFeeStudentSelect(){
   const sel=document.getElementById('fee-student-select');
-  sel.innerHTML=window.DB.students.map(s=>`<option value="${s.id}" data-fee="${s.fee||0}" data-qfee="${s.qfee||0}" data-structure="${s.feeStructure||'monthly'}" data-sport="${s.sport}">${s.name} (${s.sport}) — ${s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`}</option>`).join('');
+  sel.innerHTML=window.DB.students.filter(s=>!s.archived).map(s=>`<option value="${s.id}" data-fee="${s.fee||0}" data-qfee="${s.qfee||0}" data-structure="${s.feeStructure||'monthly'}" data-sport="${s.sport}">${s.name} (${s.sport}) — ${s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`}</option>`).join('');
   onFeeStudentChange();
 }
 // Prefills Fee Type + Fee Amount from the selected student's own fee
@@ -7762,7 +8958,7 @@ window.renderDashboard = () => {
   const pendingFees = window.DB.fees.filter(f => f.status !== 'paid').reduce((s,f) => s + (Number(f.pending)||0), 0);
   const pendingPayments = pendingBookingBalance + pendingFees;
 
-  const activeStudentsList = window.DB.students.filter(s => s.status === 'active');
+  const activeStudentsList = window.DB.students.filter(s => s.status === 'active' && !s.archived);
   const coachingSessionsToday = new Set(activeStudentsList.map(s => s.sport)).size;
 
   // Available slots today: a simple estimate against a default 6am–11pm
@@ -8505,10 +9701,25 @@ const IMPORTERS = {
     const sport = _importField(row,['Sport'])||'Football';
     const record = {
       name, phone, sport,
+      admissionNo: _importField(row,['Admission No','Admission No.','Admission Number']),
       fee: _importNum(row,['Fee','Monthly Fee']),
+      qfee: _importNum(row,['Quarterly Fee']),
+      feeStructure: _importField(row,['Fee Structure'])||'monthly',
       joined: _importField(row,['Joining Date','Joined']),
       status: _importField(row,['Status'])||'active',
-      coach: _importField(row,['Coach','Batch'])
+      coach: _importField(row,['Coach','Batch']),
+      batch: _importField(row,['Batch']),
+      parent: _importField(row,['Guardian','Parent','Father Name','Father/Guardian Name']),
+      mother: _importField(row,['Mother','Mother Name']),
+      altPhone: _importField(row,['Alternate Mobile','Alt Phone']),
+      email: _importField(row,['Email','Email Address']),
+      gender: _importField(row,['Gender']),
+      dob: _importField(row,['Date of Birth','DOB']),
+      bloodGroup: _importField(row,['Blood Group']),
+      school: _importField(row,['School','School/College']),
+      emergencyContact: _importField(row,['Emergency Contact']),
+      address: _importField(row,['Address']),
+      remarks: _importField(row,['Remarks','Notes'])
     };
     return { record, isDup: list => list.some(s => s.phone===phone && s.sport===sport) };
   },
@@ -9610,7 +10821,9 @@ const RT_MODULE_META = {
   backup_now:             { icon: '💾', label: 'Backup' },
   user:                   { icon: '🔐', label: 'User Account' },
   siteConfig:             { icon: '🌐', label: 'Website' },
-  coach:                  { icon: '👨‍🏫', label: 'Coach' } // PHASE 3.1 — Coaches Backend
+  coach:                  { icon: '👨‍🏫', label: 'Coach' }, // PHASE 3.1 — Coaches Backend
+  student_card:           { icon: '🪪', label: 'ID Card' },  // PHASE 3.2b-ii
+  scan_log:               { icon: '📷', label: 'QR Scan' }   // PHASE 3.2b-iii
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
@@ -9848,6 +11061,7 @@ window._rtReloadAfterConflict = async () => {
   // pattern _rtApplyEvents already uses, never a full page reload.
   if (payload.type === 'booking' || payload.type === 'blocked_slot') window.syncBookingsAndBlocksFromSheet?.();
   if (payload.type === 'student' && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
+  if (payload.type === 'student') window._refreshOpenIdCardIfNeeded?.();
   if (payload.type === 'enquiry' && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
   if (payload.type === 'booking' && document.getElementById('page-bookings')?.classList.contains('active')) window.renderBookingCalendar?.();
   if (payload.type === 'booking_request_update') {
@@ -9952,6 +11166,7 @@ function _rtApplyEvents(events) {
     window.fetchPendingRequestsFromSheet?.();
   }
   if (affected.has('student') && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
+  if (affected.has('student')) window._refreshOpenIdCardIfNeeded?.();
   if (affected.has('attendance') && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
   if (affected.has('enquiry') && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
   if (affected.has('coach') && document.getElementById('page-coaches')?.classList.contains('active')) window.renderCoaches?.(); // PHASE 3.1
