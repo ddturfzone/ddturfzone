@@ -333,6 +333,23 @@ tr:hover td{background:#f8fffe}
 #fee-student-info{background:var(--gray);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.8}
 #fee-student-info b{color:var(--gray3);font-weight:700}
 #fee-student-info .fsi-name{font-size:14px;font-weight:800;color:var(--dark);margin-bottom:4px}
+/* ====== PHASE 3.4c — RECEIPT SYSTEM (Task 1: Receipt Generation) ====== */
+.receipt-doc{width:420px;max-width:100%;margin:0 auto;background:#fff;border:1px solid var(--gray2);border-radius:10px;padding:24px;font-family:'Inter',sans-serif;color:var(--text)}
+.receipt-doc .rc-head{text-align:center;margin-bottom:16px;padding-bottom:14px;border-bottom:2px solid var(--dark)}
+.receipt-doc .rc-head img{width:64px;height:64px;object-fit:contain;margin:0 auto 8px;display:block}
+.receipt-doc .rc-head .rc-biz-name{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--dark)}
+.receipt-doc .rc-head .rc-biz-sub{font-size:11px;color:var(--gray3);margin-top:2px}
+.receipt-doc .rc-title{text-align:center;font-size:13px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--green-dark);margin:14px 0}
+.receipt-doc .rc-meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:14px;color:var(--gray3)}
+.receipt-doc .rc-meta b{color:var(--text);font-family:monospace}
+.receipt-doc .rc-section-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--gray3);margin:14px 0 6px}
+.receipt-doc .rc-row{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--gray2)}
+.receipt-doc .rc-row b{color:var(--gray3);font-weight:600}
+.receipt-doc .rc-amount-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0}
+.receipt-doc .rc-amount-row.rc-total{font-size:16px;font-weight:800;color:var(--dark);border-top:2px solid var(--dark);margin-top:6px;padding-top:8px}
+.receipt-doc .rc-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.receipt-doc .rc-notes{margin-top:12px;font-size:11.5px;color:var(--gray3);background:var(--gray);border-radius:6px;padding:8px 10px}
+.receipt-doc .rc-foot{text-align:center;margin-top:20px;padding-top:14px;border-top:1px solid var(--gray2);font-size:11px;color:var(--gray3)}
 </style>
 </head>
 <body>
@@ -2271,6 +2288,23 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- RECEIPT MODAL — PHASE 3.4c Task 1: Receipt Generation -->
+<div class="modal-overlay" id="receipt-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-title">🧾 Payment Receipt</div>
+    <input type="hidden" id="receipt-fee-id">
+    <div id="receipt-doc-container" class="receipt-doc"></div>
+    <div class="modal-footer" style="justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="closeModal('receipt-modal')">Close</button>
+      <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="printReceipt()">🖨️ Print</button>
+      <button class="btn btn-secondary" data-requires-action="printReceipts" onclick="downloadReceiptPDF()">📄 Download PDF</button>
+    </div>
+    <div id="receipt-view-only-note" style="display:none;text-align:center;font-size:12px;color:var(--gray3);margin-top:10px">
+      View only — ask a Manager or Super Admin to print or download this receipt.
+    </div>
+  </div>
+</div>
+
 <!-- COACH MODAL -->
 <div class="modal-overlay" id="coach-modal">
   <div class="modal">
@@ -2763,6 +2797,15 @@ const ACTION_PERMISSIONS = {
   // this gate, same as every other module's "don't rely on hiding
   // buttons alone" layer.
   manageFees:           [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.4c — Receipt System (Task 1: Receipt Generation). Kept
+  // separate from manageFees on purpose — printing/downloading a receipt
+  // for an already-recorded payment is a read/output action, not an edit,
+  // the same reasoning generateIdCard was kept separate from
+  // manageStudents. Same role set as manageFees for now; separating them
+  // leaves room to open printing to Staff later without touching payment
+  // edit rights. The preview modal itself is reachable by anyone with
+  // Fees page access (Staff included) — this only gates Print/PDF.
+  printReceipts:        [ROLES.SUPER_ADMIN, ROLES.ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -8637,6 +8680,15 @@ window.saveFee = async (sendWA=false) => {
   else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
   else showToast('Payment saved locally. Sync will retry automatically.', 'error');
 
+  // PHASE 3.4c — a brand-new payment (not an edit) with a real, synced
+  // ReceiptNo is the exact moment someone most wants to print/hand over a
+  // receipt, so open the preview automatically. Skipped for an edit
+  // (nothing new to hand anyone) and for an offline/queued save (no real
+  // ReceiptNo yet — they can reprint from the Fees table once it syncs).
+  if (!existId && syncRes && syncRes.ok && data.receiptNo && can('printReceipts')) {
+    openReceiptModal(data.id);
+  }
+
   if(sendWA){
     // Rebuilt per spec: plain aligned text, no emoji clusters. The old
     // message packed emoji like 🏟️/🙏 (multi-codepoint sequences with
@@ -8700,9 +8752,9 @@ window.renderFees = () => {
     const payable=payableOf(f), received=receivedOf(f), pend=Math.max(0, f.pending ?? (payable-received));
     const statusLabels={paid:'badge-green ✅ Paid',partial:'badge-yellow ⚠️ Partially Paid',pending:'badge-red ❌ Pending'};
     const [cls,...rest]=(statusLabels[f.status]||'badge-gray '+f.status).split(' ');
-    const actions = canEdit
+    const actions = (canEdit
       ? `<button class="btn btn-info btn-sm" onclick="editFee('${f.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="deleteFee('${f.id}')">🗑️</button>`
-      : '';
+      : '') + `<button class="btn btn-secondary btn-sm" onclick="openReceiptModal('${f.id}')">🧾</button>`;
     return `<tr>
     <td style="font-size:11px;font-family:monospace">${f.receiptNo || '<span style="color:var(--gray3)">Pending sync…</span>'}</td>
     <td style="font-weight:600">${f.studentName}</td>
@@ -8735,6 +8787,140 @@ window.deleteFee = async (id) => {
   if (f && f.receiptNo) _addLocallyDeletedFeeId(f.receiptNo);
   renderFees(); renderDashboard();
   showToast('Fee record deleted');
+};
+
+// ===== PHASE 3.4c (Task 1) — RECEIPT SYSTEM: Receipt Generation =====
+// A receipt is purely a formatted VIEW of an existing fees record — no
+// new data is stored anywhere, nothing new to sync/back up (the payment
+// itself already has all of that via 3.4b). This mirrors exactly how the
+// Student ID Card (3.2b-ii) worked: reuses _idCardLogoUrl()/
+// _idCardBizSettings() for branding rather than a third copy of the
+// business/logo lookup, and the same "popup window with inline CSS for
+// Print, html2canvas+jsPDF for PDF" split those already use. "Reprint
+// from history" needs no special handling — the Fees table's 🧾 button
+// on every row (old or new) always opens the exact same live document.
+
+function _receiptDocHTML(f) {
+  const biz = _idCardBizSettings();
+  const logoUrl = _idCardLogoUrl();
+  const payable = f.amountPayable ?? f.amount ?? 0;
+  const received = f.amountReceived ?? f.paid ?? 0;
+  const pending = Math.max(0, f.pending ?? (payable - received));
+  const dueMonth = f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year);
+  const statusLabels = { paid: 'badge-green ✅ Paid', partial: 'badge-yellow ⚠️ Partially Paid', pending: 'badge-red ❌ Pending' };
+  const [cls, ...rest] = (statusLabels[f.status] || 'badge-gray ' + f.status).split(' ');
+  const typeLabels = { full: '✅ Full Payment', partial: '⚠️ Partial Payment', advance: '⏫ Advance Payment' };
+  return `
+    <div class="rc-head">
+      ${logoUrl ? `<img src="${logoUrl}">` : ''}
+      <div class="rc-biz-name">${biz.name}</div>
+      <div class="rc-biz-sub">${biz.address} · ${biz.contact}</div>
+    </div>
+    <div class="rc-title">Payment Receipt</div>
+    <div class="rc-meta">
+      <div>Receipt No.<br><b>${f.receiptNo || 'Pending sync…'}</b></div>
+      <div style="text-align:right">Date<br><b>${formatDate(f.receiptDate || f.date)}</b></div>
+    </div>
+    <div class="rc-section-label">Student</div>
+    <div class="rc-row"><span>Name</span><b>${f.studentName || '-'}</b></div>
+    <div class="rc-row"><span>Student ID</span><b>${f.studentId || '-'}</b></div>
+    <div class="rc-row"><span>Sport</span><b>${categoryLabel(f.sport) || f.sport || '-'}</b></div>
+    <div class="rc-row"><span>Batch</span><b>${f.batch || '-'}</b></div>
+    <div class="rc-row"><span>Coach</span><b>${f.coach || '-'}</b></div>
+    <div class="rc-section-label">Payment</div>
+    <div class="rc-row"><span>Due Month</span><b>${dueMonth}</b></div>
+    <div class="rc-row"><span>Fee Type</span><b>${(f.feeType||'monthly').charAt(0).toUpperCase()+(f.feeType||'monthly').slice(1)}</b></div>
+    <div class="rc-row"><span>Payment Method</span><b>${f.paymentMethod || '-'}</b></div>
+    <div class="rc-row"><span>Payment Type</span><b>${typeLabels[f.paymentType] || f.paymentType || '-'}</b></div>
+    <div class="rc-amount-row"><span>Amount Payable</span><span>₹${payable.toLocaleString('en-IN')}</span></div>
+    <div class="rc-amount-row"><span>Amount Received</span><span>₹${received.toLocaleString('en-IN')}</span></div>
+    <div class="rc-amount-row rc-total"><span>Pending Balance</span><span>₹${pending.toLocaleString('en-IN')}</span></div>
+    <div style="text-align:center;margin-top:10px"><span class="rc-badge badge ${cls}">${rest.join(' ')}</span></div>
+    ${f.notes ? `<div class="rc-notes"><b>Notes:</b> ${f.notes}</div>` : ''}
+    <div class="rc-foot">Thank you for your payment!<br>${biz.name} · ${biz.address}</div>
+  `;
+}
+
+window.openReceiptModal = (feeId) => {
+  const f = window.DB.fees.find(x=>x.id===feeId);
+  if (!f) { showToast('Fee record not found', 'error'); return; }
+  document.getElementById('receipt-fee-id').value = feeId;
+  document.getElementById('receipt-doc-container').innerHTML = _receiptDocHTML(f);
+  document.getElementById('receipt-view-only-note').style.display = can('printReceipts') ? 'none' : '';
+  openModal('receipt-modal');
+};
+
+function _logReceiptActivity(f, action) {
+  logAudit({ type: 'receipt', action, studentId: f.studentId || '', studentName: f.studentName || '', recordId: f.receiptNo || f.id });
+}
+
+// Same inline-CSS-in-a-popup approach as the Student ID Card / Collection
+// Report print paths above — a window.open('','_blank') document doesn't
+// inherit this page's stylesheet, so the .rc-* rules are restated here.
+function _receiptPrintCss() {
+  return `
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,Helvetica,sans-serif;padding:16mm;background:#fff}
+    .receipt-doc{width:100%;max-width:420px;margin:0 auto;border:1px solid #e2e8f0;border-radius:6px;padding:20px;color:#1e293b}
+    .rc-head{text-align:center;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #0B0C0E}
+    .rc-head img{width:56px;height:56px;object-fit:contain;margin:0 auto 6px;display:block}
+    .rc-head .rc-biz-name{font-size:18px;font-weight:800;color:#0B0C0E}
+    .rc-head .rc-biz-sub{font-size:10px;color:#94a3b8;margin-top:2px}
+    .rc-title{text-align:center;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#0A3327;margin:12px 0}
+    .rc-meta{display:flex;justify-content:space-between;font-size:11px;margin-bottom:12px;color:#94a3b8}
+    .rc-meta b{color:#1e293b;font-family:monospace}
+    .rc-section-label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin:12px 0 5px}
+    .rc-row{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px dashed #e2e8f0}
+    .rc-row b{color:#94a3b8;font-weight:600}
+    .rc-amount-row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0}
+    .rc-amount-row.rc-total{font-size:14px;font-weight:800;color:#0B0C0E;border-top:2px solid #0B0C0E;margin-top:5px;padding-top:7px}
+    .rc-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700}
+    .badge-green{background:#dcfce7;color:#166534}.badge-yellow{background:#fef9c3;color:#854d0e}.badge-red{background:#fee2e2;color:#991b1b}.badge-gray{background:#f1f5f9;color:#475569}
+    .rc-notes{margin-top:10px;font-size:10.5px;color:#94a3b8;background:#f8fafc;border-radius:6px;padding:7px 9px}
+    .rc-foot{text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8}
+    @media print { @page{size:A4;margin:10mm} body{padding:0} }
+  `;
+}
+
+window.printReceipt = () => {
+  if (!can('printReceipts')) { denyAccess(); return; }
+  const feeId = document.getElementById('receipt-fee-id').value;
+  const f = window.DB.fees.find(x=>x.id===feeId);
+  if (!f) return;
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD Turf Zone - Receipt ${f.receiptNo||''}</title>
+<style>${_receiptPrintCss()}</style></head><body>
+  <div class="receipt-doc">${_receiptDocHTML(f)}</div>
+</body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Please allow popups to print the receipt', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  const doPrint = () => { try { w.focus(); w.print(); } catch(e) {} };
+  w.onload = doPrint;
+  setTimeout(doPrint, 400);
+  _logReceiptActivity(f, 'print');
+};
+
+window.downloadReceiptPDF = async () => {
+  if (!can('printReceipts')) { denyAccess(); return; }
+  const feeId = document.getElementById('receipt-fee-id').value;
+  const f = window.DB.fees.find(x=>x.id===feeId);
+  if (!f) return;
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PDF…', 'info');
+  const canvas = await html2canvas(document.getElementById('receipt-doc-container'), { scale: 3, backgroundColor: '#ffffff' });
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 15;
+  const imgWidth = pageWidth - margin * 2;
+  const imgHeight = imgWidth * (canvas.height / canvas.width);
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imgWidth, imgHeight);
+  doc.save(`Receipt_${f.receiptNo || f.id}.pdf`);
+  showToast('Receipt PDF downloaded ✅');
+  _logReceiptActivity(f, 'pdf');
 };
 
 // ===== COACHES =====
@@ -11216,7 +11402,8 @@ const RT_MODULE_META = {
   coach:                  { icon: '👨‍🏫', label: 'Coach' }, // PHASE 3.1 — Coaches Backend
   student_card:           { icon: '🪪', label: 'ID Card' },  // PHASE 3.2b-ii
   scan_log:               { icon: '📷', label: 'QR Scan' },  // PHASE 3.2b-iii
-  fee:                    { icon: '💰', label: 'Fee Payment' } // PHASE 3.4b — Fee Collection
+  fee:                    { icon: '💰', label: 'Fee Payment' }, // PHASE 3.4b — Fee Collection
+  receipt:                { icon: '🧾', label: 'Receipt' } // PHASE 3.4c — Receipt System
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
