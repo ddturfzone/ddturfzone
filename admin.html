@@ -2095,10 +2095,27 @@ tr:hover td{background:#f8fffe}
         <select id="st-fee-structure" onchange="toggleStudentFeeFields()">
           <option value="monthly">Monthly</option>
           <option value="quarterly">Quarterly</option>
+          <option value="yearly">Yearly</option>
         </select>
       </div>
-      <div class="form-group" id="st-fee-monthly-wrap"><label>Monthly Fee (₹) *</label><input type="number" id="st-fee" placeholder="e.g. 1500"></div>
-      <div class="form-group" id="st-fee-quarterly-wrap" style="display:none"><label>Quarterly Fee (₹) *</label><input type="number" id="st-qfee" placeholder="e.g. 4000"></div>
+      <div class="form-group" id="st-fee-monthly-wrap"><label>Monthly Fee (₹) *</label><input type="number" id="st-fee" placeholder="e.g. 1500" oninput="_refreshEffectiveFeePreview()"></div>
+      <div class="form-group" id="st-fee-quarterly-wrap" style="display:none"><label>Quarterly Fee (₹) *</label><input type="number" id="st-qfee" placeholder="e.g. 4000" oninput="_refreshEffectiveFeePreview()"></div>
+      <div class="form-group" id="st-fee-yearly-wrap" style="display:none"><label>Yearly Fee (₹) *</label><input type="number" id="st-yearly-fee" placeholder="e.g. 15000" oninput="_refreshEffectiveFeePreview()"></div>
+      <!-- PHASE 3.4a — Fee Structure & Plans -->
+      <div class="form-group"><label>Discount Type</label>
+        <select id="st-discount-type" onchange="_toggleDiscountValueField();_refreshEffectiveFeePreview()">
+          <option value="none">No Discount</option>
+          <option value="flat">Flat ₹ Amount</option>
+          <option value="percent">Percentage %</option>
+        </select>
+      </div>
+      <div class="form-group" id="st-discount-value-wrap" style="display:none">
+        <label id="st-discount-value-label">Discount Value</label>
+        <input type="number" id="st-discount-value" placeholder="e.g. 200" oninput="_refreshEffectiveFeePreview()">
+      </div>
+      <div class="form-group"><label>Joining Fee (₹, one-time)</label><input type="number" id="st-joining-fee" placeholder="e.g. 500 (optional)"></div>
+      <div class="form-group"><label>Due Day (day of month, 1–31)</label><input type="number" id="st-due-day" min="1" max="31" placeholder="e.g. 5"></div>
+      <div class="form-group full" id="st-effective-fee-preview" style="background:var(--green-bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--green-dark);font-weight:700"></div>
       <div class="form-group"><label>Status</label>
         <select id="st-status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
       </div>
@@ -2188,6 +2205,7 @@ tr:hover td{background:#f8fffe}
         <select id="fee-type-select" onchange="toggleFeeTypeFields()">
           <option value="monthly">Monthly</option>
           <option value="quarterly">Quarterly</option>
+          <option value="yearly">Yearly</option>
         </select>
       </div>
       <div class="form-group" id="fee-month-wrap"><label>Month *</label>
@@ -2210,6 +2228,12 @@ tr:hover td{background:#f8fffe}
       </div>
       <div class="form-group"><label>Year</label><input type="number" id="fee-year" value="2025"></div>
       <div class="form-group"><label>Fee Amount (₹) *</label><input type="number" id="fee-amount" placeholder="Monthly fee"></div>
+      <!-- PHASE 3.4a — only shown when the selected student has a Joining Fee set -->
+      <div class="form-group full" id="fee-joining-fee-wrap" style="display:none">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="fee-include-joining" onchange="toggleIncludeJoiningFee()"> Include this student's one-time Joining Fee (₹<span id="fee-joining-fee-amount">0</span>) in this payment
+        </label>
+      </div>
       <div class="form-group"><label>Amount Paid (₹) *</label><input type="number" id="fee-paid" placeholder="Amount received" oninput="calcFeePending()"></div>
       <div class="form-group"><label>Pending (₹)</label><input type="text" id="fee-pending" readonly></div>
       <div class="form-group full"><label>Payment Method</label>
@@ -5983,6 +6007,7 @@ function autoSyncFee(fee) {
     date: fee.date,
     status: fee.status,
     notes: fee.notes || '',
+    includesJoiningFee: fee.includesJoiningFee || false, // PHASE 3.4a
     // PHASE 2.5 — see autoSyncBlockedSlot comment above.
     expectedUpdatedAt: fee.updatedAt || undefined
   };
@@ -6047,6 +6072,12 @@ function autoSyncStudent(student, action) {
     feeStructure: student.feeStructure || 'monthly',
     fees: student.fee || 0,
     quarterlyFees: student.qfee || 0,
+    // PHASE 3.4a — Fee Structure & Plans
+    yearlyFees: student.yearlyFee || 0,
+    discountType: student.discountType || 'none',
+    discountValue: student.discountValue || 0,
+    joiningFee: student.joiningFee || 0,
+    dueDay: student.dueDay || '',
     joiningDate: student.joined || '',
     medicalNotes: student.medicalNotes || '',
     remarks: student.remarks || '',
@@ -6982,15 +7013,32 @@ window.saveStudent = async () => {
   const feeStructure=document.getElementById('st-fee-structure').value;
   const fee=document.getElementById('st-fee').value;
   const qfee=document.getElementById('st-qfee').value;
+  const yearlyFee=document.getElementById('st-yearly-fee').value;
+  const discountType=document.getElementById('st-discount-type').value;
+  const discountValue=document.getElementById('st-discount-value').value;
+  const joiningFee=document.getElementById('st-joining-fee').value;
+  const dueDay=document.getElementById('st-due-day').value;
   if (!name||!phone) { showToast('Fill required fields','error'); return; }
   if (feeStructure==='monthly' && !fee) { showToast('Enter the monthly fee','error'); return; }
   if (feeStructure==='quarterly' && !qfee) { showToast('Enter the quarterly fee','error'); return; }
+  if (feeStructure==='yearly' && !yearlyFee) { showToast('Enter the yearly fee','error'); return; }
+  if (dueDay && (Number(dueDay)<1 || Number(dueDay)>31)) { showToast('Due Day must be between 1 and 31','error'); return; }
   const existId=document.getElementById('st-id').value;
   const data = {
     name, phone,
     admissionNo: document.getElementById('st-admission-no').value,
     fee:Number(fee)||0,
     qfee:Number(qfee)||0,
+    // PHASE 3.4a — Fee Structure & Plans: Yearly plan, Discount (flat ₹ or
+    // %), one-time Joining Fee, and a recurring Due Day — additive fields
+    // on the same Student record that already held fee/qfee/feeStructure,
+    // matching how this app has always kept "what a student owes" on the
+    // Student itself rather than a separate plan record.
+    yearlyFee: Number(yearlyFee)||0,
+    discountType,
+    discountValue: Number(discountValue)||0,
+    joiningFee: Number(joiningFee)||0,
+    dueDay: dueDay ? Number(dueDay) : null,
     feeStructure,
     parent: document.getElementById('st-parent').value,
     mother: document.getElementById('st-mother').value,
@@ -7037,7 +7085,44 @@ function toggleStudentFeeFields(){
   const structure = document.getElementById('st-fee-structure').value;
   document.getElementById('st-fee-monthly-wrap').style.display = structure==='monthly' ? '' : 'none';
   document.getElementById('st-fee-quarterly-wrap').style.display = structure==='quarterly' ? '' : 'none';
+  document.getElementById('st-fee-yearly-wrap').style.display = structure==='yearly' ? '' : 'none';
+  _refreshEffectiveFeePreview();
 }
+
+// PHASE 3.4a — Fee Structure & Plans
+window._toggleDiscountValueField = () => {
+  const type = document.getElementById('st-discount-type').value;
+  document.getElementById('st-discount-value-wrap').style.display = type==='none' ? 'none' : '';
+  document.getElementById('st-discount-value-label').textContent = type==='percent' ? 'Discount Value (%)' : 'Discount Value (₹)';
+};
+
+// Base fee for whichever structure is selected minus the discount — shared
+// by the live preview in this modal and Fee Collection's amount prefill
+// (onFeeStudentChange), so both always agree on "what this student
+// actually owes" without duplicating the math.
+function _computeEffectiveFee(base, discountType, discountValue) {
+  const b = Number(base) || 0;
+  const v = Number(discountValue) || 0;
+  if (discountType === 'percent') return Math.max(0, b - (b * v / 100));
+  if (discountType === 'flat') return Math.max(0, b - v);
+  return b;
+}
+
+window._refreshEffectiveFeePreview = () => {
+  const box = document.getElementById('st-effective-fee-preview');
+  if (!box) return;
+  const structure = document.getElementById('st-fee-structure').value;
+  const base = structure==='yearly' ? document.getElementById('st-yearly-fee').value
+             : structure==='quarterly' ? document.getElementById('st-qfee').value
+             : document.getElementById('st-fee').value;
+  const discountType = document.getElementById('st-discount-type').value;
+  const discountValue = document.getElementById('st-discount-value').value;
+  const effective = _computeEffectiveFee(base, discountType, discountValue);
+  const periodLabel = structure==='yearly' ? '/yr' : structure==='quarterly' ? '/qtr' : '/mo';
+  box.textContent = discountType==='none'
+    ? `Effective Fee: ₹${effective.toLocaleString('en-IN')}${periodLabel}`
+    : `Effective Fee: ₹${effective.toLocaleString('en-IN')}${periodLabel} (after discount, base ₹${(Number(base)||0).toLocaleString('en-IN')})`;
+};
 
 window.autoCalcStudentAge = () => {
   const dob = document.getElementById('st-dob').value;
@@ -7082,12 +7167,14 @@ window.handleStudentPhotoUpload = (event) => {
 };
 
 function resetStudentForm(){
-  ['st-id','st-admission-no','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-coach','st-batch','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo'].forEach(id=>document.getElementById(id).value='');
+  ['st-id','st-admission-no','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-coach','st-batch','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo','st-yearly-fee','st-discount-value','st-joining-fee','st-due-day'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('st-dob').value='';
   document.getElementById('st-joined').valueAsDate=new Date();
   document.getElementById('st-gender').value='';
   document.getElementById('st-blood').value='';
   document.getElementById('st-fee-structure').value='monthly';
+  document.getElementById('st-discount-type').value='none';
+  _toggleDiscountValueField();
   toggleStudentFeeFields();
   document.getElementById('st-status').value='active';
   document.getElementById('st-id-display').textContent='Auto-generated on save';
@@ -7144,9 +7231,15 @@ window.editStudent = (id, _readOnlyReset) => {
   document.getElementById('st-joined').value=s.joined||'';
   document.getElementById('st-batch').value=s.batch||'';
   document.getElementById('st-fee-structure').value=s.feeStructure||'monthly';
-  toggleStudentFeeFields();
   document.getElementById('st-fee').value=s.fee||'';
   document.getElementById('st-qfee').value=s.qfee||'';
+  document.getElementById('st-yearly-fee').value=s.yearlyFee||'';
+  document.getElementById('st-discount-type').value=s.discountType||'none';
+  document.getElementById('st-discount-value').value=s.discountValue||'';
+  document.getElementById('st-joining-fee').value=s.joiningFee||'';
+  document.getElementById('st-due-day').value=s.dueDay||'';
+  _toggleDiscountValueField();
+  toggleStudentFeeFields(); // also refreshes the effective-fee preview
   document.getElementById('st-coach').value=s.coach||'';
   document.getElementById('st-status').value=s.status;
   document.getElementById('st-address').value=s.address||'';
@@ -7427,7 +7520,10 @@ window.renderStudents = () => {
   SELECTED_STUDENT_IDS.forEach(id => { if (!liveIds.has(id)) SELECTED_STUDENT_IDS.delete(id); });
   if(!list.length){tbody.innerHTML=`<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">🎓</div><p>${showArchived?'No archived students.':'No students yet. Add your first student!'}</p></div></td></tr>`;_syncStudentBulkToolbarUI();return;}
   tbody.innerHTML=list.map(s=>{
-    const feeLabel = s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`;
+    // PHASE 3.4a — reflects the effective (post-discount) fee, not just the base
+    const _feeBase = s.feeStructure==='yearly' ? s.yearlyFee : s.feeStructure==='quarterly' ? s.qfee : s.fee;
+    const _feePeriod = s.feeStructure==='yearly' ? '/yr' : s.feeStructure==='quarterly' ? '/qtr' : '/mo';
+    const feeLabel = `₹${Math.round(_computeEffectiveFee(_feeBase, s.discountType, s.discountValue)).toLocaleString('en-IN')}${_feePeriod}`;
     const photoCell = s.photo ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">` : `<div style="width:32px;height:32px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:14px">🎓</div>`;
     const actions = s.archived
       ? `<button class="btn btn-info btn-sm" onclick="viewStudent('${s.id}')">👁️</button>
@@ -8213,19 +8309,46 @@ window.saveAttendance = async () => {
 // ===== FEES =====
 function populateFeeStudentSelect(){
   const sel=document.getElementById('fee-student-select');
-  sel.innerHTML=window.DB.students.filter(s=>!s.archived).map(s=>`<option value="${s.id}" data-fee="${s.fee||0}" data-qfee="${s.qfee||0}" data-structure="${s.feeStructure||'monthly'}" data-sport="${s.sport}">${s.name} (${s.sport}) — ${s.feeStructure==='quarterly' ? `₹${s.qfee||0}/qtr` : `₹${s.fee||0}/mo`}</option>`).join('');
+  sel.innerHTML=window.DB.students.filter(s=>!s.archived).map(s=>{
+    const effective = Math.round(_computeEffectiveFee(s.feeStructure==='yearly'?s.yearlyFee:s.feeStructure==='quarterly'?s.qfee:s.fee, s.discountType, s.discountValue));
+    const period = s.feeStructure==='yearly'?'/yr':s.feeStructure==='quarterly'?'/qtr':'/mo';
+    return `<option value="${s.id}" data-fee="${s.fee||0}" data-qfee="${s.qfee||0}" data-yearlyfee="${s.yearlyFee||0}" data-discounttype="${s.discountType||'none'}" data-discountvalue="${s.discountValue||0}" data-joiningfee="${s.joiningFee||0}" data-structure="${s.feeStructure||'monthly'}" data-sport="${s.sport}">${s.name} (${s.sport}) — ₹${effective.toLocaleString('en-IN')}${period}</option>`;
+  }).join('');
   onFeeStudentChange();
 }
 // Prefills Fee Type + Fee Amount from the selected student's own fee
-// structure, so the common case (collecting exactly what they owe) needs
-// no manual entry — amount stays editable for one-off adjustments.
+// structure (PHASE 3.4a: now the EFFECTIVE, post-discount amount, using
+// the same _computeEffectiveFee the Student modal's live preview uses),
+// so the common case (collecting exactly what they owe) needs no manual
+// entry — amount stays editable for one-off adjustments. Also surfaces
+// the "Include Joining Fee" checkbox only when this student actually has
+// one set.
 window.onFeeStudentChange = () => {
   const opt = document.getElementById('fee-student-select')?.selectedOptions?.[0];
   if (!opt) return;
   const structure = opt.dataset.structure || 'monthly';
   document.getElementById('fee-type-select').value = structure;
   toggleFeeTypeFields();
-  document.getElementById('fee-amount').value = structure==='quarterly' ? (opt.dataset.qfee||0) : (opt.dataset.fee||0);
+  const base = structure==='yearly' ? opt.dataset.yearlyfee : structure==='quarterly' ? opt.dataset.qfee : opt.dataset.fee;
+  document.getElementById('fee-amount').value = Math.round(_computeEffectiveFee(base, opt.dataset.discounttype, opt.dataset.discountvalue));
+  const joiningFee = Number(opt.dataset.joiningfee) || 0;
+  const jfWrap = document.getElementById('fee-joining-fee-wrap');
+  const jfCheckbox = document.getElementById('fee-include-joining');
+  jfWrap.style.display = joiningFee > 0 ? '' : 'none';
+  jfCheckbox.checked = false;
+  document.getElementById('fee-joining-fee-amount').textContent = joiningFee.toLocaleString('en-IN');
+  calcFeePending();
+};
+// Adds/removes the student's one-time Joining Fee from the Fee Amount
+// field when the checkbox is toggled, without touching anything else the
+// person may have already typed into Amount Paid.
+window.toggleIncludeJoiningFee = () => {
+  const opt = document.getElementById('fee-student-select')?.selectedOptions?.[0];
+  if (!opt) return;
+  const joiningFee = Number(opt.dataset.joiningfee) || 0;
+  const amountEl = document.getElementById('fee-amount');
+  const current = Number(amountEl.value) || 0;
+  amountEl.value = document.getElementById('fee-include-joining').checked ? current + joiningFee : Math.max(0, current - joiningFee);
   calcFeePending();
 };
 function toggleFeeTypeFields(){
@@ -8261,7 +8384,10 @@ window.saveFee = async (sendWA=false) => {
     paymentMethod:document.getElementById('fee-payment-method').value,
     date:document.getElementById('fee-date').value||getToday(),
     notes:document.getElementById('fee-notes').value,
-    status:paid>=amount?'paid':paid>0?'partial':'pending'
+    status:paid>=amount?'paid':paid>0?'partial':'pending',
+    // PHASE 3.4a — recorded purely for future reporting (3.4e); doesn't
+    // change how this payment is saved or synced otherwise.
+    includesJoiningFee: document.getElementById('fee-include-joining').checked
   };
   const existId=document.getElementById('fee-id').value;
   const id=await saveDoc('fees',data,existId||null);
@@ -8283,7 +8409,7 @@ window.saveFee = async (sendWA=false) => {
       '',
       `Student : ${st.name}`,
       `Sport   : ${st.sport.charAt(0).toUpperCase()+st.sport.slice(1)} Coaching`,
-      `Period  : ${feeType==='quarterly' ? data.quarter : data.month} ${data.year}`,
+      `Period  : ${feeType==='quarterly' ? data.quarter : feeType==='yearly' ? 'Annual' : data.month} ${data.year}`,
       `Fee     : ₹${amount.toLocaleString('en-IN')}`,
       `Paid    : ₹${paid.toLocaleString('en-IN')}`,
       `Pending : ₹${Math.max(0, amount-paid).toLocaleString('en-IN')}`,
