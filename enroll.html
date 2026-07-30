@@ -88,6 +88,13 @@ textarea{resize:vertical;min-height:70px}
 
 .footer-note{text-align:center;font-size:11.5px;color:var(--gray3);margin-top:18px;line-height:1.6}
 </style>
+
+<!-- PHASE 4: Firebase Realtime Database SDK -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js"></script>
+<!-- Firebase Service Module (Single initialization point) -->
+<script defer src="firebase.js"></script>
+
 </head>
 <body>
 
@@ -284,6 +291,23 @@ async function _submitEnrolment(e) {
   };
 
   try {
+    // PHASE 4.1: Submit to Firebase first (instant write for realtime admin visibility).
+    // Reuses the SAME payload object already built above with the CORRECT field IDs
+    // (f-studentName, f-parentName, f-mobile, etc.) — do not re-query the DOM with
+    // different id names here, the public form has no f-name/f-phone/f-parent/f-age.
+    if (typeof window.submitPendingEnrolmentFirebase === 'function') {
+      const firebaseResult = await window.submitPendingEnrolmentFirebase(payload);
+
+      if (!firebaseResult.success) {
+        // Non-fatal: Firebase is the realtime-visibility layer only. The
+        // authoritative write is the POST below, which still proceeds.
+        console.warn('Firebase submission failed (will still submit to Sheets):', firebaseResult.error);
+      } else {
+        console.log('✓ Enrolment submitted to Firebase:', firebaseResult.firebaseKey);
+      }
+    }
+
+    // Authoritative submission — unchanged from the original implementation.
     const res = await fetch(ENROL_SHEET_URL, {
       method: 'POST',
       redirect: 'follow',
@@ -304,6 +328,12 @@ async function _submitEnrolment(e) {
     document.getElementById('success-view').style.display = 'block';
     document.getElementById('success-reqid').textContent = requestId;
   } catch (err) {
+    // PHASE 4.1: if the network is down, queue this exact payload for retry
+    // instead of losing it — it will be resubmitted automatically once the
+    // browser is back online (see the 'online' listener in firebase.js).
+    if (typeof window.queueForRetry === 'function' && !navigator.onLine) {
+      window.queueForRetry(requestId, 'enrolment_submit', payload);
+    }
     topError.textContent = 'Something went wrong submitting your request (' + (err.message || err) + '). Please check your connection and try again.';
     topError.style.display = '';
     btn.disabled = false;
@@ -323,6 +353,19 @@ function resetForm() {
 }
 
 document.getElementById('enrol-form').addEventListener('submit', _submitEnrolment);
+
+// PHASE 4: Initialize Firebase on page load
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof window.initializeFirebase === 'function') {
+    window.initializeFirebase().then((result) => {
+      if (result.success) {
+        console.log('✓ Firebase initialized for enroll.html');
+      } else {
+        console.warn('⚠ Firebase initialization failed for enroll.html:', result.error);
+      }
+    });
+  }
+});
 </script>
 </body>
 </html>

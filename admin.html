@@ -333,6 +333,18 @@ tr:hover td{background:#f8fffe}
 .receipt-doc .rc-notes{margin-top:12px;font-size:11.5px;color:var(--gray3);background:var(--gray);border-radius:6px;padding:8px 10px}
 .receipt-doc .rc-foot{text-align:center;margin-top:20px;padding-top:14px;border-top:1px solid var(--gray2);font-size:11px;color:var(--gray3)}
 </style>
+
+<!-- PHASE 4: Firebase Realtime Database SDK -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js"></script>
+<!-- PHASE 4.1: Auth SDK loaded on admin.html ONLY (never on enroll.html) so
+     initializeFirebase() can sign in anonymously here — this is what lets
+     the Firebase Security Rules tell "the admin panel" apart from "the
+     public enrolment form." See PHASE_4_1_FINAL_VERIFICATION.md. -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js"></script>
+<!-- Firebase Service Module (Single initialization point) -->
+<script defer src="firebase.js"></script>
+
 </head>
 <body>
 
@@ -386,6 +398,7 @@ tr:hover td{background:#f8fffe}
       <div class="nav-section">
         <div class="nav-section-label">Coaching</div>
         <button class="nav-item" data-page-nav="enrolments" onclick="showPage('enrolments')"><span class="nav-icon">📝</span>Pending Enrolments<span id="nav-enrolments-badge" class="nav-badge" style="display:none">0</span></button>
+        <button class="nav-item" data-page-nav="enrolmentqr" onclick="showPage('enrolmentqr')"><span class="nav-icon">📱</span>Enrolment QR</button>
         <button class="nav-item" data-page-nav="students" onclick="showPage('students')"><span class="nav-icon">🎓</span>Coaching</button>
         <button class="nav-item" data-page-nav="attendance" onclick="showPage('attendance')"><span class="nav-icon">✅</span>Attendance</button>
         <button class="nav-item" data-page-nav="fees" onclick="showPage('fees')"><span class="nav-icon">💰</span>Fee Collection</button>
@@ -403,6 +416,11 @@ tr:hover td{background:#f8fffe}
       <div class="nav-section">
         <div class="nav-section-label">Finance</div>
         <button class="nav-item" data-page-nav="accounts" onclick="showPage('accounts')"><span class="nav-icon">🧾</span>Accounts</button>
+        <!-- PHASE 4.2 — Finance Dashboard & Expense Management. data-page-nav
+             is enough to hide this from Manager/Staff (see
+             applyRolePermissionsToUI) — but that's UX only. showPage()'s own
+             hasPageAccess() check below is the real, unavoidable gate. -->
+        <button class="nav-item" data-page-nav="finance" onclick="showPage('finance')"><span class="nav-icon">💰</span>Finance</button>
         <button class="nav-item" data-page-nav="reports" onclick="showPage('reports')"><span class="nav-icon">📈</span>Reports</button>
         <button class="nav-item" data-page-nav="website" onclick="showPage('website')"><span class="nav-icon">🌐</span>Website Content</button>
       </div>
@@ -432,6 +450,10 @@ tr:hover td{background:#f8fffe}
         </div>
       </div>
       <div class="topbar-right">
+        <!-- PHASE 4: Firebase Connection Status Indicator -->
+        <div id="firebase-connection-indicator" style="font-size:12px;color:var(--gray3);white-space:nowrap;font-weight:600;padding:6px 10px;border-radius:6px;background:var(--gray)">
+          ⚪ Firebase Connecting...
+        </div>
         <div style="position:relative">
           <button onclick="toggleNotificationPanel()" title="Notifications" style="position:relative;background:none;border:none;cursor:pointer;font-size:19px;padding:6px;line-height:1;border-radius:8px" onmouseover="this.style.background='var(--gray)'" onmouseout="this.style.background='none'">
             🔔
@@ -627,6 +649,29 @@ tr:hover td{background:#f8fffe}
         </div>
       </div>
 
+      <!-- ENROLMENT QR — its own page, not part of Settings, so Staff and
+           Manager can reach it without needing Settings access. Contains
+           ONLY the QR + fixed URL + Copy Link/Download/Print — nothing
+           editable. -->
+      <div class="page" id="page-enrolmentqr">
+        <div style="margin-bottom:20px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">📱 Enrolment QR</div>
+          <div style="color:var(--gray3);font-size:13px">Parents scan this to open the Student Enrolment Form — submitted requests appear in Pending Enrolments for review</div>
+        </div>
+        <div class="card" style="max-width:480px">
+          <div style="text-align:center;margin-bottom:18px">
+            <img id="enr-qr-page-img" src="" alt="Student Enrolment QR" style="width:220px;height:220px;border:6px solid var(--green);border-radius:14px;padding:8px;background:#fff">
+          </div>
+          <div style="font-size:11px;color:var(--gray3);margin-bottom:4px">Enrolment Form URL</div>
+          <div id="enr-qr-page-url" style="font-size:12.5px;font-family:monospace;background:var(--gray);border-radius:8px;padding:9px 11px;word-break:break-all;margin-bottom:16px"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button class="btn btn-secondary" onclick="copyEnrolmentFormLink()">🔗 Copy Link</button>
+            <button class="btn btn-secondary" onclick="downloadEnrolmentQrPNG()">🖼️ Download QR (PNG)</button>
+            <button class="btn btn-secondary" onclick="printEnrolmentQr()">🖨️ Print QR</button>
+          </div>
+        </div>
+      </div>
+
       <!-- STUDENTS -->
       <div class="page" id="page-students">
         <div class="card mb-16" style="margin-bottom:16px">
@@ -749,6 +794,31 @@ tr:hover td{background:#f8fffe}
           </div>
         </div>
         <div id="attendance-list"></div>
+
+        <!-- PHASE 3.5 Improvements — Item 6: Monthly Attendance Summary.
+             Purely additive below the existing daily marking UI above —
+             nothing about daily marking changes. -->
+        <div class="card mt-16" style="margin-top:16px">
+          <div class="card-title">📊 Monthly Attendance Summary</div>
+          <div style="color:var(--gray3);font-size:12.5px;margin-bottom:12px">Calculated automatically from attendance records — no manual entry.</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <div class="form-group"><label>Month</label><input type="month" id="att-summary-month"></div>
+            <div class="form-group"><label>Sport</label>
+              <select id="att-summary-sport">
+                <option value="football">⚽ Football</option>
+                <option value="cricket">🏏 Cricket</option>
+                <option value="taekwondo">🥋 Taekwondo</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="renderAttendanceSummary()">Generate Summary</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Student</th><th>Coach</th><th>Batch</th><th>Scheduled</th><th>Attended</th><th>Missed</th><th>%</th><th>Month</th><th>Actions</th></tr></thead>
+              <tbody id="att-summary-tbody"><tr><td colspan="8"><div class="empty-state"><div class="empty-icon">📊</div><p>Pick a month and sport, then Generate Summary</p></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- FEES -->
@@ -842,7 +912,7 @@ tr:hover td{background:#f8fffe}
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Coaches</div>
             <div style="color:var(--gray3);font-size:13px">Manage coaching staff</div>
           </div>
-          <button class="btn btn-primary" onclick="openModal('coach-modal')">+ Add Coach</button>
+          <button class="btn btn-primary" data-requires-action="manageCoaches" onclick="openModal('coach-modal')">+ Add Coach</button>
         </div>
         <!-- PHASE 3.1 — Coaches now has a real Sheets-backed CRUD endpoint,
              cross-device sync, and optimistic conflict detection, same as
@@ -927,6 +997,97 @@ tr:hover td{background:#f8fffe}
           <div class="card">
             <div class="card-title">📊 Revenue Breakdown</div>
             <div id="revenue-breakdown"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           PHASE 4.2 — FINANCE DASHBOARD & EXPENSE MANAGEMENT
+           Super Admin ONLY. Completely separate from page-accounts above
+           (that page and its expense-modal/renderAccounts/saveExpense are
+           untouched) — new page, new data collection, new functions, so
+           nothing here can affect the existing Accounts & Finance page.
+      ============================================================ -->
+      <div class="page" id="page-finance">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">💰 Finance</div>
+            <div style="color:var(--gray3);font-size:13px">Income, expenses, profit & business reports — Super Admin only</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" data-requires-action="exportFinanceReport" onclick="downloadFinanceReportPDF()">📄 PDF</button>
+            <button class="btn btn-secondary" data-requires-action="exportFinanceReport" onclick="downloadFinanceReportExcel()">⬇️ Excel</button>
+            <button class="btn btn-secondary" data-requires-action="exportFinanceReport" onclick="printFinanceReport()">🖨️ Print</button>
+            <button class="btn btn-primary" data-requires-action="manageFinanceExpense" onclick="openFinanceExpenseModal()">+ Add Expense</button>
+          </div>
+        </div>
+
+        <!-- Firebase connection indicator for this module specifically -->
+        <div id="finance-sync-indicator" style="font-size:11.5px;color:var(--gray3);margin-bottom:10px"></div>
+
+        <!-- Date range selector -->
+        <div style="background:white;border:1.5px solid var(--gray2);border-radius:14px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm fin-range-btn" data-range="today" onclick="finSetRange('today')">Today</button>
+            <button class="btn btn-secondary btn-sm fin-range-btn" data-range="week" onclick="finSetRange('week')">This Week</button>
+            <button class="btn btn-primary btn-sm fin-range-btn" data-range="month" onclick="finSetRange('month')">This Month</button>
+            <button class="btn btn-secondary btn-sm fin-range-btn" data-range="year" onclick="finSetRange('year')">This Year</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div><div style="font-size:11px;color:var(--gray3);margin-bottom:4px">From</div><input type="date" id="fin-from-date" style="padding:7px 10px;border:1.5px solid var(--gray2);border-radius:8px;font-size:13px"></div>
+            <div><div style="font-size:11px;color:var(--gray3);margin-bottom:4px">To</div><input type="date" id="fin-to-date" style="padding:7px 10px;border:1.5px solid var(--gray2);border-radius:8px;font-size:13px"></div>
+            <button class="btn btn-secondary btn-sm" onclick="finSetRange('custom')">Apply Custom</button>
+          </div>
+        </div>
+        <div id="fin-period-label" style="font-size:12px;color:var(--gray3);font-weight:600;margin-bottom:14px"></div>
+
+        <!-- Recurring expense reminders -->
+        <div id="finance-reminders-panel"></div>
+
+        <!-- Dashboard cards (always Today/Monthly regardless of selected range, per spec section 8) -->
+        <div class="stats-grid" id="finance-dashboard-cards"></div>
+
+        <!-- Consolidated Business Summary for the selected range -->
+        <div class="card mt-16" style="margin-top:16px">
+          <div class="card-title">📊 Consolidated Business Summary</div>
+          <div class="stats-grid" id="finance-summary-cards" style="margin-bottom:0"></div>
+        </div>
+
+        <!-- Per-vertical Income / Expense / Profit -->
+        <div class="grid-3 mt-16" style="margin-top:16px" id="finance-vertical-cards"></div>
+
+        <!-- Charts -->
+        <div class="grid-2 mt-16" style="margin-top:16px">
+          <div class="card"><div class="card-title">📈 Income vs Expenses</div><canvas id="fin-chart-income-expense" height="220"></canvas></div>
+          <div class="card"><div class="card-title">📉 Monthly Profit Trend</div><canvas id="fin-chart-profit-trend" height="220"></canvas></div>
+        </div>
+        <div class="grid-2 mt-16" style="margin-top:16px">
+          <div class="card"><div class="card-title">🏢 Revenue by Business</div><canvas id="fin-chart-revenue-business" height="220"></canvas></div>
+          <div class="card"><div class="card-title">🗂️ Expenses by Category</div><canvas id="fin-chart-expense-category" height="220"></canvas></div>
+        </div>
+
+        <!-- Expenses table -->
+        <div class="card mt-16" style="margin-top:16px">
+          <div class="card-title">📤 Expenses</div>
+          <div class="filter-bar">
+            <select id="fin-filter-group" onchange="renderFinance()">
+              <option value="">All Categories</option>
+              <option value="owner">Owner Expenses</option>
+              <option value="employee">Employee Expenses</option>
+              <option value="slot">Slot Booking Expenses</option>
+              <option value="coaching">Coaching Expenses</option>
+              <option value="cafe">Cafe Expenses</option>
+              <option value="general">General / Admin Expenses</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Date</th><th>Category</th><th>Type</th><th>Description</th><th>Amount</th>
+                <th>Method</th><th>Recurring</th><th>Added By</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="finance-expenses-tbody"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1262,6 +1423,10 @@ tr:hover td{background:#f8fffe}
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">⚙️ Settings</div>
           <div style="color:var(--gray3);font-size:13px">Business details, backup, integrations & role reference</div>
         </div>
+
+        <!-- STUDENT ENROLMENT QR moved to its own sidebar page (see
+             page-enrolmentqr below) so Settings itself can stay Super
+             Admin only, exactly as it always was. -->
 
         <div class="card mb-16" style="margin-bottom:16px">
           <div class="card-title">🏢 Business Details</div>
@@ -2112,50 +2277,56 @@ tr:hover td{background:#f8fffe}
   <div class="modal">
     <div class="modal-title" id="student-modal-title">🎓 Add Student</div>
     <input type="hidden" id="st-id">
-    <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">
-      <div style="position:relative">
-        <img id="st-photo-preview" src="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:var(--gray);display:none;border:2px solid var(--gray2)">
-        <div id="st-photo-placeholder" style="width:64px;height:64px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:24px">🎓</div>
-      </div>
-      <div>
-        <label class="btn btn-secondary btn-sm" style="cursor:pointer">📷 Upload Photo<input type="file" id="st-photo-input" accept="image/*" style="display:none" onchange="handleStudentPhotoUpload(event)"></label>
-        <div style="font-size:11px;color:var(--gray3);margin-top:4px">Optional — stored on this device only, kept small automatically</div>
-        <input type="hidden" id="st-photo">
-      </div>
-      <div style="margin-left:auto;text-align:right">
-        <div style="font-size:11px;color:var(--gray3)">Student ID</div>
-        <code id="st-id-display" style="font-size:13px;font-weight:700;background:var(--gray);padding:3px 8px;border-radius:6px">Auto-generated on save</code>
-      </div>
+    <div style="margin-left:auto;text-align:right;margin-bottom:10px">
+      <div style="font-size:11px;color:var(--gray3)">Student ID</div>
+      <code id="st-id-display" style="font-size:13px;font-weight:700;background:var(--gray);padding:3px 8px;border-radius:6px">Auto-generated on save</code>
     </div>
+    <!-- PHASE 3.5 Improvements — Essential Fields. Reduced from the full
+         field set to just what's needed day-to-day; everything else moved
+         into the "Additional Details" section below rather than removed,
+         so existing students' data (Address/School/Email/etc., including
+         records created via Enrolment approval) is never lost on save. -->
     <div class="form-grid">
       <div class="form-group"><label>Student Name *</label><input type="text" id="st-name" placeholder="Full name"></div>
-      <div class="form-group"><label>Admission No.</label><input type="text" id="st-admission-no" placeholder="e.g. matches your physical admission register"></div>
-      <div class="form-group"><label>Coaching Category *</label>
-        <select id="st-sport">
+      <div class="form-group">
+        <label>Date of Birth <span style="font-weight:400;color:var(--gray3)">(age auto-calculated)</span></label>
+        <input type="date" id="st-dob" onchange="autoCalcStudentAge()">
+        <input type="text" id="st-age" readonly style="margin-top:6px;background:var(--gray);color:var(--gray3);font-size:12px" placeholder="Age appears here">
+      </div>
+      <div class="form-group"><label>Parent/Guardian Name *</label><input type="text" id="st-parent" placeholder="Father/Guardian name"></div>
+      <div class="form-group"><label>Mobile Number *</label><input type="tel" id="st-phone" placeholder="+91 99999 99999"></div>
+      <div class="form-group"><label>Sport *</label>
+        <select id="st-sport" onchange="_onStudentSportChange()">
           <option value="football">⚽ Football</option>
           <option value="cricket">🏏 Cricket</option>
           <option value="taekwondo">🥋 Taekwondo</option>
         </select>
       </div>
-      <div class="form-group"><label>Father / Guardian Name</label><input type="text" id="st-parent" placeholder="Father/Guardian name"></div>
-      <div class="form-group"><label>Mother Name</label><input type="text" id="st-mother" placeholder="Mother's name"></div>
-      <div class="form-group"><label>Mobile Number *</label><input type="tel" id="st-phone" placeholder="+91 99999 99999"></div>
-      <div class="form-group"><label>Alternate Mobile</label><input type="tel" id="st-altphone" placeholder="Alternate contact"></div>
-      <div class="form-group"><label>Email Address</label><input type="email" id="st-email" placeholder="email@example.com"></div>
-      <div class="form-group"><label>Date of Birth</label><input type="date" id="st-dob" onchange="autoCalcStudentAge()"></div>
-      <div class="form-group"><label>Age</label><input type="number" id="st-age" placeholder="Age"></div>
-      <div class="form-group"><label>Gender</label>
-        <select id="st-gender"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
+      <div class="form-group">
+        <label>Coach <span style="font-weight:400;color:var(--gray3)">(auto-assigned by sport — change if needed)</span></label>
+        <select id="st-coach"></select>
       </div>
-      <div class="form-group"><label>Blood Group</label>
-        <select id="st-blood"><option value="">Select</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>
+      <div class="form-group" id="st-batch-freetext-wrap">
+        <label>Batch *</label>
+        <input type="text" id="st-batch-text" placeholder="e.g. Evening Batch A" oninput="_syncStudentBatchFromText()">
       </div>
-      <div class="form-group"><label>School / College</label><input type="text" id="st-school" placeholder="School or college name"></div>
-      <div class="form-group"><label>Emergency Contact</label><input type="tel" id="st-emergency" placeholder="Name & number"></div>
-      <div class="form-group"><label>Admission Date</label><input type="date" id="st-joined"></div>
-      <div class="form-group"><label>Batch</label><input type="text" id="st-batch" placeholder="e.g. Evening Batch A"></div>
-      <div class="form-group"><label>Coach / Trainer</label><input type="text" id="st-coach" placeholder="Coach name"></div>
-      <div class="form-group"><label>Fee Structure *</label>
+      <!-- PHASE 3.5 Improvements — Football Batch Structure: fixed batches
+           with a fixed weekly schedule, shown only when Sport=Football.
+           st-batch (hidden) always holds the resolved value either way, so
+           saveStudent's single `document.getElementById('st-batch').value`
+           read needs no change. -->
+      <div class="form-group" id="st-batch-football-wrap" style="display:none">
+        <label>Batch *</label>
+        <select id="st-batch-football" onchange="_onFootballBatchChange()">
+          <option value="">Select a batch</option>
+          <option value="Football – Under 8">Football – Under 8 (Tue/Thu/Sat)</option>
+          <option value="Football – 8 Years & Above">Football – 8 Years & Above (Mon/Wed/Fri)</option>
+        </select>
+      </div>
+      <input type="hidden" id="st-batch">
+      <input type="hidden" id="st-schedule-days">
+      <div class="form-group"><label>Joining Date *</label><input type="date" id="st-joined"></div>
+      <div class="form-group"><label>Fee Plan *</label>
         <select id="st-fee-structure" onchange="toggleStudentFeeFields()">
           <option value="monthly">Monthly</option>
           <option value="quarterly">Quarterly</option>
@@ -2165,28 +2336,57 @@ tr:hover td{background:#f8fffe}
       <div class="form-group" id="st-fee-monthly-wrap"><label>Monthly Fee (₹) *</label><input type="number" id="st-fee" placeholder="e.g. 1500" oninput="_refreshEffectiveFeePreview()"></div>
       <div class="form-group" id="st-fee-quarterly-wrap" style="display:none"><label>Quarterly Fee (₹) *</label><input type="number" id="st-qfee" placeholder="e.g. 4000" oninput="_refreshEffectiveFeePreview()"></div>
       <div class="form-group" id="st-fee-yearly-wrap" style="display:none"><label>Yearly Fee (₹) *</label><input type="number" id="st-yearly-fee" placeholder="e.g. 15000" oninput="_refreshEffectiveFeePreview()"></div>
-      <!-- PHASE 3.4a — Fee Structure & Plans -->
-      <div class="form-group"><label>Discount Type</label>
-        <select id="st-discount-type" onchange="_toggleDiscountValueField();_refreshEffectiveFeePreview()">
-          <option value="none">No Discount</option>
-          <option value="flat">Flat ₹ Amount</option>
-          <option value="percent">Percentage %</option>
-        </select>
-      </div>
-      <div class="form-group" id="st-discount-value-wrap" style="display:none">
-        <label id="st-discount-value-label">Discount Value</label>
-        <input type="number" id="st-discount-value" placeholder="e.g. 200" oninput="_refreshEffectiveFeePreview()">
-      </div>
-      <div class="form-group"><label>Joining Fee (₹, one-time)</label><input type="number" id="st-joining-fee" placeholder="e.g. 500 (optional)"></div>
-      <div class="form-group"><label>Due Day (day of month, 1–31)</label><input type="number" id="st-due-day" min="1" max="31" placeholder="e.g. 5"></div>
-      <div class="form-group full" id="st-effective-fee-preview" style="background:var(--green-bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--green-dark);font-weight:700"></div>
-      <div class="form-group"><label>Status</label>
+      <div class="form-group"><label>Status *</label>
         <select id="st-status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
       </div>
-      <div class="form-group full"><label>Address</label><textarea id="st-address" rows="2" placeholder="Address"></textarea></div>
-      <div class="form-group full"><label>Medical Notes</label><textarea id="st-medical" rows="2" placeholder="Allergies, conditions, medication, etc. (optional)"></textarea></div>
-      <div class="form-group full"><label>Remarks</label><textarea id="st-remarks" rows="2" placeholder="Any other notes"></textarea></div>
+      <div class="form-group full" id="st-effective-fee-preview" style="background:var(--green-bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--green-dark);font-weight:700"></div>
     </div>
+
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;font-weight:700;font-size:13.5px;color:var(--gray3);padding:8px 0">➕ Additional Details (optional)</summary>
+      <div style="display:flex;gap:14px;align-items:center;margin:14px 0">
+        <div style="position:relative">
+          <img id="st-photo-preview" src="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:var(--gray);display:none;border:2px solid var(--gray2)">
+          <div id="st-photo-placeholder" style="width:64px;height:64px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:24px">🎓</div>
+        </div>
+        <div>
+          <label class="btn btn-secondary btn-sm" style="cursor:pointer">📷 Upload Photo<input type="file" id="st-photo-input" accept="image/*" style="display:none" onchange="handleStudentPhotoUpload(event)"></label>
+          <div style="font-size:11px;color:var(--gray3);margin-top:4px">Optional — stored on this device only, kept small automatically</div>
+          <input type="hidden" id="st-photo">
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label>Admission No.</label><input type="text" id="st-admission-no" placeholder="e.g. matches your physical admission register"></div>
+        <div class="form-group"><label>Mother Name</label><input type="text" id="st-mother" placeholder="Mother's name"></div>
+        <div class="form-group"><label>Alternate Mobile</label><input type="tel" id="st-altphone" placeholder="Alternate contact"></div>
+        <div class="form-group"><label>Email Address</label><input type="email" id="st-email" placeholder="email@example.com"></div>
+        <div class="form-group"><label>Gender</label>
+          <select id="st-gender"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
+        </div>
+        <div class="form-group"><label>Blood Group</label>
+          <select id="st-blood"><option value="">Select</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>
+        </div>
+        <div class="form-group"><label>School / College</label><input type="text" id="st-school" placeholder="School or college name"></div>
+        <div class="form-group"><label>Emergency Contact</label><input type="tel" id="st-emergency" placeholder="Name & number"></div>
+        <div class="form-group"><label>Discount Type</label>
+          <select id="st-discount-type" onchange="_toggleDiscountValueField();_refreshEffectiveFeePreview()">
+            <option value="none">No Discount</option>
+            <option value="flat">Flat ₹ Amount</option>
+            <option value="percent">Percentage %</option>
+          </select>
+        </div>
+        <div class="form-group" id="st-discount-value-wrap" style="display:none">
+          <label id="st-discount-value-label">Discount Value</label>
+          <input type="number" id="st-discount-value" placeholder="e.g. 200" oninput="_refreshEffectiveFeePreview()">
+        </div>
+        <div class="form-group"><label>Joining Fee (₹, one-time)</label><input type="number" id="st-joining-fee" placeholder="e.g. 500 (optional)"></div>
+        <div class="form-group"><label>Due Day (day of month, 1–31)</label><input type="number" id="st-due-day" min="1" max="31" placeholder="e.g. 5"></div>
+        <div class="form-group full"><label>Address</label><textarea id="st-address" rows="2" placeholder="Address"></textarea></div>
+        <div class="form-group full"><label>Medical Notes</label><textarea id="st-medical" rows="2" placeholder="Allergies, conditions, medication, etc. (optional)"></textarea></div>
+        <div class="form-group full"><label>Remarks</label><textarea id="st-remarks" rows="2" placeholder="Any other notes"></textarea></div>
+      </div>
+    </details>
+
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('student-modal')">Cancel</button>
       <button class="btn btn-primary" id="student-modal-save-btn" onclick="saveStudent()">💾 Save Student</button>
@@ -2516,6 +2716,77 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- PHASE 4.2 — FINANCE EXPENSE MODAL. Deliberately separate ids (fin-*)
+     from the expense-modal above — two independent expense systems, not
+     sharing any element, function, or data. -->
+<div class="modal-overlay" id="finance-expense-modal">
+  <div class="modal">
+    <div class="modal-title" id="finance-expense-modal-title">💰 Add Expense</div>
+    <input type="hidden" id="fin-exp-id">
+    <div class="form-grid">
+      <div class="form-group"><label>Date *</label><input type="date" id="fin-exp-date"></div>
+      <div class="form-group"><label>Category *</label>
+        <select id="fin-exp-group" onchange="_finRebuildExpenseTypeSelect()">
+          <option value="owner">Owner Expenses</option>
+          <option value="employee">Employee Expenses</option>
+          <option value="slot">Slot Booking Expenses</option>
+          <option value="coaching">Coaching Expenses</option>
+          <option value="cafe">Cafe Expenses</option>
+          <option value="general">General / Admin Expenses</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Expense Type *</label>
+        <select id="fin-exp-type" onchange="_finToggleOthersField()"></select>
+      </div>
+      <div class="form-group" id="fin-exp-others-wrap" style="display:none">
+        <label>Specify (Others) *</label><input type="text" id="fin-exp-others" placeholder="Describe the expense type">
+      </div>
+      <div class="form-group full"><label>Description</label><input type="text" id="fin-exp-description" placeholder="Short description"></div>
+      <div class="form-group"><label>Amount (₹) *</label><input type="number" id="fin-exp-amount" placeholder="Amount"></div>
+      <div class="form-group"><label>Payment Method</label>
+        <select id="fin-exp-method">
+          <option value="Cash">Cash</option>
+          <option value="UPI">UPI</option>
+          <option value="Bank Transfer">Bank Transfer</option>
+          <option value="Card">Card</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="form-group full"><label>Notes</label><textarea id="fin-exp-notes" rows="2" placeholder="Optional notes..."></textarea></div>
+
+      <div class="form-group"><label>Recurring Expense</label>
+        <select id="fin-exp-recurring" onchange="_finToggleRecurringFields()">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </div>
+      <div class="form-group" id="fin-exp-frequency-wrap" style="display:none">
+        <label>Frequency</label>
+        <select id="fin-exp-frequency">
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+      </div>
+      <div class="form-group" id="fin-exp-nextdue-wrap" style="display:none">
+        <label>Next Due Date</label><input type="date" id="fin-exp-nextdue">
+      </div>
+      <div class="form-group" id="fin-exp-reminder-wrap" style="display:none">
+        <label>Reminder Before</label>
+        <select id="fin-exp-reminder">
+          <option value="1">1 Day</option>
+          <option value="3" selected>3 Days</option>
+          <option value="7">7 Days</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('finance-expense-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveFinanceExpense()">💾 Save Expense</button>
+    </div>
+  </div>
+</div>
+
 <!-- PHASE 2.5 — EDIT CONFLICT MODAL. Shown when the server rejects a save
      because someone else changed the same record first (see _versionConflict
      in Code.gs / _rtShowEditConflictModal below). Never auto-closes and
@@ -2554,6 +2825,10 @@ tr:hover td{background:#f8fffe}
 <!-- SheetJS for Excel export -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- PHASE 4.2 — Finance charts. Chart.js: ~60KB gzipped, the standard
+     lightweight choice for exactly this kind of dashboard (matches "keep
+     charts lightweight" in the spec). Only used by the Finance page. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <!-- PHASE 3.2b-ii — Student ID Card: html2canvas rasterizes the on-screen
      card preview for PNG/PDF export; qrcodejs renders the per-student QR
      entirely client-side (no network call per card, synchronous <canvas>
@@ -2591,7 +2866,7 @@ const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZ
 //     Known Limitation entry. RESOLVED in Phase 3.1 — see the "PHASE 3.1 —
 //     Coaches Backend" comments on TABS.COACHES / autoSyncCoach /
 //     syncCoachesFromSheet / handleCoachesGet / handleCoachWrite.
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -2639,7 +2914,8 @@ function _resetSheetUrlToProduction() {
 // count from wherever it's currently at for that collection.
 const ID_PREFIXES = {
   bookings: 'B', attendance: 'A', fees: 'F', enquiries: 'E', cafeSales: 'C',
-  students: 'CO', blockedSlots: 'BL', coaches: 'CH', expenses: 'EX', cafeItems: 'CI'
+  students: 'CO', blockedSlots: 'BL', coaches: 'CH', expenses: 'EX', cafeItems: 'CI',
+  financeExpenses: 'FE' // PHASE 4.2 — distinct from the existing 'expenses' (EX) prefix
 };
 // A short, stable, per-browser tag generated once and reused for every ID
 // this device ever creates. FIX (Issue #6/#9 — never overwrite existing
@@ -2837,6 +3113,10 @@ const PAGE_PERMISSIONS = {
   // Manager/Super Admin: full workflow (Edit/Approve/Reject gated below
   // by ACTION_PERMISSIONS.manageEnrolments).
   enrolments: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
+  // Enrolment QR — its own page (not part of Settings), open to all
+  // roles since it's just a printable link to the already-public
+  // enrolment form, nothing sensitive.
+  enrolmentqr: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   students:   [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   attendance: [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   // PHASE 3.4b — Fee Collection. Previously Admin-only (Staff couldn't
@@ -2850,10 +3130,17 @@ const PAGE_PERMISSIONS = {
   // below gates the actual write/outbound actions (Collect Fee, Manual
   // WhatsApp Reminder, Print Receipt History).
   dues:       [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
-  coaches:    [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // PHASE 3.5 Improvements — Staff can now view Coaches (read-only);
+  // manageCoaches below still gates Add/Edit/Delete to Super Admin/Manager.
+  coaches:    [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   enquiries:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   cafe:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   accounts:   [ROLES.SUPER_ADMIN],
+  // PHASE 4.2 — Finance Dashboard & Expense Management. Deliberately
+  // separate from 'accounts' above (the existing simple expense tracker
+  // is untouched) — Super Admin only, no exceptions, checked the same
+  // way every other Super-Admin-only page already is.
+  finance:    [ROLES.SUPER_ADMIN],
   reports:    [ROLES.SUPER_ADMIN],
   activity:   [ROLES.SUPER_ADMIN, ROLES.ADMIN], // PHASE 2.5
   users:      [ROLES.SUPER_ADMIN],
@@ -2877,6 +3164,13 @@ const ACTION_PERMISSIONS = {
   manageSettings:       [ROLES.SUPER_ADMIN],
   viewAccounts:         [ROLES.SUPER_ADMIN],
   viewReports:          [ROLES.SUPER_ADMIN],
+  // PHASE 4.2 — Finance. Every single Finance action is Super-Admin-only,
+  // no partial access for Manager/Staff anywhere (unlike Fees/Students/
+  // etc., which give Staff view-only access) — this is the one module in
+  // the whole app with zero Manager/Staff visibility of any kind.
+  viewFinance:          [ROLES.SUPER_ADMIN],
+  manageFinanceExpense: [ROLES.SUPER_ADMIN],
+  exportFinanceReport:  [ROLES.SUPER_ADMIN],
   // PHASE 3.1 — Coaches Backend. Same roles as PAGE_PERMISSIONS.coaches
   // (Super Admin + Manager); this is the point-of-action gate that backs
   // up the page-level one, same as every other module here.
@@ -2895,7 +3189,10 @@ const ACTION_PERMISSIONS = {
   // broad-blast-radius action in this app.
   bulkAssignCoach:      [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   bulkChangeBatch:      [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  bulkChangeStatus:     [ROLES.SUPER_ADMIN],
+  // PHASE 3.5 Improvements — Item 3: Manager (Admin role) couldn't change
+  // student status in bulk before; only single-student edits (already
+  // gated by manageStudents, which already includes Admin) worked for them.
+  bulkChangeStatus:     [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   bulkDeleteStudents:   [ROLES.SUPER_ADMIN],
   // PHASE 3.2b-ii — Student ID Card. Gates Generate/Print/Download only;
   // the preview modal itself is reachable by anyone with Students page
@@ -3065,6 +3362,38 @@ function _enterApp(user) {
   applyRolePermissionsToUI();
   window._rtRenderBell?.(); // PHASE 2.5 — show any unread notifications this device already had queued locally
   window.rtPollEvents?.();  // and do one immediate poll rather than waiting for the first 2.5s tick
+  
+  // PHASE 4: Firebase Realtime Database initialization
+  if (typeof window.initializeFirebase === 'function') {
+    window.initializeFirebase().then((result) => {
+      if (result.success) {
+        console.log('✓ Firebase initialized successfully');
+        // PHASE 4.1 — Task 2: start the single Pending Enrolments
+        // real-time listener now that Firebase is confirmed initialized.
+        // initPendingEnrolmentsListener() itself guards against being
+        // called more than once (e.g. if _enterApp somehow ran twice).
+        window.initPendingEnrolmentsListener?.();
+        // PHASE 4.2 — Finance listener. Deliberately gated INSIDE
+        // initFinanceFirebaseListener() itself (checks _finCanAccess()),
+        // not just here, so there is no path — including a future call
+        // site added elsewhere — that starts it for a non-Super-Admin
+        // session. Calling it unconditionally here is safe by design.
+        window.initFinanceFirebaseListener?.();
+        // Verify connection after initialization
+        setTimeout(() => {
+          window.verifyFirebaseConnection?.().then((verification) => {
+            if (verification.success) {
+              console.log('✓ Firebase connection verified');
+            } else {
+              console.warn('⚠ Firebase connection verification:', verification.message);
+            }
+          });
+        }, 500);
+      } else {
+        console.error('✗ Firebase initialization failed:', result.error);
+      }
+    });
+  }
 }
 
 // Hides nav items / page-only buttons the current role isn't allowed to see.
@@ -3199,6 +3528,13 @@ async function doLogin() {
 function doLogout() {
   try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
   CURRENT_USER = null;
+  // PHASE 4.1 — Task 2: tear down the Firebase listener on logout so it
+  // doesn't keep running (and potentially double-fire once re-subscribed
+  // on the next login) in the same tab/session.
+  window.stopPendingEnrolmentsListener?.();
+  // PHASE 4.2 — tear down the Finance listener too (harmless no-op if it
+  // was never started, e.g. a Manager/Staff session).
+  window.stopFinanceFirebaseListener?.();
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   // Clear password field for security
@@ -3327,6 +3663,12 @@ async function loadAllData() {
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
+  // PHASE 4.2 — Finance. Deliberately NOT in the generic cols loop above:
+  // that loop runs unconditionally for every role, but financial data
+  // must never enter window.DB at all for Manager/Staff, even from this
+  // device's own localStorage (e.g. a shared device previously used by a
+  // Super Admin) — not just never fetched over the network for them.
+  window.DB.financeExpenses = _finCanAccess() ? LS.get('financeExpenses') : [];
   _seedDefaultCoachingCategoriesOnce();
   refreshCategoryDropdowns();
   _dedupeBookingsByBookingId();
@@ -3354,6 +3696,11 @@ async function loadAllData() {
   syncFeesFromSheet();
   // PHASE 3.5 — same idea for Enrolment Requests (public form submissions).
   syncEnrolmentsFromSheet();
+  // PHASE 4.2 — Finance. Hard role gate here too (not just "don't fetch
+  // for Manager/Staff" as an afterthought) — this call is the ONLY place
+  // financeExpenses ever gets pulled from Sheets, and it simply never
+  // runs unless _finCanAccess() is true.
+  if (_finCanAccess()) syncFinanceExpensesFromSheet();
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
@@ -3758,12 +4105,12 @@ window.showPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',enrolmentqr:'Enrolment QR',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',finance:'Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,enrolmentqr:renderEnrolmentQrPage,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,finance:renderFinance,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -5771,6 +6118,17 @@ function _describeAuditAction(payload) {
     const reminderActionLabels = { whatsapp_prepared: 'Reminder Prepared', print_history: 'Receipt History Printed' };
     if (reminderActionLabels[action]) return `${reminderActionLabels[action]}${ref ? ` — ${ref}` : ''}`;
   }
+  // PHASE 3.5 Improvements — Item 6: Monthly Attendance Summary.
+  if (payload.type === 'attendance_summary') {
+    const summaryActionLabels = { whatsapp_prepared: 'Attendance Summary Shared', pdf_downloaded: 'Attendance Summary PDF Downloaded' };
+    if (summaryActionLabels[action]) return `${summaryActionLabels[action]}${ref ? ` — ${ref}` : ''}`;
+  }
+  // FINAL ENROLMENT FIX — explicit Activity Log entry for Approve
+  // specifically, separate from the generic "enrolment_request_update
+  // update — X" entry every edit/reject already gets automatically.
+  if (payload.type === 'enrolment_request' && action === 'student_created') {
+    return `Student created from Enrolment Request — ${payload.studentName || ''} · Sport: ${categoryLabel(payload.sport) || payload.sport || '-'} · Coach: ${payload.coach || 'Unassigned'} · Approved By: ${payload.approvedBy || '-'}`;
+  }
   return `${label} ${action}${ref ? ` — ${ref}` : ''}`;
 }
 // PHASE 2.5 — a record's own ID, pulled from whichever field that payload
@@ -7319,7 +7677,15 @@ window.saveStudent = async () => {
   const discountValue=document.getElementById('st-discount-value').value;
   const joiningFee=document.getElementById('st-joining-fee').value;
   const dueDay=document.getElementById('st-due-day').value;
+  const parent=document.getElementById('st-parent').value.trim();
+  const batch=document.getElementById('st-batch').value.trim();
+  const joined=document.getElementById('st-joined').value;
+  const coach=document.getElementById('st-coach').value;
   if (!name||!phone) { showToast('Fill required fields','error'); return; }
+  if (!parent) { showToast('Parent/Guardian Name is required','error'); return; }
+  if (!batch) { showToast('Batch is required','error'); return; }
+  if (!joined) { showToast('Joining Date is required','error'); return; }
+  if (!coach) { showToast('Please select a Coach for this sport','error'); return; }
   if (feeStructure==='monthly' && !fee) { showToast('Enter the monthly fee','error'); return; }
   if (feeStructure==='quarterly' && !qfee) { showToast('Enter the quarterly fee','error'); return; }
   if (feeStructure==='yearly' && !yearlyFee) { showToast('Enter the yearly fee','error'); return; }
@@ -7341,7 +7707,7 @@ window.saveStudent = async () => {
     joiningFee: Number(joiningFee)||0,
     dueDay: dueDay ? Number(dueDay) : null,
     feeStructure,
-    parent: document.getElementById('st-parent').value,
+    parent,
     mother: document.getElementById('st-mother').value,
     altPhone: document.getElementById('st-altphone').value,
     email: document.getElementById('st-email').value,
@@ -7352,9 +7718,15 @@ window.saveStudent = async () => {
     school: document.getElementById('st-school').value,
     emergencyContact: document.getElementById('st-emergency').value,
     sport: document.getElementById('st-sport').value,
-    joined: document.getElementById('st-joined').value||getToday(),
-    batch: document.getElementById('st-batch').value,
-    coach: document.getElementById('st-coach').value,
+    joined: joined||getToday(),
+    batch,
+    coach,
+    // PHASE 3.5 Improvements — Football Batch Structure: the fixed weekly
+    // training days for whichever batch is selected (empty for non-Football
+    // students, or a Football student on a legacy free-text batch that
+    // predates this change). Read by Attendance's scheduled/attended/missed
+    // calculation below.
+    scheduleDays: (() => { try { return JSON.parse(document.getElementById('st-schedule-days').value || '[]'); } catch (e) { return []; } })(),
     status: document.getElementById('st-status').value,
     address: document.getElementById('st-address').value,
     medicalNotes: document.getElementById('st-medical').value,
@@ -7380,6 +7752,73 @@ window.saveStudent = async () => {
   renderDashboard();
   populateFeeStudentSelect();
   showToast('Student saved! ✅');
+};
+
+// PHASE 3.5 Improvements — Football Batch Structure: two fixed batches,
+// each with a fixed weekly schedule used later by Attendance's auto
+// scheduled/attended/missed tracking. Step 5 of this build corrects the
+// earlier contradictory names ("Under 8" batch was previously named
+// "ABOVE 8" and vice versa) to the clean names below. LEGACY_FOOTBALL_BATCH_NAMES
+// maps the old strings forward so any student already saved under the old
+// names still resolves to the right schedule and still displays correctly
+// in Edit — nothing is silently renamed or lost on existing records.
+const FOOTBALL_BATCH_SCHEDULES = {
+  'Football – Under 8': ['Tuesday', 'Thursday', 'Saturday'],
+  'Football – 8 Years & Above': ['Monday', 'Wednesday', 'Friday']
+};
+const LEGACY_FOOTBALL_BATCH_NAMES = {
+  'Football – ABOVE 8': 'Football – Under 8',
+  'Football – 8 Years & UNDER': 'Football – 8 Years & Above'
+};
+
+function _rebuildStudentBatchUiForSport(sport) {
+  const isFootball = sport === 'football';
+  document.getElementById('st-batch-freetext-wrap').style.display = isFootball ? 'none' : '';
+  document.getElementById('st-batch-football-wrap').style.display = isFootball ? '' : 'none';
+}
+
+window._syncStudentBatchFromText = () => {
+  document.getElementById('st-batch').value = document.getElementById('st-batch-text').value;
+  document.getElementById('st-schedule-days').value = ''; // free-text batches have no fixed schedule
+};
+
+window._onFootballBatchChange = () => {
+  const val = document.getElementById('st-batch-football').value;
+  document.getElementById('st-batch').value = val;
+  document.getElementById('st-schedule-days').value = val ? JSON.stringify(FOOTBALL_BATCH_SCHEDULES[val] || []) : '';
+};
+
+// Populates the Coach dropdown with active coaches for the given sport.
+// presetValue === undefined means "user just changed Sport" — auto-assign
+// the first active coach for it (still overridable afterward). A defined
+// presetValue (including '') means editStudent is restoring an existing
+// student's saved coach — that value is kept selectable even if it no
+// longer matches an active coach for this sport (reassigned/inactive/
+// deleted), rather than silently clearing it, same reasoning as the
+// disabled-sport-category fallback right above editStudent's coach line.
+function _rebuildStudentCoachSelect(sport, presetValue) {
+  const sel = document.getElementById('st-coach');
+  const activeCoaches = (window.DB.coaches || []).filter(c => c.sport === sport && c.status === 'active');
+  sel.innerHTML = '<option value="">No coach assigned</option>' + activeCoaches.map(c => `<option value="${_esc(c.name)}">${_esc(c.name)}</option>`).join('');
+  let value = presetValue;
+  if (value === undefined) {
+    value = activeCoaches.length ? activeCoaches[0].name : '';
+  } else if (value && !activeCoaches.some(c => c.name === value)) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${_esc(value)}">${_esc(value)} (not currently active for this sport)</option>`);
+  }
+  sel.value = value;
+}
+
+window._onStudentSportChange = () => {
+  const sport = document.getElementById('st-sport').value;
+  _rebuildStudentBatchUiForSport(sport);
+  // Switching sport invalidates whatever batch was previously picked —
+  // clear it rather than carrying over a batch name from the old sport.
+  document.getElementById('st-batch-text').value = '';
+  document.getElementById('st-batch-football').value = '';
+  document.getElementById('st-batch').value = '';
+  document.getElementById('st-schedule-days').value = '';
+  _rebuildStudentCoachSelect(sport, undefined);
 };
 
 function toggleStudentFeeFields(){
@@ -7468,7 +7907,8 @@ window.handleStudentPhotoUpload = (event) => {
 };
 
 function resetStudentForm(){
-  ['st-id','st-admission-no','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-coach','st-batch','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo','st-yearly-fee','st-discount-value','st-joining-fee','st-due-day'].forEach(id=>document.getElementById(id).value='');
+  ['st-id','st-admission-no','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-batch','st-batch-text','st-schedule-days','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo','st-yearly-fee','st-discount-value','st-joining-fee','st-due-day'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('st-batch-football').value='';
   document.getElementById('st-dob').value='';
   document.getElementById('st-joined').valueAsDate=new Date();
   document.getElementById('st-gender').value='';
@@ -7482,6 +7922,9 @@ function resetStudentForm(){
   document.getElementById('st-photo-preview').style.display='none';
   document.getElementById('st-photo-placeholder').style.display='';
   document.getElementById('student-modal-title').textContent='🎓 Add Student';
+  const defaultSport = document.getElementById('st-sport').value || 'football';
+  _rebuildStudentBatchUiForSport(defaultSport);
+  _rebuildStudentCoachSelect(defaultSport, undefined);
   setStudentFormReadOnly(false);
 }
 
@@ -7530,7 +7973,16 @@ window.editStudent = (id, _readOnlyReset) => {
     document.getElementById('st-sport').value = s.sport;
   }
   document.getElementById('st-joined').value=s.joined||'';
-  document.getElementById('st-batch').value=s.batch||'';
+  _rebuildStudentBatchUiForSport(s.sport);
+  // Step 5 — legacy batch names (from before the "Under 8"/"8 Years &
+  // Above" naming correction) still resolve to the right fixed option
+  // here, so an existing student's saved batch doesn't just vanish from
+  // the dropdown after this rename.
+  const displayBatch = LEGACY_FOOTBALL_BATCH_NAMES[s.batch] || s.batch || '';
+  document.getElementById('st-batch').value=displayBatch;
+  document.getElementById('st-batch-text').value = s.sport === 'football' ? '' : displayBatch;
+  document.getElementById('st-batch-football').value = s.sport === 'football' ? displayBatch : '';
+  document.getElementById('st-schedule-days').value = (s.scheduleDays && s.scheduleDays.length) ? JSON.stringify(s.scheduleDays) : (FOOTBALL_BATCH_SCHEDULES[displayBatch] ? JSON.stringify(FOOTBALL_BATCH_SCHEDULES[displayBatch]) : '');
   document.getElementById('st-fee-structure').value=s.feeStructure||'monthly';
   document.getElementById('st-fee').value=s.fee||'';
   document.getElementById('st-qfee').value=s.qfee||'';
@@ -7541,7 +7993,7 @@ window.editStudent = (id, _readOnlyReset) => {
   document.getElementById('st-due-day').value=s.dueDay||'';
   _toggleDiscountValueField();
   toggleStudentFeeFields(); // also refreshes the effective-fee preview
-  document.getElementById('st-coach').value=s.coach||'';
+  _rebuildStudentCoachSelect(s.sport, s.coach || '');
   document.getElementById('st-status').value=s.status;
   document.getElementById('st-address').value=s.address||'';
   document.getElementById('st-medical').value=s.medicalNotes||'';
@@ -8171,6 +8623,18 @@ function _consumeStudentDeepLinkIfAny() {
 
 // ===== ATTENDANCE =====
 document.getElementById('att-date').valueAsDate=new Date();
+// PHASE 3.5 Improvements — Item 5: purely informational, doesn't block
+// marking (coaches still need to be able to log a makeup session on an
+// off-day) — just flags whether the selected date is actually one of
+// this student's scheduled training days.
+function _scheduledTodayBadge(s, dateStr) {
+  if (!s.scheduleDays || !s.scheduleDays.length || !dateStr) return '';
+  const dayName = WEEKDAY_NAMES[new Date(dateStr + 'T00:00:00').getDay()];
+  return s.scheduleDays.includes(dayName)
+    ? '<span class="badge badge-green" style="font-size:9px;vertical-align:middle">📅 Scheduled</span>'
+    : '<span class="badge badge-gray" style="font-size:9px;vertical-align:middle">Not scheduled</span>';
+}
+
 window.loadAttendance = () => {
   const sport=document.getElementById('att-sport').value;
   const date=document.getElementById('att-date').value;
@@ -8201,8 +8665,8 @@ window.loadAttendance = () => {
     ${students.map(s=>`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid var(--gray2);border-radius:8px;background:var(--gray)">
         <div>
-          <div style="font-weight:600">${s.name}</div>
-          <div style="font-size:12px;color:var(--gray3)">${s.phone}</div>
+          <div style="font-weight:600">${s.name} ${_scheduledTodayBadge(s, date)}</div>
+          <div style="font-size:12px;color:var(--gray3)">${s.phone}${s.batch ? ' · ' + s.batch : ''}</div>
         </div>
         <div style="display:flex;gap:8px">
           <button id="att-P-${s.id}" class="btn btn-sm" style="padding:8px 16px;border:2px solid #22c55e;border-radius:8px;cursor:pointer;font-weight:700;background:transparent;color:#22c55e" onclick="markAtt('${s.id}','P')">✅ Present</button>
@@ -8290,6 +8754,143 @@ window.saveAttendance = async () => {
     await saveOneAttendance(s.id, attMarks[s.id]||'A');
   }
   showToast(`Attendance saved for ${Object.keys(attMarks).length} students ✅`);
+};
+
+// ============================================================================
+// PHASE 3.5 Improvements — Items 5 & 6: Attendance auto-tracking + Monthly
+// Attendance Summary.
+// ----------------------------------------------------------------------------
+// Fully computed from existing data — nothing new is stored except the
+// scheduleDays already added to the Student record (see the Football
+// Batch Structure section above). Everything below is read-only math:
+// Scheduled = calendar dates in range that land on one of the student's
+// scheduleDays weekdays; Attended = how many of those have a 'P' record;
+// Missed = the rest. For a student with NO fixed schedule (any non-
+// Football student, or a Football student on a legacy free-text batch
+// that predates this change), there's no way to know which calendar dates
+// SHOULD have been a class — so this falls back to counting only days
+// that were actually marked (Scheduled = Attended + Missed among marked
+// days), which is the honest thing to report rather than a made-up number.
+// ============================================================================
+
+const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function _computeAttendanceStats(student, fromDateStr, toDateStr) {
+  const scheduleDays = student.scheduleDays || [];
+  const records = (window.DB.attendance || []).filter(a => a.studentId === student.id && a.date >= fromDateStr && a.date <= toDateStr);
+  const byDate = {};
+  // NOTE: saveOneAttendance actually stores the raw 'P'/'A' mark (see
+  // markAtt/saveOneAttendance above), not the word "Present"/"Absent" —
+  // matching against 'P' here is what the data really contains.
+  records.forEach(r => { byDate[r.date] = r.status; });
+
+  if (scheduleDays.length) {
+    let scheduled = 0, attended = 0;
+    let d = new Date(fromDateStr + 'T00:00:00');
+    const end = new Date(toDateStr + 'T00:00:00');
+    while (d <= end) {
+      if (scheduleDays.includes(WEEKDAY_NAMES[d.getDay()])) {
+        scheduled++;
+        if (byDate[toLocalDateStr(d)] === 'P') attended++;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    return { scheduled, attended, missed: scheduled - attended, percent: scheduled ? Math.round((attended / scheduled) * 100) : 0, hasSchedule: true };
+  }
+
+  const attended = records.filter(r => r.status === 'P').length;
+  const missed = records.filter(r => r.status === 'A').length;
+  const scheduled = attended + missed;
+  return { scheduled, attended, missed, percent: scheduled ? Math.round((attended / scheduled) * 100) : 0, hasSchedule: false };
+}
+
+window.renderAttendanceSummary = () => {
+  const monthVal = document.getElementById('att-summary-month').value; // "YYYY-MM"
+  const sport = document.getElementById('att-summary-sport').value;
+  const tbody = document.getElementById('att-summary-tbody');
+  if (!monthVal) { showToast('Please pick a month', 'error'); return; }
+  const [y, m] = monthVal.split('-').map(Number);
+  const fromDate = `${monthVal}-01`;
+  const toDate = `${monthVal}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  const monthLabel = new Date(fromDate + 'T00:00:00').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+  const students = window.DB.students.filter(s => s.sport === sport && s.status === 'active' && !s.archived);
+  if (!students.length) { tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📊</div><p>No active students for this sport</p></div></td></tr>`; return; }
+
+  tbody.innerHTML = students.map(s => {
+    const stats = _computeAttendanceStats(s, fromDate, toDate);
+    const pctColor = stats.percent >= 75 ? 'var(--green)' : stats.percent >= 50 ? 'var(--orange)' : 'var(--red)';
+    return `<tr>
+      <td style="font-weight:600">${_esc(s.name)}</td>
+      <td>${_esc(s.coach || '-')}</td>
+      <td>${_esc(s.batch || '-')}</td>
+      <td>${stats.scheduled}</td>
+      <td style="color:var(--green);font-weight:700">${stats.attended}</td>
+      <td style="color:var(--red);font-weight:700">${stats.missed}</td>
+      <td style="color:${pctColor};font-weight:700">${stats.percent}%</td>
+      <td>${monthLabel}</td>
+      <td><div style="display:flex;gap:4px">
+        <button class="btn btn-whatsapp btn-sm" onclick="sendAttendanceSummaryWhatsApp('${s.id}','${fromDate}','${toDate}')" title="WhatsApp">💬</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadAttendanceSummaryPDF('${s.id}','${fromDate}','${toDate}')" title="Download PDF">📄</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+};
+
+function _attendanceSummaryMessageText(s, stats, monthLabel) {
+  return [
+    'DD Turf Zone', '',
+    `Dear ${s.parent || 'Parent/Guardian'},`, '',
+    `Monthly Attendance Summary — ${monthLabel}`, '',
+    `Student : ${s.name}`,
+    `Batch : ${s.batch || '-'}`,
+    `Coach : ${s.coach || '-'}`,
+    `Scheduled Classes : ${stats.scheduled}`,
+    `Classes Attended : ${stats.attended}`,
+    `Classes Missed : ${stats.missed}`,
+    `Attendance Percentage : ${stats.percent}%`, '',
+    'Thank you,', 'DD Turf Zone'
+  ].join('\n');
+}
+
+// Manual only, same "prepare, don't auto-send" shape as the Due Reminder
+// WhatsApp button (Phase 3.4d) — opens wa.me pre-filled, staff still taps
+// Send themselves inside WhatsApp.
+window.sendAttendanceSummaryWhatsApp = (studentId, fromDate, toDate) => {
+  const s = window.DB.students.find(x => x.id === studentId);
+  if (!s) { showToast('Student not found', 'error'); return; }
+  if (!s.phone) { showToast('No parent mobile number on file for this student.', 'error'); return; }
+  const stats = _computeAttendanceStats(s, fromDate, toDate);
+  const monthLabel = new Date(fromDate + 'T00:00:00').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const msg = encodeURIComponent(_attendanceSummaryMessageText(s, stats, monthLabel));
+  window.open(`https://wa.me/${buildWaPhone(s.phone)}?text=${msg}`, '_blank');
+  logAudit({ type: 'attendance_summary', action: 'whatsapp_prepared', studentId: s.studentId || s.id, studentName: s.name, recordId: s.studentId || s.id });
+};
+
+// Built directly with jsPDF's text layout (no html2canvas rasterization
+// needed — this is plain tabular data, not a styled document like the
+// receipt/ID card), so it works even if the on-screen table isn't open.
+window.downloadAttendanceSummaryPDF = (studentId, fromDate, toDate) => {
+  const s = window.DB.students.find(x => x.id === studentId);
+  if (!s) { showToast('Student not found', 'error'); return; }
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library failed to load — check your internet connection.', 'error'); return; }
+  const stats = _computeAttendanceStats(s, fromDate, toDate);
+  const monthLabel = new Date(fromDate + 'T00:00:00').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+  doc.text('DD Turf Zone', 15, 20);
+  doc.setFontSize(12); doc.text('Monthly Attendance Summary — ' + monthLabel, 15, 28);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+  let y = 42;
+  [
+    `Student : ${s.name}`, `Student ID : ${s.studentId || s.id}`, `Batch : ${s.batch || '-'}`, `Coach : ${s.coach || '-'}`, '',
+    `Scheduled Classes : ${stats.scheduled}`, `Classes Attended : ${stats.attended}`, `Classes Missed : ${stats.missed}`,
+    `Attendance Percentage : ${stats.percent}%`
+  ].forEach(line => { doc.text(line, 15, y); y += 8; });
+  doc.save(`Attendance_${(s.studentId || s.id)}_${fromDate.slice(0, 7)}.pdf`);
+  logAudit({ type: 'attendance_summary', action: 'pdf_downloaded', studentId: s.studentId || s.id, studentName: s.name, recordId: s.studentId || s.id });
+  showToast('Attendance summary PDF downloaded ✅');
 };
 
 // ===== FEES =====
@@ -9296,8 +9897,184 @@ async function syncEnrolmentsFromSheet() {
     _enrolmentSyncInFlight = false;
   }
 }
-setInterval(() => { if (CURRENT_USER) syncEnrolmentsFromSheet(); }, 30000);
+// PHASE 4.1: the periodic 30s poll that used to live here has been
+// removed — window.initPendingEnrolmentsListener() (below) now keeps
+// window.DB.enrolments current in real time via Firebase instead. The
+// focus-refresh listener is intentionally KEPT as an extra safety net
+// (e.g. if the Firebase listener were ever silently dropped) — it is a
+// one-off refetch on focus, not a recurring poll, so it does not conflict
+// with "remove polling only for Pending Enrolments."
 window.addEventListener('focus', () => { if (CURRENT_USER) syncEnrolmentsFromSheet(); });
+
+// ============================================================================
+// PHASE 4.1 — PENDING ENROLMENTS: FIREBASE REALTIME LISTENER
+// ----------------------------------------------------------------------------
+// Single subscription for the lifetime of a login session (guarded against
+// re-subscribing; torn down on logout — see doLogout). Keeps
+// window.DB.enrolments current using the EXACT SAME merge pattern
+// syncEnrolmentsFromSheet already used (match by requestId === local id;
+// add via _lsAddPreservingId if new, LS.update + Object.assign if
+// existing) — deliberately NOT the generic RT_MERGE_MAP/_rtMergeRecord
+// fast path, for the same reason syncEnrolmentsFromSheet's own comment
+// gives: that path mints a fresh local id instead of preserving requestId.
+//
+// This same listener also drives cross-device notifications (Task 4):
+// on the FIRST snapshot after subscribing, it only seeds its local
+// "already seen" state — it does not notify about anything that already
+// existed before this tab started listening (a fresh login/reload should
+// not re-announce old history). From the SECOND snapshot onward, it
+// diffs against that seeded state to detect (a) a brand-new pending
+// request arriving, or (b) a status transition into approved/rejected —
+// and fires toast + bell + sound + voice for those, exactly once per
+// event, and never for an action this same device/user just performed
+// (approvedBy/rejectedBy === CURRENT_USER.email is skipped, since that
+// device already got its own immediate feedback from the button click).
+// ============================================================================
+
+let _firebaseEnrolmentsUnsubscribe = null;
+let _firebaseEnrolmentsSeeded = false;
+const _ddtzAnnouncedEnrolmentEvents = new Set(); // "requestId:status" already announced this session
+
+window.initPendingEnrolmentsListener = () => {
+  if (typeof window.listenPendingEnrolments !== 'function') {
+    console.warn('Firebase pending enrolments service not available yet');
+    return;
+  }
+  if (_firebaseEnrolmentsUnsubscribe) {
+    console.log('Pending enrolments Firebase listener already active — not re-subscribing');
+    return;
+  }
+
+  _firebaseEnrolmentsUnsubscribe = window.listenPendingEnrolments((firebaseEnrolments) => {
+    const isFirstSnapshot = !_firebaseEnrolmentsSeeded;
+    let changed = false;
+
+    firebaseEnrolments.forEach(remote => {
+      if (!remote.requestId) return; // malformed/legacy node — ignore, Sheets remains source of truth
+      const local = window.DB.enrolments.find(r => r.requestId === remote.requestId);
+      const wasNew = !local;
+
+      if (wasNew) {
+        // A brand-new request the sheet-based initial load hasn't seen
+        // yet (arrived via Firebase in real time). Store using the SAME
+        // shape/merge convention as syncEnrolmentsFromSheet.
+        const rec = {
+          requestId: remote.requestId, id: remote.requestId,
+          studentName: remote.studentName || '', dob: remote.dob || '', gender: remote.gender || '',
+          parentName: remote.parentName || '', mobile: remote.mobile || '', email: remote.email || '',
+          address: remote.address || '', school: remote.school || '', sport: remote.sport || '',
+          batch: remote.batch || '', medicalNotes: remote.medicalNotes || '',
+          status: (remote.status === 'pending') ? 'PENDING' : (remote.status || 'PENDING').toUpperCase(),
+          rejectionReason: remote.rejectionReason || '', approvedStudentId: remote.studentId || '',
+          createdAt: remote.createdAt && typeof remote.createdAt === 'number' ? new Date(remote.createdAt).toISOString() : (remote.createdAt || new Date().toISOString()),
+          updatedAt: '', updatedBy: ''
+        };
+        _lsAddPreservingId('enrolments', rec);
+        window.DB.enrolments.unshift(rec);
+        changed = true;
+      } else {
+        // Reflect Firebase's status (approving/approved/rejected) onto
+        // the local record's uppercase status convention, without
+        // touching any other locally-held field (Firebase never carries
+        // the full student profile fields as the source of truth for an
+        // EXISTING record — Sheets/local already have those).
+        const fbStatusUpper = (remote.status || '').toUpperCase();
+        if (fbStatusUpper && fbStatusUpper !== 'APPROVING' && local.status !== fbStatusUpper) {
+          const merged = { ...local, status: fbStatusUpper };
+          if (remote.studentId) merged.approvedStudentId = remote.studentId;
+          if (remote.rejectionReason) merged.rejectionReason = remote.rejectionReason;
+          LS.update('enrolments', local.id, merged);
+          Object.assign(local, merged);
+          changed = true;
+        }
+      }
+
+      // ----- Cross-device notification diffing (Task 4) -----
+      if (!isFirstSnapshot) {
+        const actorEmail = remote.approvedBy || remote.rejectedBy || '';
+        const isOwnAction = actorEmail && CURRENT_USER && actorEmail === CURRENT_USER.email;
+
+        if (wasNew && !isOwnAction) {
+          _announceEnrolmentEvent(remote.requestId, 'new', {
+            icon: '📝', label: 'Enrolment Request',
+            text: `New student enrolment received — ${remote.studentName || ''}`,
+            voice: 'New student enrolment received.'
+          });
+        } else if (remote.status === 'approved' && !isOwnAction) {
+          _announceEnrolmentEvent(remote.requestId, 'approved', {
+            icon: '✅', label: 'Enrolment Request',
+            text: `Student approved by ${actorEmail || 'another admin'} — ${remote.studentName || ''}`,
+            voice: 'Student enrolment approved.'
+          });
+        } else if (remote.status === 'rejected' && !isOwnAction) {
+          _announceEnrolmentEvent(remote.requestId, 'rejected', {
+            icon: '❌', label: 'Enrolment Request',
+            text: `Enrolment rejected — ${remote.studentName || ''}`,
+            voice: 'Student enrolment rejected.'
+          });
+        }
+      }
+    });
+
+    _firebaseEnrolmentsSeeded = true;
+
+    if (changed) {
+      updateEnrolmentsBadge();
+      if (document.getElementById('page-enrolments')?.classList.contains('active')) renderEnrolments();
+    }
+  });
+
+  console.log('✓ Firebase realtime listener active for Pending Enrolments');
+};
+
+/**
+ * Fires toast + bell + sound + voice for one enrolment event, exactly
+ * once per (requestId, status) pair for the lifetime of this tab — a
+ * reconnect replaying the same already-announced state will not
+ * re-announce it.
+ */
+function _announceEnrolmentEvent(requestId, kind, { icon, label, text, voice }) {
+  const eventKey = requestId + ':' + kind;
+  if (_ddtzAnnouncedEnrolmentEvents.has(eventKey)) return; // already announced this session
+  _ddtzAnnouncedEnrolmentEvents.add(eventKey);
+
+  // Toast + sound (reuses the exact existing primitives every other
+  // module's notifications already use — no new UI, no new sound asset).
+  showToast(`${icon} ${text}`);
+  _rtPlayNotifySound();
+
+  // Bell / Notification Center (reuses the existing storage + render
+  // functions the Sheets-poll path already uses, so it looks and behaves
+  // identically — just sourced from Firebase for this module now).
+  const notifications = _rtGetNotifications();
+  const newNotif = {
+    id: 'FB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: label, role: '', module: 'enrolment_request', moduleLabel: label,
+    icon, action: text, recordId: requestId, read: false
+  };
+  _rtSaveNotifications([newNotif, ...notifications]);
+  _rtRenderBell();
+  if (document.getElementById('page-activity')?.classList.contains('active')) renderActivityLog();
+
+  // Voice announcement — only reachable here because isOwnAction was
+  // already checked by the caller, so this genuinely only speaks on
+  // OTHER devices than the one that performed the action.
+  window.playVoiceAnnouncement?.(voice, false);
+}
+
+/**
+ * Explicit teardown — call on logout so a stale subscription doesn't
+ * keep running (and potentially double-fire) across sessions in the
+ * same tab.
+ */
+window.stopPendingEnrolmentsListener = () => {
+  if (_firebaseEnrolmentsUnsubscribe) {
+    _firebaseEnrolmentsUnsubscribe();
+    _firebaseEnrolmentsUnsubscribe = null;
+    _firebaseEnrolmentsSeeded = false;
+    console.log('✓ Pending enrolments Firebase listener stopped');
+  }
+};
 
 function updateEnrolmentsBadge() {
   const count = (window.DB.enrolments || []).filter(r => r.status === 'PENDING').length;
@@ -9430,17 +10207,31 @@ window.saveEnrolmentEdit = async () => {
 };
 
 // The ONLY path that ever creates a real Student — deliberately built as
+// FINAL ENROLMENT FIX — the default/primary active coach for a sport:
+// the first active coach in window.DB.coaches matching that sport (same
+// "first active match" rule the Student Add form's own auto-select
+// already uses in _rebuildStudentCoachSelect, kept as a separate small
+// helper here since this runs on plain data with no form/DOM involved).
+// Returns '' if no active coach exists for that sport — approval must
+// never be blocked by a missing coach.
+function _defaultCoachForSport(sport) {
+  const c = (window.DB.coaches || []).find(x => x.sport === sport && x.status === 'active');
+  return c ? c.name : '';
+}
+
 // its own function (not folded into saveStudent, which reads from the
 // Student form's DOM) so it can be called with plain data straight from
 // an enrolment request. Uses the exact same saveDoc('students', ...) +
 // autoSyncStudent(...) primitives saveStudent itself uses (see PHASE
 // 3.2a), so the resulting record is 100% indistinguishable from a
 // manually-added student — same ID format, same Sheet sync, same
-// real-time/backup coverage. Fee Plan (fee/qfee/yearlyFee/dueDay/coach)
-// isn't collected on the public enrolment form, so it's left at sensible
-// defaults for Admin/Manager to fill in afterward via the normal Edit
-// Student flow, same as any other required-follow-up on a new admission.
+// real-time/backup coverage. Coach is now auto-assigned from the Coaches
+// module (FINAL ENROLMENT FIX) so Student Edit's required-Coach field
+// doesn't immediately block the admin on a freshly-approved student;
+// Fee Plan (fee/qfee/yearlyFee/dueDay) is unchanged — still left at
+// sensible defaults for Admin/Manager to fill in via Edit Student.
 async function _createStudentFromEnrolment(r) {
+  const coach = _defaultCoachForSport(r.sport);
   const data = {
     name: r.studentName, phone: r.mobile,
     admissionNo: '', fee: 0, qfee: 0, yearlyFee: 0,
@@ -9448,7 +10239,7 @@ async function _createStudentFromEnrolment(r) {
     parent: r.parentName, mother: '', altPhone: '', email: r.email || '',
     age: '', dob: r.dob || '', gender: r.gender || '', bloodGroup: '',
     school: r.school || '', emergencyContact: '',
-    sport: r.sport, joined: getToday(), batch: r.batch || '', coach: '',
+    sport: r.sport, joined: getToday(), batch: r.batch || '', coach,
     status: 'active', address: r.address || '', medicalNotes: r.medicalNotes || '',
     remarks: `Created from Enrolment Request ${r.requestId}`, photo: '', archived: false
   };
@@ -9456,7 +10247,7 @@ async function _createStudentFromEnrolment(r) {
   data.studentId = id; data.id = id;
   window.DB.students.unshift(data);
   autoSyncStudent(data, 'create');
-  return id;
+  return { id, coach };
 }
 
 window.approveEnrolment = async (id) => {
@@ -9466,17 +10257,73 @@ window.approveEnrolment = async (id) => {
   if (r.status !== 'PENDING') { showToast('This request has already been actioned.', 'error'); return; }
   if (!confirm(`Approve enrolment for ${r.studentName}? This will create a new Student record.`)) return;
 
-  const studentId = await _createStudentFromEnrolment(r);
+  // PHASE 4.1 — Task 1: atomically claim this request in Firebase BEFORE
+  // running any local business logic, so a second admin device clicking
+  // Approve on the same request at nearly the same moment cannot also
+  // create a second Student record. id === r.requestId always (see
+  // syncEnrolmentsFromSheet), so no separate lookup is needed. If
+  // Firebase itself isn't available for any reason, this falls back to
+  // the original (pre-Phase-4.1) behavior rather than blocking Approve
+  // entirely on a Firebase outage.
+  const firebaseAvailable = typeof window.claimEnrolmentForApproval === 'function';
+  if (firebaseAvailable) {
+    const claim = await window.claimEnrolmentForApproval(id, CURRENT_USER?.email || '');
+    if (!claim.success) {
+      if (claim.conflict) {
+        showToast('⚠️ This enrolment has already been processed by another user.', 'error');
+        // Pull the authoritative state so this device's table reflects
+        // reality instead of a stale "still pending" row.
+        window.syncEnrolmentsFromSheet?.();
+      } else if (claim.offline) {
+        showToast(claim.error, 'error');
+      } else {
+        showToast('Could not start approval: ' + (claim.error || 'unknown error'), 'error');
+      }
+      return;
+    }
+  } else {
+    console.warn('Firebase claim unavailable — proceeding without cross-device duplicate-approval protection.');
+  }
+
+  let studentId, coach;
+  try {
+    ({ id: studentId, coach } = await _createStudentFromEnrolment(r));
+  } catch (err) {
+    // Local business logic failed after a successful claim — release the
+    // claim so this request isn't stuck in "approving" forever and can
+    // be retried (by this device or another).
+    if (firebaseAvailable) await window.releaseEnrolmentClaim(id);
+    showToast('Approval failed while creating the student record: ' + (err?.message || err), 'error');
+    return;
+  }
+
   const updated = { ...r, status: 'APPROVED', approvedStudentId: studentId };
   LS.update('enrolments', id, updated);
   const idx = window.DB.enrolments.findIndex(x => x.id === id);
   if (idx >= 0) window.DB.enrolments[idx] = updated;
-  await autoSyncEnrolment(updated, 'update');
+  await autoSyncEnrolment(updated, 'update'); // unchanged — still goes through the existing queuedSync offline-retry system
+
+  if (firebaseAvailable) {
+    // Note: this device's own Firebase listener will also see this
+    // update land, but its isOwnAction check (approvedBy === this
+    // device's CURRENT_USER.email) already skips re-announcing it here —
+    // no separate "mark as announced" bookkeeping needed.
+    await window.finalizeEnrolmentApproval(id, studentId, CURRENT_USER?.email || '');
+  }
+
+  // FINAL ENROLMENT FIX — explicit, additional Activity Log entry for
+  // Approve specifically (separate from the automatic generic
+  // "enrolment_request_update update — X" entry the line above already
+  // gets for free via queuedSync's universal logAudit call).
+  logAudit({
+    type: 'enrolment_request', action: 'student_created',
+    studentId, studentName: r.studentName, sport: r.sport, coach, approvedBy: CURRENT_USER?.name || ''
+  });
 
   renderEnrolments();
   if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
   renderDashboard();
-  showToast(`Enrolment approved — Student ${studentId} created ✅`);
+  showToast(`Enrolment approved — Student ${studentId} created${coach ? ` (Coach: ${coach})` : ''} ✅`);
 };
 
 window.openRejectEnrolmentModal = (id) => {
@@ -9497,14 +10344,119 @@ window.confirmRejectEnrolment = async () => {
   if (!reason) { showToast('A rejection reason is required.', 'error'); return; }
   const r = window.DB.enrolments.find(x => x.id === id);
   if (!r) return;
+
+  // PHASE 4.1 — Task 1: atomic Firebase transaction prevents two admins
+  // from rejecting (or one rejecting while another approves) the same
+  // request. Reject has no follow-on business logic, so a single
+  // transaction (rather than approve's claim/finalize split) is safe.
+  const firebaseAvailable = typeof window.rejectEnrolmentFirebase === 'function';
+  if (firebaseAvailable) {
+    const result = await window.rejectEnrolmentFirebase(id, CURRENT_USER?.email || '', reason);
+    if (!result.success) {
+      if (result.conflict) {
+        showToast('⚠️ This enrolment has already been processed by another user.', 'error');
+        window.syncEnrolmentsFromSheet?.();
+      } else if (result.offline) {
+        showToast(result.error, 'error');
+      } else {
+        showToast('Could not reject: ' + (result.error || 'unknown error'), 'error');
+      }
+      closeModal('enrolment-reject-modal');
+      return;
+    }
+    // Note: same reasoning as approve above — no separate bookkeeping
+    // needed, the listener's isOwnAction check already covers this.
+  } else {
+    console.warn('Firebase reject unavailable — proceeding without cross-device duplicate-action protection.');
+  }
+
   const updated = { ...r, status: 'REJECTED', rejectionReason: reason };
   LS.update('enrolments', id, updated);
   const idx = window.DB.enrolments.findIndex(x => x.id === id);
   if (idx >= 0) window.DB.enrolments[idx] = updated;
-  await autoSyncEnrolment(updated, 'update');
+  await autoSyncEnrolment(updated, 'update'); // unchanged — still goes through the existing queuedSync offline-retry system
   closeModal('enrolment-reject-modal');
   renderEnrolments();
   showToast('Enrolment request rejected — kept in history.');
+};
+
+// ============================================================================
+// STUDENT ENROLMENT QR — its own sidebar page (page-enrolmentqr)
+// ----------------------------------------------------------------------------
+// Deliberately fixed, not configurable: the URL is a hardcoded constant,
+// not a setting, so there is no input field to edit it and nothing that
+// could accidentally point the QR somewhere else. It only ever changes if
+// this constant is edited in a future update. Lives on its own page
+// (rather than inside Settings) specifically so Staff/Manager can reach
+// it without needing Settings access, which stays Super Admin only.
+// ============================================================================
+const ENROLMENT_FORM_URL = 'https://ddturfzone.github.io/ddturfzone/enroll.html';
+
+function renderEnrolmentQrPage() {
+  const img = document.getElementById('enr-qr-page-img');
+  if (!img) return;
+  img.src = _genQrDataUrl(ENROLMENT_FORM_URL, 400);
+  document.getElementById('enr-qr-page-url').textContent = ENROLMENT_FORM_URL;
+}
+
+window.copyEnrolmentFormLink = async () => {
+  try {
+    await navigator.clipboard.writeText(ENROLMENT_FORM_URL);
+    showToast('Link copied ✅');
+  } catch (e) {
+    showToast('Unable to copy — please copy the link manually.', 'error');
+  }
+};
+
+window.downloadEnrolmentQrPNG = () => {
+  const dataUrl = _genQrDataUrl(ENROLMENT_FORM_URL, 1000); // higher-res than the on-screen preview
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = 'DDTurfZone_Enrolment_QR.png';
+  a.click();
+};
+
+// Prints the QR with the existing logo/branding (business name, address,
+// contact) — reuses _idCardBizSettings()/_idCardLogoUrl() rather than a
+// third copy of that lookup, same reasoning as the Student ID Card and
+// Receipt features above.
+function _enrolmentQrPrintHTML(qrDataUrl) {
+  const biz = _idCardBizSettings();
+  const logo = _idCardLogoUrl();
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Student Enrolment — Scan to Register</title>
+<style>
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',Arial,sans-serif}
+  .poster{width:210mm;height:297mm;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20mm}
+  .poster img.logo{width:110px;height:auto;margin-bottom:24px}
+  .poster h1{font-size:44px;font-weight:800;color:#0B0C0E;margin-bottom:10px;font-family:Georgia,serif}
+  .poster h2{font-size:28px;font-weight:700;color:#0F7A45;margin-bottom:36px}
+  .poster img.qr{width:290px;height:290px;border:10px solid #0F7A45;border-radius:18px;padding:12px;background:#fff}
+  .poster .contact{margin-top:36px;font-size:22px;font-weight:700;color:#0B0C0E}
+  .poster .sub{font-size:14px;color:#666;margin-top:8px}
+</style></head><body>
+  <div class="poster">
+    ${logo ? `<img src="${logo}" class="logo">` : ''}
+    <h1>Student Enrolment</h1>
+    <h2>📱 Scan to Register</h2>
+    <img src="${qrDataUrl}" class="qr">
+    <div class="contact">📞 ${biz.contact}</div>
+    <div class="sub">${biz.name} · ${biz.address}</div>
+  </div>
+</body></html>`;
+}
+
+window.printEnrolmentQr = () => {
+  const dataUrl = _genQrDataUrl(ENROLMENT_FORM_URL, 1000);
+  const html = _enrolmentQrPrintHTML(dataUrl);
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Please allow popups to print', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  const doPrint = () => { try { w.focus(); w.print(); } catch (e) {} };
+  w.onload = doPrint;
+  setTimeout(doPrint, 400);
 };
 
 // ===== COACHES =====
@@ -9550,6 +10502,7 @@ window.deleteCoach = async (id) => {
 window.renderCoaches = () => {
   const container=document.getElementById('coaches-grid');
   if(!window.DB.coaches.length){container.innerHTML=`<div class="empty-state"><div class="empty-icon">👨‍🏫</div><p>No coaches added yet</p></div>`;return;}
+  const canManage = can('manageCoaches'); // PHASE 3.5 Improvements — Staff sees this page as View Only now
   container.innerHTML=window.DB.coaches.map(c=>`
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
@@ -9562,10 +10515,10 @@ window.renderCoaches = () => {
       </div>
       <div style="font-size:13px;color:var(--gray3)">Salary: <span style="color:var(--green);font-weight:700">₹${c.salary?.toLocaleString()}/mo</span></div>
       <div style="font-size:13px;color:var(--gray3)">Joined: ${formatDate(c.joined)}</div>
-      <div style="display:flex;gap:8px;margin-top:12px">
+      ${canManage ? `<div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn btn-info btn-sm" onclick="editCoach('${c.id}')">✏️ Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteCoach('${c.id}')">🗑️ Delete</button>
-      </div>
+      </div>` : ''}
     </div>`).join('');
 };
 
@@ -9757,6 +10710,693 @@ window.renderAccounts = () => {
         </div>`).join('')}
     </div>`;
 };
+
+// ============================================================================
+// PHASE 4.2 — FINANCE DASHBOARD & EXPENSE MANAGEMENT (Super Admin ONLY)
+// ----------------------------------------------------------------------------
+// Completely separate from the existing Accounts & Finance page above
+// (page-accounts / expense-modal / renderAccounts / saveExpense /
+// window.DB.expenses) — new page, new modal, new window.DB.financeExpenses
+// collection, new functions. Nothing here touches any of that.
+//
+// ARCHITECTURE NOTE — Firebase role limitation (documented, not hidden):
+// Firebase anonymous auth (Phase 4.1) distinguishes "admin.html" from "the
+// public enrolment form" — it does NOT and cannot distinguish Super Admin
+// from Manager from Staff, since every admin.html session signs in
+// anonymously the same way regardless of role. Per this phase's explicit
+// "Do NOT change the Firebase architecture," a per-role Firebase auth
+// system (custom claims via a server-minted token) is out of scope.
+// Financial data protection therefore relies on:
+//   1. Client-side gating (this file): the Finance Firebase listener is
+//      NEVER started for a non-Super-Admin session, the page/nav is
+//      hidden, showPage() blocks it, and every function re-checks role.
+//   2. The Firebase Security Rule for /finance_expenses (same shape as
+//      /pending_enrolments): only reachable by an authenticated (i.e.
+//      admin.html) session, never by the public.
+// A technically sophisticated Manager/Staff who opened DevTools and called
+// the raw Firebase SDK directly (bypassing this app's UI/JS entirely)
+// could still theoretically read this node, because Firebase itself
+// cannot tell their role apart from a Super Admin's. This residual gap is
+// documented in PHASE_4_2_VERIFICATION.md, not implied to be fully closed.
+// ============================================================================
+
+// ----- Fixed expense category structure (exactly as specified) -----
+const FINANCE_EXPENSE_CATEGORIES = {
+  owner:    { label: 'Owner Expenses',           types: ['Dhanraj Salary','Dhanasekar Salary','Dhanraj Mobile Recharge','Dhanasekar Mobile Recharge'] },
+  employee: { label: 'Employee Expenses',        types: ['Manager Salary','Staff Salary'] },
+  slot:     { label: 'Slot Booking Expenses',    types: ['Turf Rent','EB Bill','Turf Maintenance','Turf Cleaning','Turf Mobile Recharge','Water Can Purchase','Ground Equipment','Others'] },
+  coaching: { label: 'Coaching Expenses',         types: ['Football Coach Share','Cricket Coach Share','Taekwondo Coach Share','Sports Equipment','Coaching Materials','Others'] },
+  cafe:     { label: 'Cafe Expenses',             types: ['Cafe Item Purchase','Tea/Coffee Stock','Snacks','Packaging','Gas','Others'] },
+  general:  { label: 'General / Admin Expenses', types: ['HDFC Loan Payment','Office Expenses','Miscellaneous','Others'] }
+};
+
+// ----- Access gate (defense-in-depth, matches every other module's "don't
+// rely on hiding buttons alone" pattern — every Finance function re-checks
+// this independent of whether the page/button was ever visible). -----
+function _finCanAccess() { return CURRENT_USER?.role === ROLES.SUPER_ADMIN; }
+
+// ----- Date range state -----
+let _finRangeMode = 'month';
+window.finSetRange = (mode) => {
+  if (!_finCanAccess()) { denyAccess(); return; }
+  const today = getToday();
+  const now = new Date();
+  let from, to;
+  if (mode === 'today') { from = to = today; }
+  else if (mode === 'week') {
+    const d = new Date(); const day = d.getDay(); const diffToMonday = (day === 0 ? 6 : day - 1);
+    const monday = new Date(d); monday.setDate(d.getDate() - diffToMonday);
+    from = toLocalDateStr(monday); to = today;
+  } else if (mode === 'year') {
+    from = `${now.getFullYear()}-01-01`; to = today;
+  } else if (mode === 'custom') {
+    from = document.getElementById('fin-from-date').value || today;
+    to = document.getElementById('fin-to-date').value || today;
+  } else { // month (default)
+    mode = 'month';
+    from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    to = today;
+  }
+  _finRangeMode = mode;
+  document.getElementById('fin-from-date').value = from;
+  document.getElementById('fin-to-date').value = to;
+  document.querySelectorAll('.fin-range-btn').forEach(b => {
+    const active = b.dataset.range === mode;
+    b.className = 'btn btn-sm fin-range-btn ' + (active ? 'btn-primary' : 'btn-secondary');
+  });
+  renderFinance();
+};
+
+// ----- Income aggregation — mirrors the EXACT formulas already used in
+// the existing renderAccounts() above, for consistency with how the
+// business already measures revenue. Not shared code (renderAccounts
+// stays untouched), just the same math. -----
+function _finIncomeSlot(from, to) {
+  return (window.DB.bookings || [])
+    .filter(b => b.status !== 'cancelled' && b.date >= from && b.date <= to)
+    .reduce((s, b) => s + (Number(b.total) || 0), 0);
+}
+function _finIncomeCoaching(from, to) {
+  return (window.DB.fees || [])
+    .filter(f => f.date >= from && f.date <= to)
+    .reduce((s, f) => s + (Number(f.paid) || 0), 0);
+}
+function _finIncomeCafe(from, to) {
+  return (window.DB.cafeSales || [])
+    .filter(cs => cs.date >= from && cs.date <= to)
+    .reduce((sum, cs) => sum + (Number(cs.amount) || 0), 0);
+}
+
+// ----- Expense aggregation over the new, separate financeExpenses collection -----
+function _finExpensesInRange(from, to, group) {
+  return (window.DB.financeExpenses || []).filter(e =>
+    e.date >= from && e.date <= to && (!group || e.categoryGroup === group)
+  );
+}
+function _finExpenseSum(from, to, group) {
+  return _finExpensesInRange(from, to, group).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+}
+
+// ----- Full summary for a date range -----
+function _finComputeSummary(from, to) {
+  const incomeSlot = _finIncomeSlot(from, to);
+  const incomeCoaching = _finIncomeCoaching(from, to);
+  const incomeCafe = _finIncomeCafe(from, to);
+  const totalIncome = incomeSlot + incomeCoaching + incomeCafe;
+
+  const expOwner    = _finExpenseSum(from, to, 'owner');
+  const expEmployee = _finExpenseSum(from, to, 'employee');
+  const expSlot     = _finExpenseSum(from, to, 'slot');
+  const expCoaching = _finExpenseSum(from, to, 'coaching');
+  const expCafe     = _finExpenseSum(from, to, 'cafe');
+  const expGeneral  = _finExpenseSum(from, to, 'general');
+
+  // Spec section 7's own Total Expenses formula explicitly lists only
+  // Slot + Coaching + Cafe + General/Admin — Owner and Employee expenses
+  // are tracked, shown, exported and synced separately, but deliberately
+  // NOT part of this sum, matching the literal spec rather than an
+  // assumed "include everything" interpretation. See PHASE_4_2_VERIFICATION.md.
+  const totalExpenses = expSlot + expCoaching + expCafe + expGeneral;
+  const netProfit = totalIncome - totalExpenses;
+
+  return {
+    incomeSlot, incomeCoaching, incomeCafe, totalIncome,
+    expOwner, expEmployee, expSlot, expCoaching, expCafe, expGeneral, totalExpenses,
+    profitSlot: incomeSlot - expSlot,
+    profitCoaching: incomeCoaching - expCoaching,
+    profitCafe: incomeCafe - expCafe,
+    netProfit
+  };
+}
+
+// ----- Main render -----
+window.renderFinance = () => {
+  if (!_finCanAccess()) {
+    // Defense in depth: even if somehow invoked (dev tools, stale onclick),
+    // refuse and never touch the DOM with financial numbers for a
+    // non-Super-Admin session.
+    denyAccess('Finance is available to Super Admin only.');
+    return;
+  }
+
+  if (!document.getElementById('fin-from-date').value) { finSetRange('month'); return; }
+  const from = document.getElementById('fin-from-date').value || getToday();
+  const to = document.getElementById('fin-to-date').value || getToday();
+
+  const sameDay = from === to;
+  document.getElementById('fin-period-label').textContent =
+    `Showing: ${formatDate(from)}${sameDay ? '' : ' – ' + formatDate(to)}`;
+
+  _finRenderReminders();
+
+  // Dashboard cards: always Today + Monthly regardless of selected range
+  // (spec section 8), independent of the range selector above.
+  const today = getToday();
+  const now = new Date();
+  const monthFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const todaySummary = _finComputeSummary(today, today);
+  const monthSummary = _finComputeSummary(monthFrom, today);
+  document.getElementById('finance-dashboard-cards').innerHTML = `
+    <div class="stat-card blue"><div class="stat-val">₹${todaySummary.totalIncome.toLocaleString()}</div><div class="stat-label">Today's Income</div></div>
+    <div class="stat-card purple"><div class="stat-val">₹${monthSummary.totalIncome.toLocaleString()}</div><div class="stat-label">Monthly Income</div></div>
+    <div class="stat-card red"><div class="stat-val">₹${monthSummary.totalExpenses.toLocaleString()}</div><div class="stat-label">Monthly Expenses</div></div>
+    <div class="stat-card ${monthSummary.netProfit >= 0 ? 'green' : 'red'}"><div class="stat-val">₹${Math.abs(monthSummary.netProfit).toLocaleString()}</div><div class="stat-label">Monthly ${monthSummary.netProfit >= 0 ? 'Profit' : 'Loss'}</div></div>`;
+
+  // Consolidated summary for the SELECTED range
+  const s = _finComputeSummary(from, to);
+  document.getElementById('finance-summary-cards').innerHTML = `
+    <div class="stat-card green"><div class="stat-val">₹${s.totalIncome.toLocaleString()}</div><div class="stat-label">Total Income</div></div>
+    <div class="stat-card red"><div class="stat-val">₹${s.totalExpenses.toLocaleString()}</div><div class="stat-label">Total Expenses</div></div>
+    <div class="stat-card ${s.netProfit >= 0 ? 'green' : 'red'}"><div class="stat-val">₹${Math.abs(s.netProfit).toLocaleString()}</div><div class="stat-label">${s.netProfit >= 0 ? 'Net Business Profit' : 'Net Business Loss'}</div></div>`;
+
+  // Per-vertical cards
+  document.getElementById('finance-vertical-cards').innerHTML = [
+    { label: '🏟️ Slot Booking', income: s.incomeSlot, expense: s.expSlot, profit: s.profitSlot },
+    { label: '🎓 Coaching',      income: s.incomeCoaching, expense: s.expCoaching, profit: s.profitCoaching },
+    { label: '☕ Cafe',           income: s.incomeCafe, expense: s.expCafe, profit: s.profitCafe }
+  ].map(v => `
+    <div class="card">
+      <div class="card-title">${v.label}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--gray3)">Income</span><span style="font-weight:700;color:var(--green)">₹${v.income.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--gray3)">Expenses</span><span style="font-weight:700;color:var(--red)">₹${v.expense.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding-top:6px;border-top:1px solid var(--gray2)"><span style="font-weight:700">${v.profit >= 0 ? 'Profit' : 'Loss'}</span><span style="font-weight:800;color:${v.profit >= 0 ? 'var(--green)' : 'var(--red)'}">₹${Math.abs(v.profit).toLocaleString()}</span></div>
+    </div>`).join('');
+
+  // Expenses table
+  const groupFilter = document.getElementById('fin-filter-group')?.value || '';
+  const list = _finExpensesInRange(from, to, groupFilter).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const tbody = document.getElementById('finance-expenses-tbody');
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">💰</div><p>No expenses in this period</p></div></td></tr>`;
+  } else {
+    tbody.innerHTML = list.map(e => `
+      <tr>
+        <td>${formatDate(e.date)}</td>
+        <td>${_esc(FINANCE_EXPENSE_CATEGORIES[e.categoryGroup]?.label || e.categoryGroup)}</td>
+        <td>${_esc(e.expenseType)}</td>
+        <td style="font-size:12px;color:var(--gray3)">${_esc(e.description || '-')}</td>
+        <td style="font-weight:700;color:var(--red)">₹${(Number(e.amount)||0).toLocaleString()}</td>
+        <td>${_esc(e.paymentMethod || '-')}</td>
+        <td>${e.isRecurring ? `🔁 ${DUE_PLAN_LABELS[e.frequency] || e.frequency}` : '-'}</td>
+        <td style="font-size:12px">${_esc(e.addedBy || '-')}</td>
+        <td><div style="display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm" data-requires-action="manageFinanceExpense" onclick="openFinanceExpenseModal('${e.id}')" title="Edit">✏️</button>
+          <button class="btn btn-danger btn-sm" data-requires-action="manageFinanceExpense" onclick="deleteFinanceExpense('${e.id}')" title="Delete">🗑️</button>
+        </div></td>
+      </tr>`).join('');
+  }
+
+  _finRenderCharts(from, to);
+
+  // Fire-and-forget — refreshes the FinanceSummary sheet row for the
+  // current month each time this page is viewed (see
+  // _finSyncSummaryToSheets's own comment for why this cadence).
+  _finSyncSummaryToSheets();
+};
+
+// ----- Expense entry modal -----
+function _finRebuildExpenseTypeSelect() {
+  const group = document.getElementById('fin-exp-group').value;
+  const sel = document.getElementById('fin-exp-type');
+  const types = FINANCE_EXPENSE_CATEGORIES[group]?.types || [];
+  sel.innerHTML = types.map(t => `<option value="${_esc(t)}">${_esc(t)}</option>`).join('');
+  _finToggleOthersField();
+}
+window._finRebuildExpenseTypeSelect = _finRebuildExpenseTypeSelect;
+function _finToggleOthersField() {
+  const isOthers = document.getElementById('fin-exp-type').value === 'Others';
+  document.getElementById('fin-exp-others-wrap').style.display = isOthers ? '' : 'none';
+}
+window._finToggleOthersField = _finToggleOthersField;
+function _finToggleRecurringFields() {
+  const isRecurring = document.getElementById('fin-exp-recurring').value === 'yes';
+  ['fin-exp-frequency-wrap','fin-exp-nextdue-wrap','fin-exp-reminder-wrap'].forEach(id => {
+    document.getElementById(id).style.display = isRecurring ? '' : 'none';
+  });
+}
+window._finToggleRecurringFields = _finToggleRecurringFields;
+
+window.openFinanceExpenseModal = (id) => {
+  if (!_finCanAccess() || !can('manageFinanceExpense')) { denyAccess(); return; }
+  _finRebuildExpenseTypeSelect();
+  if (id) {
+    const e = window.DB.financeExpenses.find(x => x.id === id);
+    if (!e) { showToast('Expense not found', 'error'); return; }
+    document.getElementById('finance-expense-modal-title').textContent = '✏️ Edit Expense';
+    document.getElementById('fin-exp-id').value = e.id;
+    document.getElementById('fin-exp-date').value = e.date;
+    document.getElementById('fin-exp-group').value = e.categoryGroup;
+    _finRebuildExpenseTypeSelect();
+    document.getElementById('fin-exp-type').value = e._othersText ? 'Others' : e.expenseType;
+    document.getElementById('fin-exp-others').value = e._othersText || '';
+    document.getElementById('fin-exp-description').value = e.description || '';
+    document.getElementById('fin-exp-amount').value = e.amount;
+    document.getElementById('fin-exp-method').value = e.paymentMethod || 'Cash';
+    document.getElementById('fin-exp-notes').value = e.notes || '';
+    document.getElementById('fin-exp-recurring').value = e.isRecurring ? 'yes' : 'no';
+    document.getElementById('fin-exp-frequency').value = e.frequency || 'monthly';
+    document.getElementById('fin-exp-nextdue').value = e.nextDueDate || '';
+    document.getElementById('fin-exp-reminder').value = String(e.reminderBeforeDays || 3);
+  } else {
+    document.getElementById('finance-expense-modal-title').textContent = '💰 Add Expense';
+    document.getElementById('fin-exp-id').value = '';
+    document.getElementById('fin-exp-date').value = getToday();
+    document.getElementById('fin-exp-group').value = 'owner';
+    _finRebuildExpenseTypeSelect();
+    document.getElementById('fin-exp-description').value = '';
+    document.getElementById('fin-exp-amount').value = '';
+    document.getElementById('fin-exp-method').value = 'Cash';
+    document.getElementById('fin-exp-notes').value = '';
+    document.getElementById('fin-exp-recurring').value = 'no';
+    document.getElementById('fin-exp-frequency').value = 'monthly';
+    document.getElementById('fin-exp-nextdue').value = '';
+    document.getElementById('fin-exp-reminder').value = '3';
+  }
+  _finToggleOthersField();
+  _finToggleRecurringFields();
+  openModal('finance-expense-modal');
+};
+
+window.saveFinanceExpense = async () => {
+  if (!_finCanAccess() || !can('manageFinanceExpense')) { denyAccess(); return; }
+  const id = document.getElementById('fin-exp-id').value;
+  const group = document.getElementById('fin-exp-group').value;
+  const expenseTypeSel = document.getElementById('fin-exp-type').value;
+  const othersText = document.getElementById('fin-exp-others').value.trim();
+  if (expenseTypeSel === 'Others' && !othersText) { showToast('Please specify the expense type for "Others".', 'error'); return; }
+  const amount = Number(document.getElementById('fin-exp-amount').value);
+  if (!amount || amount <= 0) { showToast('Enter a valid amount.', 'error'); return; }
+  const date = document.getElementById('fin-exp-date').value;
+  if (!date) { showToast('Date is required.', 'error'); return; }
+  const isRecurring = document.getElementById('fin-exp-recurring').value === 'yes';
+  const frequency = document.getElementById('fin-exp-frequency').value;
+  const nextDueDate = document.getElementById('fin-exp-nextdue').value;
+  const reminderBeforeDays = Number(document.getElementById('fin-exp-reminder').value);
+  if (isRecurring && !nextDueDate) { showToast('Next Due Date is required for a recurring expense.', 'error'); return; }
+
+  const data = {
+    date, categoryGroup: group,
+    expenseType: expenseTypeSel === 'Others' ? othersText : expenseTypeSel,
+    _othersText: expenseTypeSel === 'Others' ? othersText : '',
+    description: document.getElementById('fin-exp-description').value.trim(),
+    amount, paymentMethod: document.getElementById('fin-exp-method').value,
+    notes: document.getElementById('fin-exp-notes').value.trim(),
+    addedBy: CURRENT_USER?.name || '',
+    isRecurring, frequency: isRecurring ? frequency : '', nextDueDate: isRecurring ? nextDueDate : '',
+    reminderBeforeDays: isRecurring ? reminderBeforeDays : 0
+  };
+
+  let record;
+  if (id) {
+    LS.update('financeExpenses', id, data);
+    const idx = window.DB.financeExpenses.findIndex(x => x.id === id);
+    record = { ...(idx >= 0 ? window.DB.financeExpenses[idx] : {}), ...data, id };
+    if (idx >= 0) window.DB.financeExpenses[idx] = record;
+    logAudit({ type: 'finance_expense', action: 'edited', recordId: id, summary: `Expense Edited — ${record.expenseType} ₹${amount}` });
+  } else {
+    const newId = LS.add('financeExpenses', data);
+    record = { ...data, id: newId };
+    window.DB.financeExpenses.unshift(record);
+    logAudit({ type: 'finance_expense', action: 'added', recordId: newId, summary: `Expense Added — ${record.expenseType} ₹${amount}` });
+  }
+
+  window.syncFinanceExpenseFirebase?.(record);
+  _finSyncExpenseToSheets(record, id ? 'update' : 'create');
+
+  closeModal('finance-expense-modal');
+  renderFinance();
+  showToast(id ? 'Expense updated ✅' : 'Expense added ✅');
+};
+
+window.deleteFinanceExpense = (id) => {
+  if (!_finCanAccess() || !can('manageFinanceExpense')) { denyAccess(); return; }
+  const e = window.DB.financeExpenses.find(x => x.id === id);
+  if (!e) return;
+  if (!confirm(`Delete this ${e.expenseType} expense of ₹${e.amount}? This cannot be undone.`)) return;
+  LS.delete('financeExpenses', id);
+  window.DB.financeExpenses = window.DB.financeExpenses.filter(x => x.id !== id);
+  logAudit({ type: 'finance_expense', action: 'deleted', recordId: id, summary: `Expense Deleted — ${e.expenseType} ₹${e.amount}` });
+  window.deleteFinanceExpenseFirebase?.(id);
+  _finSyncExpenseToSheets(e, 'delete');
+  renderFinance();
+  showToast('Expense deleted');
+};
+
+// ----- Google Sheets sync (permanent backend) — same generic queuedSync
+// offline-retry system (escalating backoff, never rebuilt) every other
+// module already uses; not a new sync mechanism. -----
+function _finSyncExpenseToSheets(record, action) {
+  const SHEET_URL = window.DDTZ_SHEET_URL || '';
+  if (!SHEET_URL) return Promise.resolve({ ok: false, skipped: true });
+  const payload = {
+    type: 'finance_expense', action,
+    id: record.id, date: record.date, categoryGroup: record.categoryGroup,
+    expenseType: record.expenseType, description: record.description || '',
+    amount: record.amount, paymentMethod: record.paymentMethod || '',
+    notes: record.notes || '', addedBy: record.addedBy || '',
+    isRecurring: record.isRecurring ? 'yes' : 'no', frequency: record.frequency || '',
+    nextDueDate: record.nextDueDate || '', reminderBeforeDays: record.reminderBeforeDays || ''
+  };
+  return queuedSync(payload);
+}
+
+// ----- Recurring expense reminders -----
+function _finAdvanceDueDate(dateStr, frequency) {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (frequency === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (frequency === 'quarterly') d.setMonth(d.getMonth() + 3);
+  else if (frequency === 'yearly') d.setFullYear(d.getFullYear() + 1);
+  return toLocalDateStr(d);
+}
+
+// Only the MOST RECENT record per (categoryGroup + expenseType) "series"
+// represents the currently-active recurring cycle — older ones are just
+// payment history. This avoids needing a second collection just to track
+// "which cycle is the live one."
+function _finDueReminders() {
+  const today = getToday();
+  const todayDate = new Date(today + 'T00:00:00');
+  const recurring = (window.DB.financeExpenses || []).filter(e => e.isRecurring && e.nextDueDate);
+  const latestBySeries = {};
+  recurring.forEach(e => {
+    const key = e.categoryGroup + '::' + e.expenseType;
+    if (!latestBySeries[key] || (e.date || '') > (latestBySeries[key].date || '')) latestBySeries[key] = e;
+  });
+  return Object.values(latestBySeries)
+    .map(e => {
+      const due = new Date(e.nextDueDate + 'T00:00:00');
+      const daysUntil = Math.round((due - todayDate) / 86400000);
+      return { ...e, daysUntil };
+    })
+    .filter(e => e.daysUntil <= e.reminderBeforeDays)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+}
+
+window.markFinanceExpensePaid = async (id) => {
+  if (!_finCanAccess() || !can('manageFinanceExpense')) { denyAccess(); return; }
+  const e = window.DB.financeExpenses.find(x => x.id === id);
+  if (!e) { showToast('Expense not found', 'error'); return; }
+  if (!confirm(`Mark "${e.expenseType}" (₹${e.amount}) as paid for this cycle?`)) return;
+
+  const newNextDue = _finAdvanceDueDate(e.nextDueDate, e.frequency);
+  const data = {
+    date: getToday(), categoryGroup: e.categoryGroup, expenseType: e.expenseType,
+    _othersText: e._othersText || '', description: e.description || '', amount: e.amount,
+    paymentMethod: e.paymentMethod || 'Cash', notes: e.notes || '',
+    addedBy: CURRENT_USER?.name || '', isRecurring: true, frequency: e.frequency,
+    nextDueDate: newNextDue, reminderBeforeDays: e.reminderBeforeDays
+  };
+  const newId = LS.add('financeExpenses', data);
+  const record = { ...data, id: newId };
+  window.DB.financeExpenses.unshift(record);
+
+  logAudit({ type: 'finance_expense', action: 'paid', recordId: newId, summary: `Expense Paid — ${e.expenseType} ₹${e.amount}` });
+  window.syncFinanceExpenseFirebase?.(record);
+  _finSyncExpenseToSheets(record, 'create');
+
+  renderFinance();
+  showToast(`✅ Marked as paid — next due ${formatDate(newNextDue)}`);
+};
+
+let _finAnnouncedReminders = new Set();
+function _finRenderReminders() {
+  const panel = document.getElementById('finance-reminders-panel');
+  if (!panel) return;
+  const due = _finDueReminders();
+  if (!due.length) { panel.innerHTML = ''; return; }
+
+  panel.innerHTML = `<div class="card mb-16" style="margin-bottom:16px;border-left:4px solid var(--orange)">
+    <div class="card-title">🔔 Recurring Expense Reminders</div>
+    ${due.map(e => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--gray2)">
+        <div>
+          <div style="font-weight:700">${_esc(e.expenseType)} — ₹${(Number(e.amount)||0).toLocaleString()}</div>
+          <div style="font-size:12px;color:${e.daysUntil < 0 ? 'var(--red)' : 'var(--orange)'}">
+            ${e.daysUntil < 0 ? `Overdue by ${Math.abs(e.daysUntil)} day(s)` : e.daysUntil === 0 ? 'Due today' : `Due in ${e.daysUntil} day(s)`} — ${formatDate(e.nextDueDate)}
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" data-requires-action="manageFinanceExpense" onclick="markFinanceExpensePaid('${e.id}')">✅ Mark Paid</button>
+      </div>`).join('')}
+  </div>`;
+
+  // Toast + Bell + Voice — reuses the exact same primitives Phase 4.1
+  // already built for enrolment notifications (no new notification
+  // system), exactly once per reminder cycle per session (Set-based dedup).
+  due.forEach(e => {
+    const key = e.id + ':' + e.nextDueDate;
+    if (_finAnnouncedReminders.has(key)) return;
+    _finAnnouncedReminders.add(key);
+    const dayWord = e.daysUntil < 0 ? 'overdue' : e.daysUntil === 0 ? 'due today' : `due in ${e.daysUntil} days`;
+    const message = `Reminder: ${e.expenseType} payment is ${dayWord}.`;
+    showToast(`🔔 ${message}`);
+    _rtPlayNotifySound();
+    const notifications = _rtGetNotifications();
+    _rtSaveNotifications([{
+      id: 'FINREM' + key, row: null, timestamp: new Date().toISOString(),
+      user: 'Finance', role: '', module: 'finance_expense', moduleLabel: 'Finance Reminder',
+      icon: '🔔', action: message, recordId: e.id, read: false
+    }, ...notifications]);
+    _rtRenderBell();
+    window.playVoiceAnnouncement?.(message, false);
+  });
+}
+
+// ----- Charts (Chart.js — see PHASE_4_2_VERIFICATION.md for library note) -----
+let _finChartIncomeExpense, _finChartProfitTrend, _finChartRevenueBusiness, _finChartExpenseCategory;
+function _finRenderCharts(from, to) {
+  if (typeof Chart === 'undefined') return; // library failed to load — rest of the page still works fine
+  const s = _finComputeSummary(from, to);
+
+  const ctx1 = document.getElementById('fin-chart-income-expense')?.getContext('2d');
+  if (ctx1) {
+    _finChartIncomeExpense?.destroy();
+    _finChartIncomeExpense = new Chart(ctx1, {
+      type: 'bar',
+      data: { labels: ['Income', 'Expenses'], datasets: [{ data: [s.totalIncome, s.totalExpenses], backgroundColor: ['#0F7A45', '#ef4444'] }] },
+      options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  const ctx2 = document.getElementById('fin-chart-profit-trend')?.getContext('2d');
+  if (ctx2) {
+    const months = [], profits = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mFrom = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+      const mLastDay = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+      const mTo = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(mLastDay).padStart(2,'0')}`;
+      months.push(d.toLocaleDateString('en-IN', { month: 'short' }));
+      profits.push(_finComputeSummary(mFrom, mTo).netProfit);
+    }
+    _finChartProfitTrend?.destroy();
+    _finChartProfitTrend = new Chart(ctx2, {
+      type: 'line',
+      data: { labels: months, datasets: [{ label: 'Net Profit', data: profits, borderColor: '#0F7A45', backgroundColor: 'rgba(15,122,69,.1)', fill: true, tension: .3 }] },
+      options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  const ctx3 = document.getElementById('fin-chart-revenue-business')?.getContext('2d');
+  if (ctx3) {
+    _finChartRevenueBusiness?.destroy();
+    _finChartRevenueBusiness = new Chart(ctx3, {
+      type: 'doughnut',
+      data: { labels: ['Slot Booking','Coaching','Cafe'], datasets: [{ data: [s.incomeSlot, s.incomeCoaching, s.incomeCafe], backgroundColor: ['#3b82f6','#8b5cf6','#f97316'] }] },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  const ctx4 = document.getElementById('fin-chart-expense-category')?.getContext('2d');
+  if (ctx4) {
+    const groupKeys = Object.keys(FINANCE_EXPENSE_CATEGORIES);
+    const groupVals = groupKeys.map(g => _finExpenseSum(from, to, g));
+    _finChartExpenseCategory?.destroy();
+    _finChartExpenseCategory = new Chart(ctx4, {
+      type: 'pie',
+      data: { labels: groupKeys.map(g => FINANCE_EXPENSE_CATEGORIES[g].label), datasets: [{ data: groupVals, backgroundColor: ['#E4B73C','#8b5cf6','#3b82f6','#0F7A45','#f97316','#ef4444'] }] },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+}
+
+// ----- Reports: PDF / Excel / Print (reuses the existing jsPDF/XLSX
+// libraries already loaded for Receipts/Reports — no new dependency) -----
+window.downloadFinanceReportPDF = () => {
+  if (!_finCanAccess() || !can('exportFinanceReport')) { denyAccess(); return; }
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library failed to load — check your internet connection.', 'error'); return; }
+  const from = document.getElementById('fin-from-date').value || getToday();
+  const to = document.getElementById('fin-to-date').value || getToday();
+  const s = _finComputeSummary(from, to);
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+  doc.text('DD Turf Zone — Finance Report', 15, 20);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text(`Period: ${formatDate(from)} to ${formatDate(to)}`, 15, 28);
+  let y = 42;
+  [
+    `Total Income: Rs. ${s.totalIncome.toLocaleString()}`,
+    `  - Slot Booking: Rs. ${s.incomeSlot.toLocaleString()}`,
+    `  - Coaching: Rs. ${s.incomeCoaching.toLocaleString()}`,
+    `  - Cafe: Rs. ${s.incomeCafe.toLocaleString()}`, '',
+    `Total Expenses: Rs. ${s.totalExpenses.toLocaleString()}`,
+    `  - Slot Booking: Rs. ${s.expSlot.toLocaleString()}`,
+    `  - Coaching: Rs. ${s.expCoaching.toLocaleString()}`,
+    `  - Cafe: Rs. ${s.expCafe.toLocaleString()}`,
+    `  - General/Admin: Rs. ${s.expGeneral.toLocaleString()}`,
+    `  (Owner: Rs. ${s.expOwner.toLocaleString()}, Employee: Rs. ${s.expEmployee.toLocaleString()} — tracked separately, not part of Total Expenses)`, '',
+    `Net Business ${s.netProfit >= 0 ? 'Profit' : 'Loss'}: Rs. ${Math.abs(s.netProfit).toLocaleString()}`
+  ].forEach(line => { doc.text(line, 15, y); y += 7; });
+  doc.save(`DDTZ_Finance_Report_${from}_to_${to}.pdf`);
+  logAudit({ type: 'finance_expense', action: 'report_downloaded', summary: `Finance PDF Report Downloaded (${from} to ${to})` });
+  showToast('Finance report PDF downloaded ✅');
+};
+
+window.downloadFinanceReportExcel = () => {
+  if (!_finCanAccess() || !can('exportFinanceReport')) { denyAccess(); return; }
+  const from = document.getElementById('fin-from-date').value || getToday();
+  const to = document.getElementById('fin-to-date').value || getToday();
+  const s = _finComputeSummary(from, to);
+  const list = _finExpensesInRange(from, to);
+  const wb = XLSX.utils.book_new();
+  const summaryRows = [
+    ['DD Turf Zone — Finance Report'], [`Period: ${formatDate(from)} to ${formatDate(to)}`], [],
+    ['Total Income', s.totalIncome], ['Slot Booking Income', s.incomeSlot], ['Coaching Income', s.incomeCoaching], ['Cafe Income', s.incomeCafe], [],
+    ['Total Expenses', s.totalExpenses], ['Slot Booking Expenses', s.expSlot], ['Coaching Expenses', s.expCoaching], ['Cafe Expenses', s.expCafe], ['General/Admin Expenses', s.expGeneral], [],
+    ['Owner Expenses (not in Total)', s.expOwner], ['Employee Expenses (not in Total)', s.expEmployee], [],
+    [s.netProfit >= 0 ? 'Net Profit' : 'Net Loss', Math.abs(s.netProfit)]
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), 'Summary');
+  const expenseRows = [['Date','Category','Type','Description','Amount','Method','Recurring','Added By'],
+    ...list.map(e => [formatDate(e.date), FINANCE_EXPENSE_CATEGORIES[e.categoryGroup]?.label || e.categoryGroup, e.expenseType, e.description||'', e.amount, e.paymentMethod||'', e.isRecurring?'Yes':'No', e.addedBy||''])];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(expenseRows), 'Expenses');
+  XLSX.writeFile(wb, `DDTZ_Finance_Report_${from}_to_${to}.xlsx`);
+  logAudit({ type: 'finance_expense', action: 'report_downloaded', summary: `Finance Excel Report Downloaded (${from} to ${to})` });
+  showToast('Finance report Excel downloaded ✅');
+};
+
+window.printFinanceReport = () => {
+  if (!_finCanAccess() || !can('exportFinanceReport')) { denyAccess(); return; }
+  logAudit({ type: 'finance_expense', action: 'report_downloaded', summary: 'Finance Report Printed' });
+  window.print();
+};
+
+// ----- Firebase realtime listener (Super Admin ONLY — never started for
+// Manager/Staff; see the architecture note at the top of this module for
+// exactly what this can/cannot enforce). -----
+let _financeFirebaseUnsubscribe = null;
+window.initFinanceFirebaseListener = () => {
+  if (!_finCanAccess()) return; // hard gate — this must never even attempt to subscribe for Manager/Staff
+  if (typeof window.listenFinanceExpenses !== 'function') return;
+  if (_financeFirebaseUnsubscribe) return; // already subscribed this session
+
+  _financeFirebaseUnsubscribe = window.listenFinanceExpenses((remoteExpenses) => {
+    let changed = false;
+    remoteExpenses.forEach(remote => {
+      if (!remote.id) return;
+      const idx = window.DB.financeExpenses.findIndex(e => e.id === remote.id);
+      if (idx === -1) {
+        window.DB.financeExpenses.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
+        changed = true;
+      } else if ((remote.updatedAt || 0) !== (window.DB.financeExpenses[idx]._fbUpdatedAt || 0)) {
+        window.DB.financeExpenses[idx] = { ...window.DB.financeExpenses[idx], ...remote, _fbUpdatedAt: remote.updatedAt };
+        changed = true;
+      }
+    });
+    if (changed && document.getElementById('page-finance')?.classList.contains('active')) {
+      renderFinance();
+    }
+  });
+  console.log('✓ Firebase realtime listener active for Finance (Super Admin)');
+};
+
+window.stopFinanceFirebaseListener = () => {
+  if (_financeFirebaseUnsubscribe) {
+    _financeFirebaseUnsubscribe();
+    _financeFirebaseUnsubscribe = null;
+    console.log('✓ Finance Firebase listener stopped');
+  }
+};
+
+// ----- Initial load from Google Sheets (Super Admin only — the ONLY
+// place financeExpenses is ever fetched from the network; called once
+// from loadAllData(), already gated by _finCanAccess() there). Mirrors
+// syncEnrolmentsFromSheet's exact merge pattern: match by id, add via
+// _lsAddPreservingId if new, merge via LS.update if existing. -----
+let _financeSyncInFlight = false;
+async function syncFinanceExpensesFromSheet() {
+  if (!_finCanAccess()) return; // redundant with the call-site gate, kept as its own defense
+  if (!window.DDTZ_SHEET_URL || _financeSyncInFlight) return;
+  _financeSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=financeExpenses&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    (data.expenses || []).forEach(remote => {
+      if (!remote.id) return;
+      const local = window.DB.financeExpenses.find(r => r.id === remote.id);
+      if (!local) {
+        const rec = { ...remote, isRecurring: remote.isRecurring === 'yes' || remote.isRecurring === true };
+        _lsAddPreservingId('financeExpenses', rec);
+        window.DB.financeExpenses.unshift(rec);
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        const merged = { ...local, ...remote, id: local.id, isRecurring: remote.isRecurring === 'yes' || remote.isRecurring === true };
+        LS.update('financeExpenses', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    if (changed && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
+  } catch (e) {
+    // Network hiccup — local data unaffected, same as every other sync-from-sheet function.
+  } finally {
+    _financeSyncInFlight = false;
+  }
+}
+
+// ----- Finance Summary sheet sync (spec section 12's fifth sheet) —
+// pushed on every Finance page view rather than on a timer, since the
+// numbers are already computed correctly right here (avoids duplicating
+// _finComputeSummary's aggregation logic inside Apps Script). -----
+function _finSyncSummaryToSheets() {
+  const SHEET_URL = window.DDTZ_SHEET_URL || '';
+  if (!SHEET_URL) return;
+  const now = new Date();
+  const period = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const monthFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const s = _finComputeSummary(monthFrom, getToday());
+  queuedSync({
+    type: 'finance_summary', period,
+    totalIncome: s.totalIncome, incomeSlot: s.incomeSlot, incomeCoaching: s.incomeCoaching, incomeCafe: s.incomeCafe,
+    totalExpenses: s.totalExpenses, expSlot: s.expSlot, expCoaching: s.expCoaching, expCafe: s.expCafe, expGeneral: s.expGeneral,
+    expOwner: s.expOwner, expEmployee: s.expEmployee, netProfit: s.netProfit
+  });
+}
 
 // ===== REPORTS — MONTHLY BOOKING & COLLECTION =====
 
@@ -11989,7 +13629,8 @@ const RT_MODULE_META = {
   receipt:                { icon: '🧾', label: 'Receipt' }, // PHASE 3.4c — Receipt System
   reminder:               { icon: '📣', label: 'Reminder' }, // PHASE 3.4d — Due Engine & Reminder Dashboard
   enrolment_request:        { icon: '📝', label: 'Enrolment Request' }, // PHASE 3.5 — Student Enrolment Request System
-  enrolment_request_update: { icon: '📝', label: 'Enrolment Request' }
+  enrolment_request_update: { icon: '📝', label: 'Enrolment Request' },
+  attendance_summary:       { icon: '📊', label: 'Attendance Summary' } // PHASE 3.5 Improvements — Item 6
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
@@ -12313,6 +13954,14 @@ function _rtApplyEvents(events) {
 
     // Don't notify a device about its own write — it already knows.
     if (ev.device && ev.device === myDevice) return;
+    // PHASE 4.1 — Pending Enrolments notifications now come from the
+    // Firebase listener (_announceEnrolmentEvent) instead, so the
+    // Sheets-poll-derived event feed intentionally does NOT also raise a
+    // toast/bell/sound for this module here — doing both would be a
+    // duplicate notification for the same real-world event. The Activity
+    // Log itself is unaffected (it's written at the moment of the
+    // original queuedSync/autoSyncEnrolment call, not here).
+    if (ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update') return;
     const meta = _rtModuleMeta(ev.module);
     newNotifs.push({
       id: 'N' + ev.row,
@@ -12361,10 +14010,13 @@ function _rtApplyEvents(events) {
   // to be refreshed whenever either changes on another device, same
   // targeted-refresh pattern as every other module above.
   if ((affected.has('fee') || affected.has('student')) && document.getElementById('page-dues')?.classList.contains('active')) window.renderDues?.();
-  // PHASE 3.5 — Student Enrolment Request System. Deliberately NOT in
-  // RT_MERGE_MAP (see syncEnrolmentsFromSheet's own comment on why) —
-  // just re-fetch, same explicit-refresh pattern Fees uses above.
-  if (affected.has('enrolment_request') || affected.has('enrolment_request_update')) window.syncEnrolmentsFromSheet?.();
+  // PHASE 3.5 — Student Enrolment Request System. PHASE 4.1: the
+  // event-triggered re-fetch that used to run here has been removed —
+  // window.initPendingEnrolmentsListener()'s Firebase subscription now
+  // keeps window.DB.enrolments current in real time instead, so this
+  // polling-derived refresh would be redundant (and would duplicate the
+  // Firebase-driven update). The underlying Activity Log entry for the
+  // original write is unaffected either way.
   if (newNotifs.length) window.renderDashboard?.();
 }
 
