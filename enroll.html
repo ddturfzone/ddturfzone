@@ -90,8 +90,10 @@ textarea{resize:vertical;min-height:70px}
 </style>
 
 <!-- PHASE 4: Firebase Realtime Database SDK -->
-<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js"></script>
+<!-- PHASE 4.2 CRITICAL FIX: -compat builds required for plain <script>
+     loading — see admin.html for the full explanation. -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
 <!-- Firebase Service Module (Single initialization point) -->
 <script defer src="firebase.js"></script>
 

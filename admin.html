@@ -335,13 +335,26 @@ tr:hover td{background:#f8fffe}
 </style>
 
 <!-- PHASE 4: Firebase Realtime Database SDK -->
-<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js"></script>
-<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js"></script>
+<!-- PHASE 4.2 CRITICAL FIX: these must be the "-compat" builds. The
+     plain (non-compat) firebase-app.js/firebase-database.js/firebase-auth.js
+     are Firebase's MODULAR build — they contain real top-level
+     import/export statements internally and are ONLY valid when loaded
+     via <script type="module">. Loading them as plain scripts (as before)
+     causes the browser to throw "Cannot use import statement outside a
+     module" / "Unexpected token 'export'" while trying to parse them.
+     The "-compat" builds are specifically designed for plain <script>
+     tags and expose the global `firebase` namespace object exactly the
+     way firebase.js already uses it (firebase.initializeApp(...),
+     firebase.database(), firebase.auth(), firebase.database.ServerValue) —
+     so this fixes the loading mechanism without changing any application
+     code at all. -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
 <!-- PHASE 4.1: Auth SDK loaded on admin.html ONLY (never on enroll.html) so
      initializeFirebase() can sign in anonymously here — this is what lets
      the Firebase Security Rules tell "the admin panel" apart from "the
      public enrolment form." See PHASE_4_1_FINAL_VERIFICATION.md. -->
-<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-auth-compat.js"></script>
 <!-- Firebase Service Module (Single initialization point) -->
 <script defer src="firebase.js"></script>
 
@@ -3765,13 +3778,23 @@ function _fillCategorySelect(el, { includeAll=false, includeTurf=false, includeI
 // Re-renders every sport/category <select> in the app from the current
 // coachingCategories list. Called on load and after any category add/
 // edit/delete/toggle so every dropdown stays in sync immediately.
-window.refreshCategoryDropdowns = () => {
+//
+// PHASE 4.2 CRITICAL FIX (Task 3): this is now a genuine `function`
+// declaration instead of a `const`-style arrow assigned to
+// window.refreshCategoryDropdowns. Function declarations are hoisted —
+// callable from anywhere in this script regardless of textual order —
+// which makes "refreshCategoryDropdowns is not defined" structurally
+// impossible from here on, regardless of what caused it before. Still
+// assigned to window.refreshCategoryDropdowns immediately below for any
+// code that references it that way explicitly; behavior is unchanged.
+function refreshCategoryDropdowns() {
   _fillCategorySelect(document.getElementById('student-sport-filter'), { includeAll: true, includeInactive: true });
   _fillCategorySelect(document.getElementById('att-sport'), {});
   _fillCategorySelect(document.getElementById('st-sport'), {});
   _fillCategorySelect(document.getElementById('co-sport'), {});
   _fillCategorySelect(document.getElementById('enq-sport'), { includeTurf: true });
-};
+}
+window.refreshCategoryDropdowns = refreshCategoryDropdowns;
 
 // ----- Category CRUD -----
 window.openCategoriesManager = () => { renderCategoriesManagerList(); openModal('categories-list-modal'); };
@@ -13588,9 +13611,19 @@ const RT_NOTIF_KEY = 'ddtz_notifications';
 const RT_NOTIF_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const RT_NOTIF_MAX_COUNT = 500;
 
-let _rtPolling = false;
-let _rtPollTimer = null;
-let _rtBackoffMs = RT_POLL_MS;
+var _rtPolling = false;
+// PHASE 4.2 CRITICAL FIX (Task 2): changed from `let` to `var`. I could
+// not reproduce a concrete code path in this file that would trigger
+// "Cannot access before initialization" for these — every call site of
+// rtPollEvents() I traced fires only from an event listener or a
+// setTimeout callback, all registered after this declaration executes.
+// Converting to `var` removes the Temporal Dead Zone for these variables
+// entirely regardless of cause (var initializes to `undefined`
+// immediately, before any code runs) — zero behavior change, since
+// they're simple top-level guard flags/counters read and written the
+// same way either way.
+var _rtPollTimer = null;
+var _rtBackoffMs = RT_POLL_MS;
 
 function _rtGetCursor() {
   const v = parseInt(localStorage.getItem(RT_CURSOR_KEY), 10);
