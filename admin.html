@@ -434,6 +434,10 @@ tr:hover td{background:#f8fffe}
              applyRolePermissionsToUI) — but that's UX only. showPage()'s own
              hasPageAccess() check below is the real, unavoidable gate. -->
         <button class="nav-item" data-page-nav="finance" onclick="showPage('finance')"><span class="nav-icon">💰</span>Finance</button>
+        <!-- TEMP DIAGNOSTICS PANEL — remove this line + page-diagnostics
+             + renderDiagnostics() + the diagnostics: permission entry
+             once Phase 4.x migrations are complete and verified. -->
+        <button class="nav-item" data-page-nav="diagnostics" onclick="showPage('diagnostics')"><span class="nav-icon">🛠️</span>Diagnostics</button>
         <button class="nav-item" data-page-nav="reports" onclick="showPage('reports')"><span class="nav-icon">📈</span>Reports</button>
         <button class="nav-item" data-page-nav="website" onclick="showPage('website')"><span class="nav-icon">🌐</span>Website Content</button>
       </div>
@@ -1102,6 +1106,201 @@ tr:hover td{background:#f8fffe}
               <tbody id="finance-expenses-tbody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.
+           Super Admin only. Safe to delete this entire <div> (and the
+           matching nav item, permission entry, showPage dispatch
+           entries, and renderDiagnostics() function) once all Firebase
+           migrations are complete and verified.
+      ============================================================ -->
+      <div class="page" id="page-diagnostics">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">🛠️ Realtime Diagnostics <span style="font-size:14px;font-weight:600;color:var(--orange);background:var(--yellow);padding:3px 10px;border-radius:20px;vertical-align:middle">TEMPORARY</span></div>
+            <div style="color:var(--gray3);font-size:13px">Super Admin only — for Phase 4.x migration verification. Remove after migrations are complete.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="refreshDiagnostics()">🔄 Refresh</button>
+            <button class="btn btn-secondary" onclick="copyDiagnosticReport()">📋 Copy Report</button>
+            <button class="btn btn-secondary" onclick="downloadDiagnosticReport()">⬇️ Download Report</button>
+            <button class="btn btn-danger" onclick="clearTemporaryDiagnosticLogs()">🗑️ Clear Temporary Logs</button>
+          </div>
+        </div>
+
+        <!-- ===== TEMP SYSTEM HEALTH — Alerts + Summary + Module Score ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">System Health Alerts <span style="font-size:10px;background:var(--yellow);color:var(--orange);padding:2px 8px;border-radius:10px;text-transform:none">TEMP SYSTEM HEALTH — auto-checks every 30s</span></div>
+        <div class="card" id="diag-health-alerts-card" style="margin-bottom:16px;border-left:4px solid var(--gray2)">
+          <div id="diag-health-alerts" style="font-size:14px"></div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="card" style="text-align:center">
+            <div class="card-title">📈 Overall System Health <span style="font-size:10px;font-weight:400;color:var(--gray3)">TEMP SYSTEM HEALTH</span></div>
+            <div id="diag-system-summary"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">🏥 Module Health Score <span style="font-size:10px;font-weight:400;color:var(--gray3)">TEMP SYSTEM HEALTH</span></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Module</th><th>Status</th></tr></thead>
+                <tbody id="diag-module-health-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">📤 Export Health Report <span style="font-size:10px;font-weight:400;color:var(--gray3)">TEMP SYSTEM HEALTH</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="downloadHealthReportPDF()">📄 Download PDF</button>
+            <button class="btn btn-secondary" onclick="copyHealthReport()">📋 Copy Report</button>
+            <button class="btn btn-secondary" onclick="exportHealthReportJSON()">⬇️ Export JSON</button>
+          </div>
+        </div>
+
+        <!-- ===== SYSTEM HEALTH ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">System Health</div>
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-title">🔥 Firebase Status</div>
+            <div id="diag-firebase-status" style="font-size:14px"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">🔑 Anonymous Authentication</div>
+            <div id="diag-auth-status" style="font-size:14px"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">📄 Google Sheets / Apps Script</div>
+          <div id="diag-sheets-status" style="font-size:14px"></div>
+          <div style="font-size:11.5px;color:var(--gray3);margin-top:8px">Note: this app only ever talks to Google Sheets THROUGH Apps Script — there is no separate direct Sheets connection, so "Google Sheets Status" and "Apps Script Status" are genuinely the same underlying measurement, not two independent metrics.</div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">📊 Google Sheets Sync Queue</div>
+          <div id="diag-sync-queue" style="font-size:14px"></div>
+        </div>
+
+        <!-- ===== REALTIME MONITOR ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Realtime Monitor</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">📡 Active Firebase Listeners</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Listener</th><th>Status</th></tr></thead>
+              <tbody id="diag-listeners-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:16px;border-left:4px solid var(--orange)">
+          <div class="card-title">👤 This Device's Session</div>
+          <div id="diag-session-status" style="font-size:14px"></div>
+          <div style="font-size:11.5px;color:var(--red);margin-top:8px;font-weight:600">⚠️ Limitation, not a bug: showing OTHER devices' connected sessions (Manager/Staff/other Super Admins currently logged in elsewhere) would require a new Firebase "presence" node that every session writes to on connect/disconnect — a genuine new database write and new business logic, both explicitly excluded from this panel. This section can only ever show this device's own session under the current constraints.</div>
+        </div>
+
+        <!-- ===== DATABASE HEALTH ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Database Health</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">🗄️ Read / Write Counters (this session)</div>
+          <div id="diag-db-health" style="font-size:14px"></div>
+          <div style="font-size:11.5px;color:var(--gray3);margin-top:8px">"Firebase Reads" is a proxy (count of listener snapshots received) — there is no client-accessible exact read-count API, so this is the closest honest measurement available in-browser.</div>
+        </div>
+
+        <!-- ===== MODULE STATUS ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Module Status</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Module</th><th>Status</th></tr></thead>
+              <tbody id="diag-module-status-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== PERFORMANCE ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Performance</div>
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-title">📥 Last Firebase Events (most recent 10)</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Module</th><th>Event</th><th>Time</th></tr></thead>
+                <tbody id="diag-events-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">⏱️ Firebase Write Latency (most recent 10, ms)</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Module</th><th>Latency</th><th>Time</th></tr></thead>
+                <tbody id="diag-latency-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">⚡ Performance Summary</div>
+          <div id="diag-performance" style="font-size:14px"></div>
+        </div>
+
+        <!-- ===== ERROR MONITOR ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Error Monitor</div>
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-title">🔴 Last 20 Errors</div>
+            <div class="table-wrap" style="max-height:260px;overflow-y:auto">
+              <table>
+                <thead><tr><th>Time</th><th>Message</th></tr></thead>
+                <tbody id="diag-errors-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">🟡 Last 20 Warnings</div>
+            <div class="table-wrap" style="max-height:260px;overflow-y:auto">
+              <table>
+                <thead><tr><th>Time</th><th>Message</th></tr></thead>
+                <tbody id="diag-warnings-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== ACTIVITY ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Activity (this session)</div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Module</th><th>Last Action</th><th>User</th><th>Time</th></tr></thead>
+              <tbody id="diag-activity-tbody"></tbody>
+            </table>
+          </div>
+          <div style="font-size:11.5px;color:var(--gray3);margin-top:8px">Reflects activity since this diagnostics panel loaded, not the full historical Activity Log (see the actual Activity Log page for complete history).</div>
+        </div>
+
+        <!-- ===== BACKUP STATUS ===== -->
+        <div style="font-size:13px;font-weight:800;color:var(--gray3);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">Backup Status</div>
+        <div class="card" style="margin-bottom:16px">
+          <div id="diag-backup-status" style="font-size:14px"></div>
+        </div>
+
+        <!-- ===== (existing) Background Sync + Notifications ===== -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">🔄 Background Sync Status (per module)</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Module</th><th>Firebase</th><th>Sheets</th><th>Time</th></tr></thead>
+              <tbody id="diag-bgsync-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🔔 Notification Status (this session)</div>
+          <div id="diag-notifications" style="font-size:14px"></div>
         </div>
       </div>
 
@@ -3154,6 +3353,10 @@ const PAGE_PERMISSIONS = {
   // is untouched) — Super Admin only, no exceptions, checked the same
   // way every other Super-Admin-only page already is.
   finance:    [ROLES.SUPER_ADMIN],
+  // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only. Safe to
+  // delete this line (and everything else marked "TEMP DIAGNOSTICS")
+  // once all Firebase migrations are complete and verified.
+  diagnostics: [ROLES.SUPER_ADMIN],
   reports:    [ROLES.SUPER_ADMIN],
   activity:   [ROLES.SUPER_ADMIN, ROLES.ADMIN], // PHASE 2.5
   users:      [ROLES.SUPER_ADMIN],
@@ -3392,6 +3595,10 @@ function _enterApp(user) {
         // site added elsewhere — that starts it for a non-Super-Admin
         // session. Calling it unconditionally here is safe by design.
         window.initFinanceFirebaseListener?.();
+        // PHASE 4.3.1 — Coaches listener. Available to every role (unlike
+        // Finance, Coaches has no role-based data-hiding requirement), so
+        // no access-gate check is needed here, unlike initFinanceFirebaseListener.
+        window.initCoachesFirebaseListener?.();
         // Verify connection after initialization
         setTimeout(() => {
           window.verifyFirebaseConnection?.().then((verification) => {
@@ -3548,6 +3755,7 @@ function doLogout() {
   // PHASE 4.2 — tear down the Finance listener too (harmless no-op if it
   // was never started, e.g. a Manager/Staff session).
   window.stopFinanceFirebaseListener?.();
+  window.stopCoachesFirebaseListener?.();
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   // Clear password field for security
@@ -4008,8 +4216,133 @@ async function syncCoachesFromSheet() {
 }
 // Same cadence as syncBookingsAndBlocksFromSheet: every 30s, plus instantly
 // on tab focus.
-setInterval(() => { if (CURRENT_USER) syncCoachesFromSheet(); }, 30000);
+// PHASE 4.3.1 — the 30s polling interval that used to live here has been
+// removed — window.initCoachesFirebaseListener() (below) now keeps
+// window.DB.coaches current in real time via Firebase instead. The
+// focus-refresh listener is intentionally KEPT as an extra safety net,
+// same reasoning as Pending Enrolments in Phase 4.1 — a one-off refetch
+// on focus, not a recurring poll.
 window.addEventListener('focus', () => { if (CURRENT_USER) syncCoachesFromSheet(); });
+
+// ============================================================================
+// PHASE 4.3.1 — COACHES: FIREBASE REALTIME LISTENER
+// ----------------------------------------------------------------------------
+// Same pattern as Pending Enrolments (Phase 4.1): single guarded
+// subscription, matched by the module's own existing id (coachId), seeded
+// silently on the first snapshot (no notification for pre-existing state
+// on login/reload), diffs from the second snapshot onward for new/changed/
+// removed coaches, and reuses the exact same toast/bell/sound/voice
+// primitives — no new notification mechanism.
+// ============================================================================
+
+let _coachesFirebaseUnsubscribe = null;
+let _coachesFirebaseSeeded = false;
+const _ddtzAnnouncedCoachEvents = new Set(); // "coachId:kind" already announced this session
+
+window.initCoachesFirebaseListener = () => {
+  if (typeof window.listenCoaches !== 'function') return;
+  if (_coachesFirebaseUnsubscribe) return; // already subscribed this session
+
+  _coachesFirebaseUnsubscribe = window.listenCoaches((remoteCoaches) => {
+    const isFirstSnapshot = !_coachesFirebaseSeeded;
+    let changed = false;
+    const seenCoachIds = new Set();
+
+    remoteCoaches.forEach(remote => {
+      if (!remote.coachId) return;
+      seenCoachIds.add(remote.coachId);
+      const local = window.DB.coaches.find(c => c.coachId === remote.coachId);
+      const isOwnAction = remote.updatedBy && CURRENT_USER && remote.updatedBy === (CURRENT_USER.email || CURRENT_USER.name);
+
+      if (!local) {
+        const rec = { ...remote, id: remote.coachId };
+        _lsAddPreservingId('coaches', rec);
+        window.DB.coaches.push(rec);
+        changed = true;
+        window._ddtzDiag?.recordEvent('coaches', 'Create'); // TEMP DIAGNOSTICS
+        if (!isFirstSnapshot && !isOwnAction) {
+          _announceCoachEvent(remote.coachId, 'added', {
+            text: `New coach added — ${remote.name || ''}`,
+            voice: 'A new coach has been added.'
+          });
+        }
+      } else {
+        const remoteUpdatedAt = remote.updatedAt || 0;
+        if (remoteUpdatedAt && remoteUpdatedAt !== local._fbUpdatedAt) {
+          const merged = { ...local, ...remote, id: local.id, _fbUpdatedAt: remoteUpdatedAt };
+          LS.update('coaches', local.id, merged);
+          Object.assign(local, merged);
+          changed = true;
+          window._ddtzDiag?.recordEvent('coaches', 'Update'); // TEMP DIAGNOSTICS
+          if (!isFirstSnapshot && !isOwnAction) {
+            _announceCoachEvent(remote.coachId, 'updated:' + remoteUpdatedAt, {
+              text: `Coach updated — ${remote.name || ''}`,
+              voice: 'Coach details updated.'
+            });
+          }
+        }
+      }
+    });
+
+    // Removed on another device — same reconciliation
+    // syncCoachesFromSheet already did for the Sheets-poll path, now
+    // driven by Firebase instead. Guard against a delete that's still
+    // sitting in THIS device's own offline queue (not yet synced) so we
+    // don't remove a record whose deletion this device itself initiated
+    // but hasn't been reflected back yet — mirrors the existing
+    // stillPendingDelete guard in syncCoachesFromSheet.
+    if (!isFirstSnapshot) {
+      const stillPendingDelete = new Set(_getSyncQueue().filter(p => p.type === 'coach' && p.action === 'delete').map(p => p.coachId));
+      const beforeCount = window.DB.coaches.length;
+      const removedCoaches = window.DB.coaches.filter(c => c.coachId && !seenCoachIds.has(c.coachId) && !stillPendingDelete.has(c.coachId));
+      if (removedCoaches.length) {
+        window.DB.coaches = window.DB.coaches.filter(c => !c.coachId || seenCoachIds.has(c.coachId) || stillPendingDelete.has(c.coachId));
+        LS.set('coaches', window.DB.coaches);
+        changed = true;
+        window._ddtzDiag?.recordEvent('coaches', 'Delete'); // TEMP DIAGNOSTICS
+        removedCoaches.forEach(c => {
+          _announceCoachEvent(c.coachId, 'removed', {
+            text: `Coach removed — ${c.name || ''}`,
+            voice: 'A coach has been removed.'
+          });
+        });
+      }
+    }
+
+    _coachesFirebaseSeeded = true;
+    if (changed && document.getElementById('page-coaches')?.classList.contains('active')) renderCoaches();
+  });
+
+  console.log('✓ Firebase realtime listener active for Coaches');
+};
+
+function _announceCoachEvent(coachId, kind, { text, voice }) {
+  const eventKey = coachId + ':' + kind;
+  if (_ddtzAnnouncedCoachEvents.has(eventKey)) return;
+  _ddtzAnnouncedCoachEvents.add(eventKey);
+
+  showToast(`👨‍🏫 ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'COACHFB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: 'Coaches', role: '', module: 'coach', moduleLabel: 'Coaches',
+    icon: '👨‍🏫', action: text, recordId: coachId, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  window.playVoiceAnnouncement?.(voice, false);
+}
+
+window.stopCoachesFirebaseListener = () => {
+  if (_coachesFirebaseUnsubscribe) {
+    _coachesFirebaseUnsubscribe();
+    _coachesFirebaseUnsubscribe = null;
+    _coachesFirebaseSeeded = false;
+    console.log('✓ Coaches Firebase listener stopped');
+  }
+};
 
 // PHASE 3.2a — Student Core. Same merge model as syncCoachesFromSheet just
 // above: never overwrites a full local record with the Sheet's flattened
@@ -4128,12 +4461,12 @@ window.showPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',enrolmentqr:'Enrolment QR',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',finance:'Finance',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',enrolmentqr:'Enrolment QR',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',finance:'Finance',diagnostics:'Realtime Diagnostics (Temp)',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,enrolmentqr:renderEnrolmentQrPage,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,finance:renderFinance,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,enrolmentqr:renderEnrolmentQrPage,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,finance:renderFinance,diagnostics:renderDiagnostics,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -5438,7 +5771,7 @@ window.sendBookingWhatsApp = (b) => {
 // the server side, since that just reads the raw request body regardless of
 // the declared content-type). Dropping `no-cors` means we can now actually
 // read the response and surface real errors to the admin.
-async function postToGoogleSheet(payload) {
+async function _postToGoogleSheetOriginal(payload) {
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
   if (!SHEET_URL) return { ok: false, skipped: true };
   if (window.DDTZ_SHEET_TOKEN) payload = { ...payload, token: window.DDTZ_SHEET_TOKEN };
@@ -5495,6 +5828,18 @@ async function postToGoogleSheet(payload) {
     _recordSyncError(String(err));
     return { ok: false, error: String(err), retry: true };
   }
+}
+
+// TEMP DIAGNOSTICS — thin timing wrapper. Every existing caller
+// (queuedSync, flushSyncQueue, logAudit, testSheetConnection, etc.)
+// keeps calling postToGoogleSheet exactly as before; this just also
+// times it. _postToGoogleSheetOriginal's internals (above) are
+// completely untouched — zero risk to any of its return paths/logic.
+async function postToGoogleSheet(payload) {
+  const _diagStart = performance.now();
+  const result = await _postToGoogleSheetOriginal(payload);
+  window._ddtzDiag?.recordSheetsLatency(Math.round(performance.now() - _diagStart), !!(result && result.ok));
+  return result;
 }
 
 // Lets an admin verify the connection directly from Settings, instead of
@@ -6203,6 +6548,7 @@ function logAudit(sourcePayload) {
   // Audit entries are best-effort and append-only: queue them the same
   // way, but never let an audit-log failure surface as an error toast —
   // the primary record (booking/block/etc.) already got one if it mattered.
+  window._ddtzDiag?.recordModuleActivity(moduleName, entry.summary, entry.user); // TEMP DIAGNOSTICS
   if (!navigator.onLine) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); return; }
   postToGoogleSheet(entry).then(res => { if (!res.ok && !res.skipped) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); } });
 }
@@ -9995,6 +10341,7 @@ window.initPendingEnrolmentsListener = () => {
         _lsAddPreservingId('enrolments', rec);
         window.DB.enrolments.unshift(rec);
         changed = true;
+        window._ddtzDiag?.recordEvent('enrolments', 'Create'); // TEMP DIAGNOSTICS
       } else {
         // Reflect Firebase's status (approving/approved/rejected) onto
         // the local record's uppercase status convention, without
@@ -10009,6 +10356,7 @@ window.initPendingEnrolmentsListener = () => {
           LS.update('enrolments', local.id, merged);
           Object.assign(local, merged);
           changed = true;
+          window._ddtzDiag?.recordEvent('enrolments', 'Update'); // TEMP DIAGNOSTICS
         }
       }
 
@@ -10064,6 +10412,7 @@ function _announceEnrolmentEvent(requestId, kind, { icon, label, text, voice }) 
   // Toast + sound (reuses the exact existing primitives every other
   // module's notifications already use — no new UI, no new sound asset).
   showToast(`${icon} ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
 
   // Bell / Notification Center (reuses the existing storage + render
@@ -10077,6 +10426,7 @@ function _announceEnrolmentEvent(requestId, kind, { icon, label, text, voice }) 
   };
   _rtSaveNotifications([newNotif, ...notifications]);
   _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   if (document.getElementById('page-activity')?.classList.contains('active')) renderActivityLog();
 
   // Voice announcement — only reachable here because isOwnAction was
@@ -10288,12 +10638,23 @@ window.approveEnrolment = async (id) => {
   // Firebase itself isn't available for any reason, this falls back to
   // the original (pre-Phase-4.1) behavior rather than blocking Approve
   // entirely on a Firebase outage.
-  const firebaseAvailable = typeof window.claimEnrolmentForApproval === 'function';
+  // EMERGENCY STABILITY FIX (root cause of "Could not start approval:
+  // Firebase not initialized"): this used to check
+  // `typeof window.claimEnrolmentForApproval === 'function'`, which is
+  // true almost immediately once firebase.js finishes loading — NOT
+  // whether Firebase has actually finished initializing. A click within
+  // roughly the first second after login could hit exactly this race:
+  // the function existed, but the database reference inside it was
+  // still null. window.getFirebaseStatus().fullyReady only becomes true
+  // once initializeFirebase()'s entire chain (app + database + the
+  // anonymous-auth attempt) has genuinely settled.
+  const firebaseAvailable = window.getFirebaseStatus?.().fullyReady === true;
   if (firebaseAvailable) {
     const claim = await window.claimEnrolmentForApproval(id, CURRENT_USER?.email || '');
     if (!claim.success) {
       if (claim.conflict) {
         showToast('⚠️ This enrolment has already been processed by another user.', 'error');
+        window._ddtzDiag?.recordDuplicatePrevention(); // TEMP DIAGNOSTICS
         // Pull the authoritative state so this device's table reflects
         // reality instead of a stale "still pending" row.
         window.syncEnrolmentsFromSheet?.();
@@ -10372,12 +10733,14 @@ window.confirmRejectEnrolment = async () => {
   // from rejecting (or one rejecting while another approves) the same
   // request. Reject has no follow-on business logic, so a single
   // transaction (rather than approve's claim/finalize split) is safe.
-  const firebaseAvailable = typeof window.rejectEnrolmentFirebase === 'function';
+  // EMERGENCY STABILITY FIX — same reasoning as approveEnrolment above.
+  const firebaseAvailable = window.getFirebaseStatus?.().fullyReady === true;
   if (firebaseAvailable) {
     const result = await window.rejectEnrolmentFirebase(id, CURRENT_USER?.email || '', reason);
     if (!result.success) {
       if (result.conflict) {
         showToast('⚠️ This enrolment has already been processed by another user.', 'error');
+        window._ddtzDiag?.recordDuplicatePrevention(); // TEMP DIAGNOSTICS
         window.syncEnrolmentsFromSheet?.();
       } else if (result.offline) {
         showToast(result.error, 'error');
@@ -10505,7 +10868,29 @@ window.saveCoach = async () => {
   const id=await saveDoc('coaches',data,existId||null);
   if(!existId){data.id=id;data.coachId=id;window.DB.coaches.push(data);}
   else{const idx=window.DB.coaches.findIndex(x=>x.id===existId);if(idx>=0)window.DB.coaches[idx]={...data,id:existId};}
-  autoSyncCoach(data, existId ? 'update' : 'create');
+  // PHASE 4.3.1 — Firebase-first: attempt the Firebase write and wait for
+  // it (normally sub-second), THEN fire the existing Sheets sync as a
+  // separate, non-blocking call. Firebase failing does not block this
+  // save — matches this app's established fail-soft convention — it just
+  // means this specific change won't appear live on other devices until
+  // Firebase recovers; the Sheets write (the permanent record) still
+  // happens either way.
+  const fbResult = await window.syncCoachFirebase?.({
+    ...(data.coachId ? data : { ...data, coachId: data.id }),
+    updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
+  });
+  if (fbResult && !fbResult.success) {
+    console.warn('Coach Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+  }
+  // TEMP DIAGNOSTICS — records both legs' outcome for the diagnostics
+  // panel. Sheets sync itself stays fire-and-forget (unchanged); this
+  // just ALSO attaches a diagnostic-only continuation, it doesn't make
+  // the save wait on it.
+  autoSyncCoach(data, existId ? 'update' : 'create').then(sheetsRes => {
+    window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, !!(sheetsRes && sheetsRes.ok));
+  }).catch(() => {
+    window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, false);
+  });
   closeModal('coach-modal');
   renderCoaches(); renderDashboard();
   showToast('Coach saved! ✅');
@@ -10517,7 +10902,14 @@ window.deleteCoach = async (id) => {
   const c = window.DB.coaches.find(x=>x.id===id);
   await deleteDoc2('coaches',id);
   window.DB.coaches=window.DB.coaches.filter(x=>x.id!==id);
-  if (c) autoSyncCoach(c, 'delete');
+  if (c) {
+    // Firebase-first delete too, same non-blocking fail-soft pattern.
+    const coachId = c.coachId || c.id;
+    window.deleteCoachFirebase?.(coachId).then(r => {
+      if (r && !r.success) console.warn('Coach Firebase delete failed (Sheets delete still proceeding):', r.error);
+    });
+    autoSyncCoach(c, 'delete');
+  }
   renderCoaches();
   showToast('Coach deleted');
 };
@@ -10693,7 +11085,11 @@ window.renderAccounts = () => {
   const rangeFees = window.DB.fees.filter(f => inRange(f.date));
   const rangeBookings = window.DB.bookings.filter(b => b.status !== 'cancelled' && inRange(b.date));
   const turfRev = rangeBookings.reduce((s,b) => s + (Number(b.total)||0), 0);
-  const coachRev = rangeFees.reduce((s,f) => s + (Number(f.paid)||0), 0);
+  // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #2): was `Number(f.paid)`
+  // — f.paid doesn't exist on real fee records (the actual field is
+  // amountReceived), so this always evaluated to 0. Now uses the same
+  // defensive pattern already proven correct elsewhere in this file.
+  const coachRev = rangeFees.reduce((s,f) => s + (Number(f.amountReceived ?? f.paid) || 0), 0);
   const totalRev = turfRev + coachRev;
   const totalExp = rangeExp.reduce((s,e) => s + (Number(e.amount)||0), 0);
   const profit = totalRev - totalExp;
@@ -10820,9 +11216,14 @@ function _finIncomeSlot(from, to) {
     .reduce((s, b) => s + (Number(b.total) || 0), 0);
 }
 function _finIncomeCoaching(from, to) {
+  // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #2): was `Number(f.paid)`
+  // — f.paid doesn't exist on real fee records (the actual field is
+  // amountReceived) — this had been silently returning 0 for Coaching
+  // Income since Phase 4.2. Now uses the same defensive pattern already
+  // proven correct elsewhere in this file (e.g. the Dues Engine).
   return (window.DB.fees || [])
     .filter(f => f.date >= from && f.date <= to)
-    .reduce((s, f) => s + (Number(f.paid) || 0), 0);
+    .reduce((s, f) => s + (Number(f.amountReceived ?? f.paid) || 0), 0);
 }
 function _finIncomeCafe(from, to) {
   return (window.DB.cafeSales || [])
@@ -11342,9 +11743,11 @@ window.initFinanceFirebaseListener = () => {
       if (idx === -1) {
         window.DB.financeExpenses.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
         changed = true;
+        window._ddtzDiag?.recordEvent('finance', 'Create'); // TEMP DIAGNOSTICS
       } else if ((remote.updatedAt || 0) !== (window.DB.financeExpenses[idx]._fbUpdatedAt || 0)) {
         window.DB.financeExpenses[idx] = { ...window.DB.financeExpenses[idx], ...remote, _fbUpdatedAt: remote.updatedAt };
         changed = true;
+        window._ddtzDiag?.recordEvent('finance', 'Update'); // TEMP DIAGNOSTICS
       }
     });
     if (changed && document.getElementById('page-finance')?.classList.contains('active')) {
@@ -11420,6 +11823,422 @@ function _finSyncSummaryToSheets() {
     expOwner: s.expOwner, expEmployee: s.expEmployee, netProfit: s.netProfit
   });
 }
+
+// ============================================================================
+// TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.
+// Read-only: every line below either reads existing state or reads the
+// window._ddtzDiag tracking object (itself populated by purely additive
+// hooks elsewhere — see firebase.js's own TEMP DIAGNOSTICS section for
+// the full removal instructions). Nothing here writes to Firebase,
+// Sheets, or any business-data collection.
+// ============================================================================
+window.renderDiagnostics = () => {
+  if (!(CURRENT_USER?.role === ROLES.SUPER_ADMIN)) { denyAccess('Diagnostics is Super Admin only.'); return; }
+
+  const fb = window.getFirebaseStatus?.() || {};
+
+  // 1. Firebase Status
+  const fbLabel = fb.authState === 'failed' ? `🔴 Authentication Failed: ${fb.lastError || 'unknown'}`
+    : fb.lastError && /permission/i.test(fb.lastError) ? `🔴 Permission Denied: ${fb.lastError}`
+    : fb.status === 'connected' ? '🟢 Connected'
+    : fb.status === 'disconnected' ? `🔴 Disconnected${fb.lastError ? ': ' + fb.lastError : ''}`
+    : '⚪ Connecting...';
+  document.getElementById('diag-firebase-status').innerHTML = `<div>${fbLabel}</div><div style="font-size:12px;color:var(--gray3);margin-top:6px">fullyReady: ${fb.fullyReady === true}</div>`;
+
+  // 2. Anonymous Authentication
+  const authLabel = fb.authState === 'success' ? '🟢 Authenticated'
+    : fb.authState === 'failed' ? `🔴 Failed: ${fb.lastError || 'unknown error'}`
+    : fb.authState === 'skipped' ? '⚪ Not Required (public page)'
+    : fb.app ? '🟡 Signing In...' : '⚪ Not Started';
+  document.getElementById('diag-auth-status').innerHTML = `<div>${authLabel}</div>`;
+
+  // 3. Active Firebase Listeners
+  const listeners = [
+    { name: 'Connection Monitor', active: fb.status === 'connected' || fb.status === 'disconnected' },
+    { name: 'Pending Enrolments', active: !!_firebaseEnrolmentsUnsubscribe },
+    { name: 'Finance', active: !!_financeFirebaseUnsubscribe },
+    { name: 'Coaches', active: !!_coachesFirebaseUnsubscribe }
+  ];
+  document.getElementById('diag-listeners-tbody').innerHTML = listeners.map(l =>
+    `<tr><td>${l.name}</td><td>${l.active ? '🟢 Active' : '⚪ Not active'}</td></tr>`
+  ).join('');
+
+  // 4. Last Firebase Events
+  const events = (window._ddtzDiag?.events || []).slice(0, 10);
+  document.getElementById('diag-events-tbody').innerHTML = events.length
+    ? events.map(e => `<tr><td>${e.module}</td><td>${e.eventType}</td><td>${new Date(e.timestamp).toLocaleTimeString()}</td></tr>`).join('')
+    : '<tr><td colspan="3">No events recorded yet this session.</td></tr>';
+
+  // Write latency (also serves requirement 8 — Connection Latency, measured
+  // from real application writes already happening, not a diagnostic ping)
+  const latencies = (window._ddtzDiag?.writeLatencies || []).slice(0, 10);
+  document.getElementById('diag-latency-tbody').innerHTML = latencies.length
+    ? latencies.map(l => `<tr><td>${l.module}</td><td>${l.ms} ms</td><td>${new Date(l.timestamp).toLocaleTimeString()}</td></tr>`).join('')
+    : '<tr><td colspan="3">No writes recorded yet this session.</td></tr>';
+
+  // 5. Google Sheets Sync Queue — all read from EXISTING, already-live
+  // tracking (queuedSync/flushSyncQueue's own bookkeeping), nothing new.
+  const pending = _getSyncQueue().length;
+  const recentErrors = _getRecentSyncErrors();
+  const lastFailed = recentErrors[0];
+  document.getElementById('diag-sync-queue').innerHTML = `
+    <div>Pending Jobs: <strong>${pending}</strong></div>
+    <div>Processing: <strong>${_syncQueueFlushing ? '🟡 Yes' : '⚪ No'}</strong></div>
+    <div>Last Successful Sync: <strong>${_fmtRelativeTime(localStorage.getItem(SYNC_LAST_SUCCESS_KEY))}</strong></div>
+    <div>Last Failed Sync: <strong>${lastFailed ? new Date(lastFailed.time).toLocaleString() + ' — ' + lastFailed.message : 'None recorded'}</strong></div>
+    <div>Retry Backoff Level: <strong>${_syncBackoffIndex} / ${SYNC_BACKOFF_STEPS_MS.length - 1}</strong></div>
+  `;
+
+  // 6. Background Sync Status
+  const bg = window._ddtzDiag?.backgroundSync || {};
+  const bgRows = Object.keys(bg).map(mod => {
+    const s = bg[mod];
+    return `<tr><td>${mod}</td><td>${s.firebaseOk ? '🟢 OK' : '🔴 Failed'}</td><td>${s.sheetsOk ? '🟢 OK' : '🔴 Failed'}</td><td>${new Date(s.timestamp).toLocaleTimeString()}</td></tr>`;
+  });
+  document.getElementById('diag-bgsync-tbody').innerHTML = bgRows.length ? bgRows.join('') : '<tr><td colspan="4">No writes recorded yet this session.</td></tr>';
+
+  // 7. Notification Status
+  const n = window._ddtzDiag?.notifications || {};
+  document.getElementById('diag-notifications').innerHTML = `
+    <div>Toast Sent: <strong>${n.toastCount || 0}</strong>${n.lastToast ? ' (last: ' + new Date(n.lastToast).toLocaleTimeString() + ')' : ''}</div>
+    <div>Bell Notification Sent: <strong>${n.bellCount || 0}</strong>${n.lastBell ? ' (last: ' + new Date(n.lastBell).toLocaleTimeString() + ')' : ''}</div>
+    <div>Voice Played: <strong>${n.voiceCount || 0}</strong>${n.lastVoice ? ' (last: ' + new Date(n.lastVoice).toLocaleTimeString() + ')' : ''}</div>
+  `;
+
+  // ---- TEMP DIAGNOSTICS — System Health Dashboard expansion ----
+  const diag = window._ddtzDiag || {};
+
+  // Google Sheets / Apps Script status (same underlying measurement, see card note)
+  const hasSheetUrl = !!window.DDTZ_SHEET_URL;
+  document.getElementById('diag-sheets-status').innerHTML = !hasSheetUrl
+    ? '⚪ Not configured'
+    : _lastAppsScriptReachable === true ? '🟢 Reachable'
+    : _lastAppsScriptReachable === false ? '🔴 Unreachable'
+    : '🟡 Unknown — visit Settings → Test Connection';
+  document.getElementById('diag-firebase-status').innerHTML += `<div style="margin-top:6px">🌐 Internet: ${navigator.onLine ? '🟢 Online' : '🔴 Offline'}</div>`;
+
+  // This device's session (honest scope — see the limitation note in the HTML)
+  document.getElementById('diag-session-status').innerHTML = `
+    <div>Role: <strong>${ROLE_LABELS[CURRENT_USER?.role] || CURRENT_USER?.role || 'Unknown'}</strong></div>
+    <div>User: <strong>${CURRENT_USER?.name || 'Unknown'}</strong> (${CURRENT_USER?.email || '—'})</div>
+    <div>Device tag: <strong>${_deviceTag()}</strong></div>
+  `;
+
+  // Database Health
+  document.getElementById('diag-db-health').innerHTML = `
+    <div>Firebase Reads (listener updates received): <strong>${diag.reads || 0}</strong></div>
+    <div>Firebase Writes attempted: <strong>${diag.writes || 0}</strong></div>
+    <div>Google Sheets Writes succeeded: <strong>${diag.sheetsWrites || 0}</strong></div>
+    <div>Google Sheets Failures: <strong>${diag.sheetsFailures || 0}</strong></div>
+    <div>Retry Backoff Level: <strong>${_syncBackoffIndex} / ${SYNC_BACKOFF_STEPS_MS.length - 1}</strong></div>
+    <div>Duplicate Prevention Count: <strong>${diag.duplicatePreventions || 0}</strong> (conflicting Approve/Reject attempts correctly blocked)</div>
+  `;
+
+  // Module Status — honest per actual migration state, not uniform
+  const moduleStatusRows = [
+    { name: 'Booking', migrated: false },
+    { name: 'Slot Reservation', migrated: false },
+    { name: 'Students', migrated: false },
+    { name: 'Coaches', migrated: true, unsub: !!_coachesFirebaseUnsubscribe },
+    { name: 'Attendance', migrated: false },
+    { name: 'Fee Collection', migrated: false },
+    { name: 'Finance', migrated: true, unsub: !!_financeFirebaseUnsubscribe, extra: 'Super Admin only' },
+    { name: 'Pending Enrolments', migrated: true, unsub: !!_firebaseEnrolmentsUnsubscribe },
+    { name: 'Reports', migrated: null },
+    { name: 'Notifications', migrated: null },
+    { name: 'Activity Log', migrated: null }
+  ];
+  document.getElementById('diag-module-status-tbody').innerHTML = moduleStatusRows.map(m => {
+    let status;
+    if (m.migrated === null) status = '⚪ N/A — not an independent sync module';
+    else if (m.migrated === false) status = navigator.onLine ? '🟡 Sheets-only (polling, not yet migrated)' : '🔴 Offline';
+    else status = !navigator.onLine ? '🔴 Offline' : m.unsub ? '🟢 Connected' : '🟡 Syncing / listener not yet active';
+    return `<tr><td>${m.name}${m.extra ? ' <span style="font-size:11px;color:var(--gray3)">(' + m.extra + ')</span>' : ''}</td><td>${status}</td></tr>`;
+  }).join('');
+
+  // Performance summary
+  const allLatencies = (diag.writeLatencies || []).map(l => l.ms);
+  const avgMs = allLatencies.length ? Math.round(allLatencies.reduce((a,b)=>a+b,0) / allLatencies.length) : null;
+  const lastMs = (diag.writeLatencies && diag.writeLatencies[0]) ? diag.writeLatencies[0].ms : null;
+  const sheetsAvg = (diag.sheetsLatencies && diag.sheetsLatencies.length) ? Math.round(diag.sheetsLatencies.reduce((a,l)=>a+l.ms,0) / diag.sheetsLatencies.length) : null;
+  const mem = performance.memory ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)} MB used / ${(performance.memory.jsHeapSizeLimit / 1048576).toFixed(0)} MB limit` : 'Not available in this browser (Chrome/Edge only)';
+  document.getElementById('diag-performance').innerHTML = `
+    <div>Average Firebase Write Time: <strong>${avgMs !== null ? avgMs + ' ms' : 'No writes yet'}</strong></div>
+    <div>Last Firebase Write Duration: <strong>${lastMs !== null ? lastMs + ' ms' : 'No writes yet'}</strong></div>
+    <div>Average Google Sheets Response Time: <strong>${sheetsAvg !== null ? sheetsAvg + ' ms' : 'No requests yet'}</strong></div>
+    <div>Browser Memory Usage: <strong>${mem}</strong></div>
+    <div>Active Queue Size: <strong>${_getSyncQueue().length}</strong></div>
+  `;
+
+  // Error Monitor
+  const errors = diag.errors || [];
+  const warnings = diag.warnings || [];
+  document.getElementById('diag-errors-tbody').innerHTML = errors.length
+    ? errors.map(e => `<tr><td style="white-space:nowrap;font-size:11px">${new Date(e.timestamp).toLocaleTimeString()}</td><td style="font-size:11px">${_esc(e.message)}</td></tr>`).join('')
+    : '<tr><td colspan="2">No errors captured this session.</td></tr>';
+  document.getElementById('diag-warnings-tbody').innerHTML = warnings.length
+    ? warnings.map(w => `<tr><td style="white-space:nowrap;font-size:11px">${new Date(w.timestamp).toLocaleTimeString()}</td><td style="font-size:11px">${_esc(w.message)}</td></tr>`).join('')
+    : '<tr><td colspan="2">No warnings captured this session.</td></tr>';
+
+  // Activity (this session only — see card note)
+  const activity = diag.moduleActivity || {};
+  const activityRows = Object.keys(activity).map(mod => {
+    const a = activity[mod];
+    return `<tr><td>${mod}</td><td>${_esc(a.action || '')}</td><td>${_esc(a.user || '')}</td><td>${new Date(a.timestamp).toLocaleString()}</td></tr>`;
+  });
+  document.getElementById('diag-activity-tbody').innerHTML = activityRows.length ? activityRows.join('') : '<tr><td colspan="4">No activity recorded yet this session.</td></tr>';
+
+  // Backup Status
+  const backupHistory = _getBackupHistory();
+  const lastBackup = backupHistory[0];
+  const lastFbEvent = (diag.events && diag.events[0]) ? diag.events[0] : null;
+  document.getElementById('diag-backup-status').innerHTML = `
+    <div>Last Local Backup: <strong>${lastBackup ? new Date(lastBackup.timestamp).toLocaleString() + ' (' + lastBackup.type + ')' : 'None yet this install'}</strong></div>
+    <div>Last Firebase Event Seen: <strong>${lastFbEvent ? new Date(lastFbEvent.timestamp).toLocaleString() + ' — ' + lastFbEvent.module : 'None yet this session'}</strong></div>
+    <div>Pending Sync Jobs: <strong>${_getSyncQueue().length}</strong></div>
+    <div>Failed Sync Jobs (recent): <strong>${_getRecentSyncErrors().length}</strong></div>
+  `;
+
+  _diagRenderHealthSection(); // TEMP SYSTEM HEALTH — also render on manual refresh/page load, not just the 30s auto-check
+};
+
+window.refreshDiagnostics = () => { renderDiagnostics(); showToast('Diagnostics refreshed'); };
+
+window.copyDiagnosticReport = () => {
+  const report = _buildDiagnosticReport();
+  const text = JSON.stringify(report, null, 2);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(() => showToast('📋 Diagnostic report copied to clipboard')).catch(() => showToast('Could not copy — check clipboard permissions', 'error'));
+  } else {
+    console.log('DIAGNOSTIC REPORT:', text);
+    showToast('Clipboard unavailable — report logged to console instead');
+  }
+};
+
+// TEMP DIAGNOSTICS — shared report builder used by both Copy and Download
+function _buildDiagnosticReport() {
+  const fb = window.getFirebaseStatus?.() || {};
+  const diag = window._ddtzDiag || {};
+  return {
+    timestamp: new Date().toISOString(),
+    firebaseStatus: fb.status, fullyReady: fb.fullyReady, authState: fb.authState, lastError: fb.lastError,
+    listeners: {
+      pendingEnrolments: !!_firebaseEnrolmentsUnsubscribe,
+      finance: !!_financeFirebaseUnsubscribe,
+      coaches: !!_coachesFirebaseUnsubscribe
+    },
+    thisDeviceSession: { role: CURRENT_USER?.role, name: CURRENT_USER?.name, email: CURRENT_USER?.email, device: _deviceTag() },
+    recentEvents: (diag.events || []).slice(0, 20),
+    firebaseWriteLatencies: (diag.writeLatencies || []).slice(0, 20),
+    sheetsLatencies: (diag.sheetsLatencies || []).slice(0, 20),
+    databaseHealth: { reads: diag.reads || 0, writes: diag.writes || 0, sheetsWrites: diag.sheetsWrites || 0, sheetsFailures: diag.sheetsFailures || 0, duplicatePreventions: diag.duplicatePreventions || 0 },
+    syncQueue: { pending: _getSyncQueue().length, processing: _syncQueueFlushing, lastSuccess: localStorage.getItem(SYNC_LAST_SUCCESS_KEY), recentErrors: _getRecentSyncErrors().slice(0, 5) },
+    backgroundSync: diag.backgroundSync || {},
+    notifications: diag.notifications || {},
+    errors: (diag.errors || []).slice(0, 20),
+    warnings: (diag.warnings || []).slice(0, 20),
+    moduleActivity: diag.moduleActivity || {},
+    lastLocalBackup: (_getBackupHistory()[0] || null)
+  };
+}
+
+window.downloadDiagnosticReport = () => {
+  const report = _buildDiagnosticReport();
+  _triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }), `diagnostics-${_fileTimestamp()}.json`);
+  showToast('⬇️ Diagnostic report downloaded');
+};
+
+// ============================================================================
+// TEMP SYSTEM HEALTH — Health Alerts, Module Health Score, System Summary
+// ----------------------------------------------------------------------------
+// Everything below only READS already-tracked state (window._ddtzDiag,
+// the existing sync-queue/error bookkeeping, getFirebaseStatus()) and
+// evaluates it against explicit, documented thresholds. No new network
+// calls, no new database writes, no artificial/invented numbers — the
+// overall score is literally (healthy modules / total modules), shown
+// alongside its own fraction so it's auditable, not a black box.
+// ============================================================================
+const HEALTH_THRESHOLDS = {
+  queueOverflow: 20,       // sync queue items beyond this = overflow risk
+  syncDelayMinutes: 3,     // minutes since last success (while online, with items pending) before flagging "delayed"
+  staleErrorMinutes: 5     // how recent an error must be to still count as "currently unhealthy"
+};
+
+function _diagComputeHealthAlerts() {
+  const alerts = [];
+  const fb = window.getFirebaseStatus?.() || {};
+  const diag = window._ddtzDiag || {};
+  const queueLen = _getSyncQueue().length;
+
+  if (!navigator.onLine) {
+    alerts.push({ level: 'red', text: '🔴 No Internet Connection' });
+  }
+
+  if (fb.status === 'disconnected') {
+    alerts.push({ level: 'red', text: '🔴 Firebase Disconnected' + (fb.lastError ? ': ' + fb.lastError : '') });
+  } else if (diag.hasEverConnected && fb.status !== 'connected') {
+    // Was connected before, isn't right now — genuinely "reconnecting,"
+    // distinct from the normal brief "Connecting..." during initial load.
+    alerts.push({ level: 'orange', text: '🟠 Firebase Reconnecting...' });
+  }
+
+  const recentErrors = _getRecentSyncErrors();
+  const lastSuccess = localStorage.getItem(SYNC_LAST_SUCCESS_KEY);
+  if (recentErrors.length && (!lastSuccess || new Date(recentErrors[0].time) > new Date(lastSuccess))) {
+    alerts.push({ level: 'red', text: '🔴 Google Sheets Sync Failed: ' + recentErrors[0].message });
+  } else if (window.DDTZ_SHEET_URL && navigator.onLine && lastSuccess && queueLen > 0) {
+    const minsSinceSuccess = (Date.now() - new Date(lastSuccess).getTime()) / 60000;
+    if (minsSinceSuccess > HEALTH_THRESHOLDS.syncDelayMinutes) {
+      alerts.push({ level: 'yellow', text: `🟡 Google Sheets Sync Delayed (${Math.round(minsSinceSuccess)} min since last success, ${queueLen} pending)` });
+    }
+  }
+
+  if (queueLen > (diag.lastQueueLength || 0) && queueLen > 0) {
+    alerts.push({ level: 'yellow', text: `🟡 Retry Queue Increasing (${diag.lastQueueLength || 0} → ${queueLen})` });
+  }
+  if (queueLen > HEALTH_THRESHOLDS.queueOverflow) {
+    alerts.push({ level: 'red', text: `🔴 Queue Overflow (${queueLen} items pending — threshold ${HEALTH_THRESHOLDS.queueOverflow})` });
+  }
+  if (diag) diag.lastQueueLength = queueLen; // update trend baseline for next check
+
+  return alerts;
+}
+
+function _diagComputeModuleHealth() {
+  const fb = window.getFirebaseStatus?.() || {};
+  const diag = window._ddtzDiag || {};
+  const recentList = [...(diag.errors || []), ...(diag.warnings || [])];
+  const recentFor = (pattern) => recentList.some(e =>
+    (Date.now() - new Date(e.timestamp).getTime()) < HEALTH_THRESHOLDS.staleErrorMinutes * 60000 && new RegExp(pattern, 'i').test(e.message)
+  );
+
+  const migratedCheck = (unsub) => {
+    if (!navigator.onLine || fb.status === 'disconnected') return 'Error';
+    if (!unsub) return 'Warning';
+    if (fb.status !== 'connected') return 'Warning';
+    return 'Healthy';
+  };
+  const sheetsCheck = (typeKeyword) => {
+    if (!navigator.onLine) return 'Error';
+    if (recentFor(typeKeyword)) return 'Error';
+    if (_getSyncQueue().some(p => p.type && new RegExp(typeKeyword, 'i').test(p.type))) return 'Warning';
+    return 'Healthy';
+  };
+
+  return {
+    'Booking':            sheetsCheck('booking'),
+    'Students':           sheetsCheck('student'),
+    'Attendance':         sheetsCheck('attendance'),
+    'Fees':               sheetsCheck('fee'),
+    'Coaches':            migratedCheck(!!_coachesFirebaseUnsubscribe),
+    // Finance is Super-Admin-only by design — for any other role its
+    // listener is correctly never started, so absence isn't a fault;
+    // shown Healthy (not applicable) rather than a false Warning.
+    'Finance':            _finCanAccess() ? migratedCheck(!!_financeFirebaseUnsubscribe) : 'Healthy',
+    'Pending Enrolments': migratedCheck(!!_firebaseEnrolmentsUnsubscribe),
+    // Not independent sync modules — health inferred from whether any
+    // related error was captured recently, not a connection state of
+    // their own (there isn't one).
+    'Notifications':      recentFor('notif|voice|toast|bell') ? 'Warning' : 'Healthy',
+    'Activity Log':       (recentFor('audit') || _getSyncQueue().some(p => p.type === 'audit_log')) ? 'Warning' : 'Healthy'
+  };
+}
+
+function _diagComputeOverallScore() {
+  const alerts = _diagComputeHealthAlerts();
+  const moduleHealth = _diagComputeModuleHealth();
+  const values = Object.values(moduleHealth);
+  const healthyCount = values.filter(v => v === 'Healthy').length;
+  const percent = values.length ? Math.round((healthyCount / values.length) * 100) : 100;
+  const hasRed = alerts.some(a => a.level === 'red') || values.includes('Error');
+  const hasWarn = alerts.some(a => a.level === 'yellow' || a.level === 'orange') || values.includes('Warning');
+  const status = hasRed ? 'Critical' : hasWarn ? 'Warning' : 'Healthy';
+  return { percent, status, healthyCount, totalModules: values.length, alerts, moduleHealth };
+}
+
+function _diagRenderHealthSection() {
+  if (!document.getElementById('diag-health-alerts')) return; // page not open
+  const score = _diagComputeOverallScore();
+
+  // Health Alerts
+  document.getElementById('diag-health-alerts').innerHTML = score.alerts.length
+    ? score.alerts.map(a => `<div style="padding:6px 0;font-weight:600">${a.text}</div>`).join('')
+    : '<div style="font-weight:600">🟢 All Systems Healthy</div>';
+
+  // Module Health Score
+  const icon = { Healthy: '🟢', Warning: '🟡', Error: '🔴' };
+  document.getElementById('diag-module-health-tbody').innerHTML = Object.keys(score.moduleHealth).map(mod =>
+    `<tr><td>${mod}</td><td>${icon[score.moduleHealth[mod]]} ${score.moduleHealth[mod]}</td></tr>`
+  ).join('');
+
+  // System Summary — formula shown alongside the number, fully auditable
+  const statusColor = score.status === 'Healthy' ? 'var(--green)' : score.status === 'Warning' ? 'var(--orange)' : 'var(--red)';
+  document.getElementById('diag-system-summary').innerHTML = `
+    <div style="font-size:42px;font-weight:800;color:${statusColor}">${score.percent}%</div>
+    <div style="font-size:16px;font-weight:700;color:${statusColor}">${score.status}</div>
+    <div style="font-size:12px;color:var(--gray3);margin-top:6px">${score.healthyCount} of ${score.totalModules} modules Healthy — computed directly from the Module Health table above, not an estimate.</div>
+  `;
+}
+
+// Auto health check every 30s — purely re-evaluates already-in-memory
+// data (no network calls, no writes) and only touches the DOM if this
+// page is actually open, matching this app's existing periodic-render
+// pattern (e.g. flushSyncQueue's own 30s safety net) — negligible cost.
+setInterval(() => {
+  if (document.getElementById('page-diagnostics')?.classList.contains('active')) {
+    _diagRenderHealthSection();
+  }
+}, 30000);
+
+window.downloadHealthReportPDF = () => {
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library failed to load.', 'error'); return; }
+  const score = _diagComputeOverallScore();
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+  doc.text('DD Turf Zone — System Health Report (Temporary Diagnostics)', 15, 20);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 15, 28);
+  let y = 40;
+  doc.setFont('helvetica', 'bold'); doc.text(`Overall Health: ${score.percent}% — ${score.status}`, 15, y); y += 10;
+  doc.setFont('helvetica', 'normal');
+  doc.text('Active Alerts:', 15, y); y += 7;
+  (score.alerts.length ? score.alerts.map(a => a.text.replace(/[🔴🟠🟡🟢]/g, '')) : ['All Systems Healthy']).forEach(line => { doc.text('- ' + line, 18, y); y += 6; });
+  y += 4;
+  doc.text('Module Health:', 15, y); y += 7;
+  Object.keys(score.moduleHealth).forEach(mod => { doc.text(`${mod}: ${score.moduleHealth[mod]}`, 18, y); y += 6; });
+  doc.save(`DDTZ_Health_Report_${_fileTimestamp()}.pdf`);
+  showToast('Health report PDF downloaded ✅');
+};
+
+window.copyHealthReport = () => {
+  const score = _diagComputeOverallScore();
+  const text = `DD Turf Zone — System Health Report\nGenerated: ${new Date().toLocaleString()}\n\nOverall Health: ${score.percent}% (${score.healthyCount}/${score.totalModules} modules) — ${score.status}\n\nActive Alerts:\n${score.alerts.length ? score.alerts.map(a => a.text).join('\n') : '🟢 All Systems Healthy'}\n\nModule Health:\n${Object.keys(score.moduleHealth).map(m => `${m}: ${score.moduleHealth[m]}`).join('\n')}`;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(() => showToast('📋 Health report copied')).catch(() => showToast('Could not copy', 'error'));
+  } else {
+    console.log(text);
+    showToast('Clipboard unavailable — logged to console');
+  }
+};
+
+window.exportHealthReportJSON = () => {
+  const score = _diagComputeOverallScore();
+  const report = { generated: new Date().toISOString(), ...score };
+  _triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }), `DDTZ_Health_Report_${_fileTimestamp()}.json`);
+  showToast('⬇️ Health report JSON exported');
+};
+
+window.clearTemporaryDiagnosticLogs = () => {
+  // Scoped ONLY to this panel's own tracking (window._ddtzDiag) — does
+  // NOT touch the real production sync-error log (SYNC_ERRORS_KEY) or
+  // last-success timestamp, which Settings' own Sync Dashboard also
+  // relies on. Clearing those would reduce visibility into the real
+  // system elsewhere, which this temporary panel must never do.
+  window._ddtzDiag?.clear();
+  renderDiagnostics();
+  showToast('Temporary diagnostic logs cleared (production sync history untouched)');
+};
 
 // ===== REPORTS — MONTHLY BOOKING & COLLECTION =====
 
@@ -11780,7 +12599,30 @@ window.renderDashboard = () => {
   }, 0);
 
   const pendingBookingBalance = (window.DB.bookings || []).filter(b => b.status !== 'cancelled').reduce((s,b) => s + (Number(b.pending)||0), 0);
-  const pendingFees = window.DB.fees.filter(f => f.status !== 'paid').reduce((s,f) => s + (Number(f.pending)||0), 0);
+  // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #1): this used to be
+  // `window.DB.fees.filter(f => f.status !== 'paid').reduce((s,f) => s +
+  // (Number(f.pending)||0), 0)` — summing each fee RECORD's own stale,
+  // at-creation-time snapshot. That breaks the moment a student pays in
+  // installments (multiple fee records for the same period): the first
+  // partial-payment record's pending amount never gets reconciled once a
+  // later record covers the rest, so a fully-paid student could still
+  // count toward this total.
+  //
+  // Now reuses the EXACT SAME aggregation the Due Management engine
+  // already gets right — _getDuesList()/_duesSummary() sum ALL matching
+  // fee records per student+period against that student's true Fee Plan
+  // amount, not any single record's own isolated snapshot. This is now
+  // the one single source of truth for "pending fees" — Dashboard, the
+  // Due List, and Finance all read from the same computation, so they
+  // can no longer disagree.
+  //
+  // Behavior note: _getDuesList() only considers active, non-archived
+  // students (same as the Due List page itself) — an archived student's
+  // old unpaid fee no longer counts here, whereas the previous
+  // calculation had no such filter. This is intentional: "one single
+  // source of truth" means Dashboard shows exactly what the Due List
+  // shows, not a superset of it.
+  const pendingFees = _duesSummary(_getDuesList()).totalOutstanding;
   const pendingPayments = pendingBookingBalance + pendingFees;
 
   const activeStudentsList = window.DB.students.filter(s => s.status === 'active' && !s.archived);
@@ -12444,7 +13286,8 @@ window.saveBackupSettings = () => {
 window.exportFullReport = () => {
   const headers=['Type','Name/ID','Sport','Date','Amount','Status','Notes'];
   const bkRows=window.DB.bookings.map(b=>['Booking',b.name+' ('+b.phone+')',b.sport,b.date,b.total,b.status,b.notes||'']);
-  const feeRows=window.DB.fees.map(f=>['Fee',f.studentName,f.sport,f.date,f.paid,f.status,f.month+' '+f.year]);
+  // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #2): was f.paid (doesn't exist on real fee records — the actual field is amountReceived).
+  const feeRows=window.DB.fees.map(f=>['Fee',f.studentName,f.sport,f.date,(f.amountReceived ?? f.paid ?? 0),f.status,f.month+' '+f.year]);
   const expRows=window.DB.expenses.map(e=>['Expense',e.category,'-',e.date,e.amount,'-',e.notes||'']);
   downloadCSV([headers,...bkRows,...feeRows,...expRows],'DD_Turf_Full_Report');
 };
@@ -13682,7 +14525,16 @@ const RT_MERGE_MAP = {
   student:    { col: 'students',   idField: 'studentId' },
   enquiry:    { col: 'enquiries',  idField: 'enquiryId' },
   attendance: { col: 'attendance', idField: 'attendanceId' },
-  coach:      { col: 'coaches',    idField: 'coachId' }, // PHASE 3.1 — Coaches Backend
+  // PHASE 4.3.1 — 'coach' removed from this map. Firebase now drives
+  // real-time coach updates (see initCoachesFirebaseListener), which also
+  // retires a latent inconsistency this fast path had: it minted a fresh
+  // local id via LS.add for a new coach, while the OTHER coach sync path
+  // (syncCoachesFromSheet's 30s poll, now also retired) preserved
+  // coachId as the local id via _lsAddPreservingId — meaning a coach
+  // created on one device could get two different local ids depending on
+  // which path picked it up first. Firebase is now the single path,
+  // always using _lsAddPreservingId-style id preservation (see the
+  // listener merge logic), so this inconsistency can no longer occur.
   // PHASE 3.4b — Fee Collection. A brand-new payment's audit entry still
   // has a blank ReceiptNo at the moment it's logged (the server hasn't
   // assigned one yet when offline, and even online the audit write and
@@ -13994,7 +14846,12 @@ function _rtApplyEvents(events) {
     // duplicate notification for the same real-world event. The Activity
     // Log itself is unaffected (it's written at the moment of the
     // original queuedSync/autoSyncEnrolment call, not here).
-    if (ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update') return;
+    // PHASE 4.3.1 — 'coach' events also excluded now: the Firebase
+    // listener (initCoachesFirebaseListener) drives coach notifications
+    // instead, using the same diffing pattern already proven for
+    // Enrolments/Finance — this is a replacement, not a removal, so
+    // cross-device awareness of coach changes is preserved, not lost.
+    if (ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update' || ev.module === 'coach') return;
     const meta = _rtModuleMeta(ev.module);
     newNotifs.push({
       id: 'N' + ev.row,
@@ -14362,7 +15219,10 @@ window.downloadCoachingReportExcel = () => {
   const studentRows = students.map(s => [s.studentId||s.id, s.name, s.sport, s.phone||'', s.coach||'', s.fee||0, s.status||'', s.joined||'']);
 
   const feeHeaders = ['Student ID','Student Name','Sport','Month','Year','Fee Amount','Paid','Pending','Payment Method','Date','Status'];
-  const feeRows = fees.map(f => [f.studentId, f.studentName, f.sport, f.month, f.year, f.amount||0, f.paid||0, f.pending||0, f.paymentMethod||'', f.date||'', f.status||'']);
+  // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #2): was f.amount/f.paid
+  // (neither exists on real fee records — the actual fields are
+  // amountPayable/amountReceived).
+  const feeRows = fees.map(f => [f.studentId, f.studentName, f.sport, f.month, f.year, (f.amountPayable ?? f.amount ?? 0), (f.amountReceived ?? f.paid ?? 0), f.pending||0, f.paymentMethod||'', f.date||'', f.status||'']);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([studentHeaders, ...studentRows]), 'Students');
@@ -14404,7 +15264,8 @@ window.downloadAccountsReportExcel = () => {
 
   const bkMethod = { Cash:0, GPay:0, Card:0, Other:0 };
   bookings.forEach(b => { const m = sumPaymentsByMethod(getBookingPayments(b)); Object.keys(bkMethod).forEach(k => bkMethod[k]+=m[k]); });
-  const feeCollected = fees.reduce((s,f) => s + (Number(f.paid)||0), 0);
+  // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #2): was Number(f.paid) — f.paid doesn't exist on real fee records (the actual field is amountReceived).
+  const feeCollected = fees.reduce((s,f) => s + (Number(f.amountReceived ?? f.paid) || 0), 0);
   const cafeCollected = cafeSales.reduce((s,c) => s + (Number(c.amount)||0), 0);
   const totalExpenses = expenses.reduce((s,e) => s + (Number(e.amount)||0), 0);
 

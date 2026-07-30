@@ -26,6 +26,26 @@ let firebaseApp = null;
 let realtimeDb = null;
 let connectionStatus = 'unknown'; // 'connected' | 'disconnected' | 'unknown'
 
+// EMERGENCY STABILITY FIX additions:
+// - firebaseFullyReady: true only once init (app + database + the
+//   anonymous-auth ATTEMPT, success or caught failure) has fully
+//   settled. This is the ROOT CAUSE FIX for "Could not start approval:
+//   Firebase not initialized" — call sites in admin.html were checking
+//   `typeof window.claimEnrolmentForApproval === 'function'`, which is
+//   true almost immediately once this file finishes loading/parsing
+//   (long before initializeFirebase() has actually run to completion),
+//   not whether Firebase is genuinely ready. A user clicking Approve
+//   within roughly the first second after login could hit this exact
+//   race: the function existed, but realtimeDb inside it was still
+//   null. firebaseFullyReady is the correct thing to check instead.
+// - lastFirebaseError / authState: so a real failure (wrong config,
+//   Anonymous provider not enabled, network error) can be SHOWN to the
+//   user instead of a generic "Connecting..." forever, per requirement
+//   #15 of the emergency fix.
+let firebaseFullyReady = false;
+let lastFirebaseError = null;
+let authState = 'pending'; // 'pending' | 'success' | 'failed' | 'skipped'
+
 /**
  * Initialize Firebase and Realtime Database.
  * Called once at application startup.
@@ -46,6 +66,7 @@ let connectionStatus = 'unknown'; // 'connected' | 'disconnected' | 'unknown'
  * rationale and the exact rule this pairs with.
  */
 window.initializeFirebase = async () => {
+  console.log('[FB-DEBUG] Firebase initialization started'); // TEMP DEBUG LOG — remove after live verification
   try {
     if (firebaseApp) {
       console.warn('Firebase already initialized');
@@ -59,6 +80,7 @@ window.initializeFirebase = async () => {
     // Get Realtime Database reference
     realtimeDb = firebase.database(firebaseApp);
     console.log('✓ Firebase Realtime Database initialized');
+    console.log('[FB-DEBUG] Database connected'); // TEMP DEBUG LOG — remove after live verification
 
     // Setup connection state monitoring
     _setupConnectionMonitoring();
@@ -67,16 +89,30 @@ window.initializeFirebase = async () => {
     // (admin.html does; enroll.html does not), so this is a no-op on the
     // public form. Never blocks the rest of initialization if it fails
     // (e.g. Anonymous provider not yet enabled in the Firebase Console) —
-    // logs a clear warning instead, matching this file's existing
+    // logs a clear warning AND records the real error (lastFirebaseError)
+    // instead of a generic message, matching this file's existing
     // fail-soft pattern everywhere else.
     if (typeof firebase.auth === 'function') {
+      console.log('[FB-DEBUG] Anonymous sign-in started'); // TEMP DEBUG LOG — remove after live verification
       try {
         await firebase.auth().signInAnonymously();
+        authState = 'success';
         console.log('✓ Firebase anonymous auth established (admin-side only)');
+        console.log('[FB-DEBUG] Anonymous sign-in successful'); // TEMP DEBUG LOG — remove after live verification
       } catch (authError) {
+        authState = 'failed';
+        lastFirebaseError = 'Authentication error: ' + authError.message;
         console.warn('⚠ Firebase anonymous auth failed — admin writes to existing records may be rejected by the security rule until this is resolved:', authError.message);
+        _updateConnectionIndicator(); // surface the real error immediately, don't wait for the connection listener
       }
+    } else {
+      authState = 'skipped'; // this page never loaded firebase-auth.js (enroll.html) — expected, not an error
     }
+
+    // Only NOW — after the database exists AND the auth attempt has
+    // fully settled (success or caught failure) — is Firebase genuinely
+    // ready for a write/listener to depend on it.
+    firebaseFullyReady = true;
 
     return {
       success: true,
@@ -87,6 +123,7 @@ window.initializeFirebase = async () => {
   } catch (error) {
     console.error('✗ Firebase initialization failed:', error);
     connectionStatus = 'disconnected';
+    lastFirebaseError = 'Initialization error: ' + error.message;
     _updateConnectionIndicator();
     return {
       success: false,
@@ -107,22 +144,36 @@ function _setupConnectionMonitoring() {
 
   // Firebase .info/connected path indicates connection state
   const connectedRef = firebase.database(firebaseApp).ref('.info/connected');
-  
+
+  // EMERGENCY STABILITY FIX: the previous version additionally called
+  // `realtimeDb.ref().on('error', ...)` — 'error' is NOT a valid Firebase
+  // .on() event type (valid types are value/child_added/child_changed/
+  // child_removed/child_moved). Firebase's real error-handling mechanism
+  // is the SECOND callback argument to .on('value', successFn, errorFn) —
+  // that invalid call has been removed and replaced with a proper cancel
+  // callback below, which is what actually fires on a permission-denied
+  // or other subscription failure.
   connectedRef.on('value', (snapshot) => {
     if (snapshot.val() === true) {
       connectionStatus = 'connected';
+      lastFirebaseError = null;
+      if (window._ddtzDiag) window._ddtzDiag.hasEverConnected = true; // TEMP SYSTEM HEALTH
       console.log('🟢 Firebase connected');
     } else {
       connectionStatus = 'disconnected';
       console.log('🔴 Firebase disconnected');
+      console.log('[FB-DEBUG] Firebase disconnected'); // TEMP DEBUG LOG — remove after live verification
     }
     _updateConnectionIndicator();
-  });
-
-  // Fallback: listen for explicit errors
-  realtimeDb.ref().on('error', (error) => {
-    console.error('Firebase Realtime Database error:', error);
+  }, (error) => {
+    // This is the correct place a permission-denied or similar
+    // subscription failure actually surfaces — the previous code had no
+    // equivalent for ANY listener in this file, so a failure here (or in
+    // the enrolment/finance listeners below) would silently do nothing,
+    // which is exactly what requirement #15 asked to stop happening.
     connectionStatus = 'disconnected';
+    lastFirebaseError = 'Realtime Database error: ' + error.message;
+    console.error('✗ Firebase connection monitor error:', error);
     _updateConnectionIndicator();
   });
 }
@@ -138,7 +189,10 @@ function _updateConnectionIndicator() {
     indicator.textContent = '🟢 Firebase Connected';
     indicator.style.color = 'var(--green-light, #22c55e)';
   } else if (connectionStatus === 'disconnected') {
-    indicator.textContent = '🔴 Firebase Offline';
+    // EMERGENCY STABILITY FIX (requirement #15): show the actual error
+    // when one is known, instead of a generic "Offline" that gives no
+    // clue what actually went wrong.
+    indicator.textContent = lastFirebaseError ? `🔴 Firebase Error: ${lastFirebaseError}` : '🔴 Firebase Offline';
     indicator.style.color = 'var(--red, #ef4444)';
   } else {
     indicator.textContent = '⚪ Firebase Connecting...';
@@ -155,7 +209,16 @@ window.getFirebaseStatus = () => {
     app: firebaseApp,
     db: realtimeDb,
     isConnected: connectionStatus === 'connected',
-    isInitialized: firebaseApp !== null
+    // NOTE: isInitialized only ever meant "the app object was created,"
+    // which happens synchronously very early — it does NOT mean the
+    // anonymous-auth attempt has settled. Kept as-is for backward
+    // compatibility with any existing caller; use fullyReady (below) for
+    // "is it actually safe to perform a write/subscribe now."
+    isInitialized: firebaseApp !== null,
+    // EMERGENCY STABILITY FIX additions:
+    fullyReady: firebaseFullyReady,
+    authState: authState,
+    lastError: lastFirebaseError
   };
 };
 
@@ -303,13 +366,27 @@ window.listenPendingEnrolments = (callback) => {
 
   const ref = realtimeDb.ref('pending_enrolments');
   const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (pending_enrolments)'); // TEMP DEBUG LOG — remove after live verification
     const enrolments = [];
     snapshot.forEach((child) => {
       enrolments.push({ firebaseKey: child.key, ...child.val() });
     });
     callback(enrolments);
   };
-  ref.on('value', handler);
+  const errorHandler = (error) => {
+    // EMERGENCY STABILITY FIX: previously this subscription had no error
+    // callback at all — a permission-denied failure (e.g. from a rule
+    // mismatch or a failed anonymous sign-in) would silently never call
+    // `handler` again, which looks exactly like "not syncing" with zero
+    // visible cause. Now it's surfaced through the same channel the
+    // connection indicator already uses.
+    console.error('✗ Pending Enrolments listener error:', error);
+    lastFirebaseError = 'Pending Enrolments sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (pending_enrolments)'); // TEMP DEBUG LOG — remove after live verification
 
   return () => ref.off('value', handler); // unsubscribe function
 };
@@ -566,6 +643,7 @@ window.playVoiceAnnouncement = (message, isCurrentDevice = false) => {
 
     utterance.onstart = () => {
       console.log('🔊 Voice announcement started:', message);
+      window._ddtzDiag?.recordNotification('voice'); // TEMP DIAGNOSTICS — recorded here specifically, not at the call site, so it only counts when speech genuinely starts (not when disabled or deduped)
     };
 
     utterance.onend = () => {
@@ -756,12 +834,202 @@ window.listenFinanceExpenses = (callback) => {
   }
   const ref = realtimeDb.ref('finance_expenses');
   const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (finance_expenses)'); // TEMP DEBUG LOG — remove after live verification
     const expenses = [];
     snapshot.forEach((child) => expenses.push({ firebaseKey: child.key, ...child.val() }));
     callback(expenses);
   };
-  ref.on('value', handler);
+  const errorHandler = (error) => {
+    // EMERGENCY STABILITY FIX: same reasoning as the Pending Enrolments
+    // listener above — no error callback previously existed here either.
+    console.error('✗ Finance Expenses listener error:', error);
+    lastFirebaseError = 'Finance sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (finance_expenses)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
 console.log('✓ Phase 4.2 Finance Realtime Sync Module Loaded');
+
+// ============================================================================
+// PHASE 4.3.1 — COACHES REALTIME SYNC
+// ----------------------------------------------------------------------------
+// Same pattern as Finance/Enrolments: keyed by the module's own existing id
+// (coachId), same connection, same admin-only Firebase Rule shape. Requires
+// a matching Rules entry for /coaches — see DEPLOY_PHASE_4_3_1.md.
+// ============================================================================
+
+/**
+ * Create or update a coach in Firebase, keyed by coachId (same id the
+ * app already uses locally and in Sheets — no separate mapping needed).
+ */
+window.syncCoachFirebase = async (record) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    const coachId = record.coachId || record.id;
+    if (!coachId) { resolve({ success: false, error: 'Missing coachId' }); return; }
+    realtimeDb.ref('coaches/' + coachId).set({
+      ...record,
+      coachId,
+      updatedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => resolve({ success: true }))
+      .catch((error) => {
+        console.error('✗ Coach Firebase sync failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+  });
+};
+
+/**
+ * Remove a coach from Firebase (mirrors a local delete).
+ */
+window.deleteCoachFirebase = async (coachId) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    realtimeDb.ref('coaches/' + coachId).remove()
+      .then(() => resolve({ success: true }))
+      .catch((error) => resolve({ success: false, error: error.message }));
+  });
+};
+
+/**
+ * Real-time listener for coaches. Includes a proper error/cancel
+ * callback (the emergency-fix lesson from Phase 4.2 — every listener in
+ * this file gets one now, not just the ones added after that fix).
+ */
+window.listenCoaches = (callback) => {
+  if (!realtimeDb) {
+    console.error('Firebase not initialized');
+    return null;
+  }
+  const ref = realtimeDb.ref('coaches');
+  const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (coaches)'); // TEMP DEBUG LOG — remove after live verification, same convention as Phase 4.2's emergency fix
+    const coaches = [];
+    snapshot.forEach((child) => coaches.push({ firebaseKey: child.key, ...child.val() }));
+    callback(coaches);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ Coaches listener error:', error);
+    lastFirebaseError = 'Coaches sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (coaches)'); // TEMP DEBUG LOG — remove after live verification
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Phase 4.3.1 Coaches Realtime Sync Module Loaded');
+
+// ============================================================================
+// TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.
+// ----------------------------------------------------------------------------
+// Everything below is purely additive instrumentation: it records what
+// already happened into a plain object for the diagnostics page to read.
+// Nothing here changes any write, any listener's actual behavior, or any
+// business logic — deleting this entire block later has zero effect on
+// production functionality.
+//
+// Safe removal: delete this block, delete the one-line
+// `window._ddtzDiag.recordLatency(...)` calls added inside each write
+// function below, delete the `window._ddtzDiag.recordEvent(...)` calls
+// added inside admin.html's three listener merge functions, and delete
+// the diagnostics page/permission/nav-item/renderDiagnostics in admin.html.
+// ============================================================================
+window._ddtzDiag = {
+  events: [],           // {module, timestamp, eventType} — most recent first, capped
+  notifications: { toastCount: 0, voiceCount: 0, bellCount: 0, lastToast: null, lastVoice: null, lastBell: null },
+  writeLatencies: [],   // {module, ms, timestamp} — most recent first, capped
+  backgroundSync: {},   // { [module]: { firebaseOk, sheetsOk, timestamp } }
+  // ---- TEMP DIAGNOSTICS additions (System Health Dashboard expansion) ----
+  reads: 0,             // count of listener snapshots received (proxy for "Firebase Reads" — there is no client-accessible exact read-count API)
+  writes: 0,            // count of Firebase writes attempted (via the existing wrapper below)
+  sheetsWrites: 0, sheetsFailures: 0,
+  sheetsLatencies: [],  // {ms, timestamp} — most recent first, capped
+  duplicatePreventions: 0, // count of "already processed by another user" conflicts caught
+  errors: [], warnings: [], // {timestamp, module, message} — most recent first, capped at 20
+  moduleActivity: {},   // { [module]: {action, user, timestamp} } — most recent action per module, THIS SESSION ONLY (not full history)
+  // ---- TEMP SYSTEM HEALTH additions ----
+  lastQueueLength: 0,     // previous sync-queue length, for detecting "increasing" trend
+  hasEverConnected: false, // true once Firebase has connected at least once, to distinguish "still starting up" from "reconnecting after being connected"
+  recordEvent(module, eventType) {
+    this.events.unshift({ module, eventType, timestamp: new Date().toISOString() });
+    if (this.events.length > 20) this.events.length = 20;
+    this.reads++;
+  },
+  recordLatency(module, ms) {
+    this.writeLatencies.unshift({ module, ms, timestamp: new Date().toISOString() });
+    if (this.writeLatencies.length > 20) this.writeLatencies.length = 20;
+    this.writes++;
+  },
+  recordSheetsLatency(ms, ok) {
+    this.sheetsLatencies.unshift({ ms, timestamp: new Date().toISOString() });
+    if (this.sheetsLatencies.length > 20) this.sheetsLatencies.length = 20;
+    if (ok) this.sheetsWrites++; else this.sheetsFailures++;
+  },
+  recordBackgroundSync(module, firebaseOk, sheetsOk) {
+    this.backgroundSync[module] = { firebaseOk, sheetsOk, timestamp: new Date().toISOString() };
+  },
+  recordNotification(kind) {
+    if (kind === 'toast') { this.notifications.toastCount++; this.notifications.lastToast = new Date().toISOString(); }
+    if (kind === 'voice') { this.notifications.voiceCount++; this.notifications.lastVoice = new Date().toISOString(); }
+    if (kind === 'bell')  { this.notifications.bellCount++;  this.notifications.lastBell  = new Date().toISOString(); }
+  },
+  recordDuplicatePrevention() { this.duplicatePreventions++; },
+  recordConsole(level, args) {
+    const message = args.map(a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch(e) { return String(a); } }).join(' ').slice(0, 300);
+    const list = level === 'error' ? this.errors : this.warnings;
+    list.unshift({ timestamp: new Date().toISOString(), message });
+    if (list.length > 20) list.length = 20;
+  },
+  recordModuleActivity(module, action, user) {
+    this.moduleActivity[module] = { action, user, timestamp: new Date().toISOString() };
+  },
+  clear() {
+    this.events = []; this.writeLatencies = []; this.sheetsLatencies = []; this.backgroundSync = {};
+    this.errors = []; this.warnings = []; this.moduleActivity = {};
+    this.reads = 0; this.writes = 0; this.sheetsWrites = 0; this.sheetsFailures = 0; this.duplicatePreventions = 0;
+    this.lastQueueLength = 0; // TEMP SYSTEM HEALTH — reset trend baseline too
+    this.notifications = { toastCount: 0, voiceCount: 0, bellCount: 0, lastToast: null, lastVoice: null, lastBell: null };
+  }
+};
+
+// TEMP DIAGNOSTICS — capture console.error/console.warn into the panel's
+// Error Monitor. Purely additive: the original console methods still run
+// exactly as before (this calls them via .apply after recording), so
+// nothing about actual logging behavior changes.
+(function _diagWrapConsole() {
+  const originalError = console.error.bind(console);
+  const originalWarn = console.warn.bind(console);
+  console.error = (...args) => { window._ddtzDiag.recordConsole('error', args); originalError(...args); };
+  console.warn = (...args) => { window._ddtzDiag.recordConsole('warning', args); originalWarn(...args); };
+})();
+
+/**
+ * Wraps a Firebase write function to also record its round-trip latency
+ * — timing a write the app was ALREADY going to make for real business
+ * reasons, not a new diagnostic-only ping. No new database writes are
+ * introduced by this panel.
+ */
+function _diagTimeWrite(moduleName, promiseFn) {
+  const start = performance.now();
+  return promiseFn().then((result) => {
+    window._ddtzDiag.recordLatency(moduleName, Math.round(performance.now() - start));
+    return result;
+  });
+}
+
+// Wrap the existing write functions to also time them — the functions
+// themselves are completely untouched; this only wraps their external
+// reference. Delete this block to fully remove timing instrumentation
+// with zero effect on the wrapped functions' actual behavior.
+['syncCoachFirebase', 'claimEnrolmentForApproval', 'finalizeEnrolmentApproval', 'rejectEnrolmentFirebase', 'syncFinanceExpenseFirebase'].forEach((name) => {
+  const original = window[name];
+  if (typeof original === 'function') {
+    window[name] = (...args) => _diagTimeWrite(name, () => original(...args));
+  }
+});
