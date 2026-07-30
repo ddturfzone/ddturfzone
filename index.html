@@ -372,6 +372,14 @@
   .social a:hover{background:var(--pitch-2)}
   .foot-bottom{border-top:1px solid rgba(255,255,255,.12);padding-top:20px;font-size:12px;text-align:center;color:rgba(255,255,255,.45)}
 </style>
+<!-- STAGE 1: Firebase Realtime Database SDK — same -compat builds and
+     loading pattern already proven in enroll.html. Additive only: every
+     existing localStorage save + Apps Script POST below is completely
+     unchanged; this only adds a third, best-effort realtime leg. -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
+<script defer src="firebase.js"></script>
+
 </head>
 <body>
 
@@ -1677,6 +1685,32 @@
     const savedLocally = _saveBookingRequestToLocalDb(payload);
     // Secondary save — best-effort, for admins on a different device.
     const sheetRes = await postBookingRequestToSheet(payload);
+    // STAGE 1 — third, best-effort leg: instant delivery to any admin
+    // device with the Firebase listener active. Deliberately does not
+    // affect savedLocally/sheetRes or the banner logic below at all —
+    // if Firebase isn't loaded, isn't reachable, or this browser is
+    // offline, the customer's request is already guaranteed saved by
+    // the two legs above, exactly as it was before this was added.
+    if (typeof window.submitBookingRequestFirebase === 'function') {
+      try {
+        const fbResult = await window.submitBookingRequestFirebase(payload);
+        if (!fbResult.success) {
+          console.warn('DDTZ: Firebase submission failed — request is still safely saved locally and to Sheets.', fbResult.error);
+          // Same condition and mechanism already proven in enroll.html:
+          // only queue for automatic retry if this browser is actually
+          // offline right now — a same-network failure (e.g. a
+          // misconfigured rule) shouldn't be silently retried forever.
+          if (typeof window.queueForRetry === 'function' && !navigator.onLine) {
+            window.queueForRetry(requestId, 'booking_request_submit', payload);
+          }
+        }
+      } catch (fbErr) {
+        console.warn('DDTZ: Firebase submission threw — request is still safely saved locally and to Sheets.', fbErr);
+        if (typeof window.queueForRetry === 'function' && !navigator.onLine) {
+          window.queueForRetry(requestId, 'booking_request_submit', payload);
+        }
+      }
+    }
 
     btn.disabled = false; btn.textContent = originalLabel;
 

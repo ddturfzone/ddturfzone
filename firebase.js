@@ -527,78 +527,17 @@ window.rejectEnrolmentFirebase = async (requestId, adminEmail, reason) => {
   });
 };
 
-/**
- * Lock an enrolment to prevent concurrent edits
- */
-window.lockEnrolmentFirebase = async (firebaseKey, adminEmail) => {
-  return new Promise((resolve) => {
-    if (!realtimeDb) {
-      resolve({ success: false, error: 'Firebase not initialized' });
-      return;
-    }
-
-    const ref = realtimeDb.ref(`pending_enrolments/${firebaseKey}`);
-    ref.update({
-      lockedBy: adminEmail,
-      lockedAt: firebase.database.ServerValue.TIMESTAMP
-    }).then(() => {
-      resolve({ success: true });
-    }).catch((error) => {
-      resolve({ success: false, error: error.message });
-    });
-  });
-};
-
-/**
- * Unlock an enrolment
- */
-window.unlockEnrolmentFirebase = async (firebaseKey) => {
-  return new Promise((resolve) => {
-    if (!realtimeDb) {
-      resolve({ success: false, error: 'Firebase not initialized' });
-      return;
-    }
-
-    const ref = realtimeDb.ref(`pending_enrolments/${firebaseKey}`);
-    ref.update({
-      lockedBy: null,
-      lockedAt: null
-    }).then(() => {
-      resolve({ success: true });
-    }).catch((error) => {
-      resolve({ success: false, error: error.message });
-    });
-  });
-};
-
-/**
- * Update sync status (called by Apps Script)
- */
-window.updateSyncStatusFirebase = async (firebaseKey, syncStatus, syncAttempts, error = null) => {
-  return new Promise((resolve) => {
-    if (!realtimeDb) {
-      resolve({ success: false, error: 'Firebase not initialized' });
-      return;
-    }
-
-    const updateData = {
-      syncStatus: syncStatus,
-      syncAttempts: syncAttempts,
-      lastSyncTime: firebase.database.ServerValue.TIMESTAMP
-    };
-
-    if (error) {
-      updateData.lastSyncError = error;
-    }
-
-    const ref = realtimeDb.ref(`pending_enrolments/${firebaseKey}`);
-    ref.update(updateData).then(() => {
-      resolve({ success: true });
-    }).catch((error) => {
-      resolve({ success: false, error: error.message });
-    });
-  });
-};
+// NOTE: three functions previously here (lockEnrolmentFirebase,
+// unlockEnrolmentFirebase, updateSyncStatusFirebase) were removed during
+// the Production Readiness Review — confirmed dead code, never called
+// from anywhere in admin.html, enroll.html, or this file itself. Their
+// intended purposes are already covered by other, actually-wired
+// mechanisms: claimEnrolmentForApproval/releaseEnrolmentClaim handle
+// concurrency locking for real, and sync status is tracked via
+// PHASE_4_1_CODE_GS_ADDITIONS.gs writing directly to Firebase's REST API
+// from Apps Script (a separate runtime that was never actually able to
+// call this file's JS functions in the first place — that comment was
+// aspirational, not accurate).
 
 // ========== PHASE 4.1: VOICE NOTIFICATIONS ==========
 
@@ -740,6 +679,12 @@ window.drainRetryQueue = async () => {
     try {
       if (item.operation === 'enrolment_submit' && typeof window.submitPendingEnrolmentFirebase === 'function') {
         const result = await window.submitPendingEnrolmentFirebase(item.data);
+        if (!result.success) throw new Error(result.error || 'retry failed');
+        console.log('✓ Retry succeeded for', item.firebaseKey || item.data?.requestId);
+      } else if (item.operation === 'booking_request_submit' && typeof window.submitBookingRequestFirebase === 'function') {
+        // STAGE 1 — same retry mechanism, second producer (index.html's
+        // reservation form, alongside enroll.html's enrolment form).
+        const result = await window.submitBookingRequestFirebase(item.data);
         if (!result.success) throw new Error(result.error || 'retry failed');
         console.log('✓ Retry succeeded for', item.firebaseKey || item.data?.requestId);
       } else {
@@ -924,6 +869,99 @@ window.listenCoaches = (callback) => {
 };
 
 console.log('✓ Phase 4.3.1 Coaches Realtime Sync Module Loaded');
+
+// ============================================================================
+// STAGE 1 — Reservation Requests Realtime Sync
+// ----------------------------------------------------------------------------
+// Firebase's role here is STRICTLY the realtime transport layer — instant
+// delivery of new/updated booking_request records to every logged-in
+// admin device. It does NOT reimplement any business logic: duplicate
+// prevention, overlap detection, autoRejectConflictingRequests, and the
+// Sheets-authoritative conflict check all remain exactly where they
+// already are, in admin.html's existing confirm/reject functions,
+// completely unchanged. This file only carries data — it never decides
+// whether a reservation is valid.
+// ============================================================================
+
+/**
+ * Called from index.html (the PUBLIC site) when a customer submits a
+ * reservation request. Additive to the existing local-save + Sheets-POST
+ * — never replaces either. Keyed by requestId (a .set(), not .push()),
+ * so a retried submission overwrites the same node instead of creating
+ * a duplicate — identical reasoning to submitPendingEnrolmentFirebase.
+ */
+window.submitBookingRequestFirebase = async (payload) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    if (!payload || !payload.requestId) { resolve({ success: false, error: 'Missing requestId — cannot submit to Firebase.' }); return; }
+    const ref = realtimeDb.ref('booking_requests/' + payload.requestId);
+    ref.set({
+      ...payload,
+      createdAt: payload.createdAt || firebase.database.ServerValue.TIMESTAMP,
+      _fbUpdatedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => {
+      console.log('✓ Reservation request submitted to Firebase:', payload.requestId);
+      resolve({ success: true, firebaseKey: payload.requestId });
+    }).catch((error) => {
+      console.error('✗ Failed to submit reservation request to Firebase:', error);
+      resolve({ success: false, error: error.message });
+    });
+  });
+};
+
+/**
+ * Called from admin.html AFTER the existing confirm/reject flow has
+ * already done its own thing (local conflict checks, Sheets-authoritative
+ * write, autoRejectConflictingRequests) — this call only broadcasts the
+ * resulting status to other devices. It never runs before, or instead
+ * of, any of that existing logic.
+ */
+window.syncBookingRequestFirebase = async (record) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    const requestId = record.requestId || record.id;
+    if (!requestId) { resolve({ success: false, error: 'Missing requestId' }); return; }
+    realtimeDb.ref('booking_requests/' + requestId).set({
+      ...record,
+      requestId,
+      _fbUpdatedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => resolve({ success: true }))
+      .catch((error) => {
+        console.error('✗ Booking request Firebase sync failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+  });
+};
+
+/**
+ * Real-time listener for booking requests (ADMIN ONLY — admin.html).
+ * Same error/cancel-callback discipline as every listener added since
+ * the Phase 4.2 emergency fix.
+ */
+window.listenBookingRequests = (callback) => {
+  if (!realtimeDb) {
+    console.error('Firebase not initialized');
+    return null;
+  }
+  const ref = realtimeDb.ref('booking_requests');
+  const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (booking_requests)'); // TEMP DEBUG LOG — remove after live verification
+    const requests = [];
+    snapshot.forEach((child) => requests.push({ firebaseKey: child.key, ...child.val() }));
+    callback(requests);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ Booking requests listener error:', error);
+    lastFirebaseError = 'Booking requests sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (booking_requests)'); // TEMP DEBUG LOG — remove after live verification
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Stage 1 Reservation Requests Realtime Sync Module Loaded');
 
 // ============================================================================
 // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.

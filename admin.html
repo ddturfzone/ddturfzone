@@ -260,8 +260,12 @@ tr:hover td{background:#f8fffe}
   .topbar-user-role{font-size:9px}
   .logout-label{display:none}
   .logout-btn{padding:7px 9px}
-  /* Touch-friendly minimum size for compact buttons — 26-28px was too small to tap comfortably */
-  .btn-sm{padding:9px 12px;min-height:36px}
+  /* Touch-friendly minimum size for compact buttons — was 26-28px
+     (too small), then bumped to 36px; now 44px to match the standard
+     mobile touch-target guideline (Apple HIG / Material Design) exactly.
+     Scoped to this mobile media query only — desktop's .btn-sm (6px 12px,
+     no min-height) is completely unaffected. */
+  .btn-sm{padding:10px 14px;min-height:44px}
   .bk-time-box{padding:10px 10px}
 }
 @media(max-width:400px){
@@ -283,34 +287,15 @@ tr:hover td{background:#f8fffe}
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 @media(max-width:600px){.grid-2,.grid-3{grid-template-columns:1fr}}
 /* ====== PHASE 3.2b-ii — STUDENT ID CARD ======
-   CR80 card ratio (85.6mm x 54mm ≈ 1.585:1). Sized in px for on-screen
-   preview/html2canvas capture; the same ratio is reused as mm for the
-   print/PDF paths so nothing looks stretched between preview and output. */
-.idcard-pair{display:flex;gap:20px;flex-wrap:wrap;justify-content:center}
-.idcard{width:338px;height:213px;border-radius:14px;overflow:hidden;position:relative;box-shadow:var(--shadow-lg);font-family:'Inter',sans-serif;background:white;flex-shrink:0}
-.idcard-front .idcard-head{background:linear-gradient(135deg,var(--dark) 0%,var(--green-dark) 60%,var(--green) 100%);color:white;padding:10px 12px;display:flex;align-items:center;gap:8px}
-.idcard-front .idcard-head img{width:26px;height:26px;object-fit:contain;border-radius:5px;background:white;padding:2px}
-.idcard-front .idcard-head-text{line-height:1.15}
-.idcard-front .idcard-head-text .brand{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:800;letter-spacing:.3px}
-.idcard-front .idcard-head-text .sub{font-size:8.5px;opacity:.85;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
-.idcard-front .idcard-body{display:flex;gap:10px;padding:10px 12px}
-.idcard-front .idcard-photo{width:64px;height:64px;border-radius:10px;object-fit:cover;border:2px solid var(--gray2);background:var(--gray);flex-shrink:0}
-.idcard-front .idcard-photo-ph{width:64px;height:64px;border-radius:10px;background:var(--gray);border:2px solid var(--gray2);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
-.idcard-front .idcard-info{flex:1;min-width:0}
-.idcard-front .idcard-name{font-size:14px;font-weight:800;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.idcard-front .idcard-idrow{font-size:9.5px;color:var(--green-dark);font-weight:700;background:var(--green-bg);display:inline-block;padding:1px 6px;border-radius:5px;margin-top:2px}
-.idcard-front .idcard-fields{margin-top:5px;font-size:9.5px;color:var(--text);line-height:1.55}
-.idcard-front .idcard-fields b{color:var(--gray3);font-weight:700}
-.idcard-front .idcard-qr{position:absolute;right:10px;bottom:8px;width:46px;height:46px;background:white;border-radius:6px;padding:2px;box-shadow:var(--shadow)}
-.idcard-front .idcard-qr img,.idcard-front .idcard-qr canvas{width:100%;height:100%}
-.idcard-front .idcard-foot{position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,var(--green),var(--yellow))}
-.idcard-back{display:flex;flex-direction:column;border:1.5px solid var(--gray2)}
-.idcard-back .idcard-back-head{background:var(--dark);color:white;padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
-.idcard-back .idcard-back-body{padding:9px 12px;font-size:9.5px;line-height:1.5;flex:1;overflow:hidden}
-.idcard-back .idcard-back-body b{color:var(--gray3);font-weight:700}
-.idcard-back .idcard-medical{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:6px;padding:4px 7px;margin-top:5px;font-size:9px}
-.idcard-back .idcard-terms{margin-top:6px;font-size:8px;color:var(--gray3);line-height:1.45}
-.idcard-back .idcard-back-foot{background:var(--gray);padding:5px 12px;font-size:8.5px;color:var(--gray3);text-align:center;font-weight:600}
+   REMOVED — ID Card feature removed entirely per explicit request.
+   Every .idcard* rule, the modal, the buttons, and every related
+   function (openIdCardModal, printCurrentIdCard, bulkPrintIdCards,
+   downloadIdCardPDF/PNG, _buildIdCardPrintHTML, _idCardFrontHTML/
+   _idCardBackHTML, _openIdCardPrintWindow, _logIdCardActivity,
+   _refreshOpenIdCardIfNeeded) and the generateIdCard permission entry
+   were removed together. html2canvas itself was NOT removed — it's
+   also used by the Receipt PDF download feature, which is unrelated
+   and stays fully working. */
 /* ====== PHASE 3.4b — FEE COLLECTION ====== */
 #fee-student-info{background:var(--gray);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.8}
 #fee-student-info b{color:var(--gray3);font-weight:700}
@@ -769,7 +754,6 @@ tr:hover td{background:#f8fffe}
           <button class="btn btn-secondary btn-sm" data-requires-action="bulkAssignCoach" onclick="openBulkAssignCoachModal()">👨‍🏫 Assign Coach</button>
           <button class="btn btn-secondary btn-sm" data-requires-action="bulkChangeBatch" onclick="openBulkChangeBatchModal()">🔀 Change Batch</button>
           <button class="btn btn-secondary btn-sm" data-requires-action="bulkChangeStatus" onclick="openBulkChangeStatusModal()">🔁 Change Status</button>
-          <button class="btn btn-secondary btn-sm" data-requires-action="generateIdCard" onclick="bulkPrintIdCards()">🪪 Print ID Cards</button>
           <button class="btn btn-danger btn-sm" data-requires-action="bulkDeleteStudents" onclick="bulkDeleteStudents()">🗑️ Delete Permanently</button>
         </div>
         <div class="table-wrap">
@@ -2606,27 +2590,6 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
-<!-- PHASE 3.2b-ii — STUDENT ID CARD -->
-<div class="modal-overlay" id="idcard-modal">
-  <div class="modal" style="max-width:760px">
-    <div class="modal-title">🪪 Student ID Card</div>
-    <input type="hidden" id="idcard-student-id">
-    <div class="idcard-pair" id="idcard-preview-area">
-      <div class="idcard idcard-front" id="idcard-front"></div>
-      <div class="idcard idcard-back" id="idcard-back"></div>
-    </div>
-    <div id="idcard-view-only-note" style="display:none;text-align:center;font-size:12px;color:var(--gray3);margin-top:14px">
-      View only — ask a Manager or Super Admin to print or download this card.
-    </div>
-    <div class="modal-footer" style="justify-content:center;flex-wrap:wrap">
-      <button class="btn btn-secondary" onclick="closeModal('idcard-modal')">Close</button>
-      <button class="btn btn-secondary" data-requires-action="generateIdCard" onclick="printCurrentIdCard()">🖨️ Print</button>
-      <button class="btn btn-secondary" data-requires-action="generateIdCard" onclick="downloadIdCardPDF()">📄 Download PDF</button>
-      <button class="btn btn-secondary" data-requires-action="generateIdCard" onclick="downloadIdCardPNG()">🖼️ Download PNG</button>
-    </div>
-  </div>
-</div>
-
 <!-- PHASE 3.2b-i — BULK ASSIGN COACH -->
 <div class="modal-overlay" id="bulk-assign-coach-modal">
   <div class="modal">
@@ -2739,6 +2702,20 @@ tr:hover td{background:#f8fffe}
       <button class="btn btn-secondary" onclick="closeModal('fee-modal')">Cancel</button>
       <button class="btn btn-whatsapp" data-requires-action="manageFees" onclick="saveFeeAndWhatsApp()">💬 Save & WhatsApp</button>
       <button class="btn btn-primary" data-requires-action="manageFees" onclick="saveFee()">💾 Save Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- DUPLICATE FEE RECORD WARNING — Due Management fix follow-up. Reuses
+     the exact same modal-overlay/modal/modal-footer classes every other
+     modal in this app already uses — no new UI language introduced. -->
+<div class="modal-overlay" id="fee-duplicate-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-title">⚠️ Fee Record Already Exists</div>
+    <div id="fee-duplicate-message" style="font-size:14px;line-height:1.6;margin:8px 0 4px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('fee-duplicate-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="_openExistingFeeFromDuplicateWarning()">✏️ Open Existing Record</button>
     </div>
   </div>
 </div>
@@ -3410,11 +3387,6 @@ const ACTION_PERMISSIONS = {
   // gated by manageStudents, which already includes Admin) worked for them.
   bulkChangeStatus:     [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   bulkDeleteStudents:   [ROLES.SUPER_ADMIN],
-  // PHASE 3.2b-ii — Student ID Card. Gates Generate/Print/Download only;
-  // the preview modal itself is reachable by anyone with Students page
-  // access (Staff included), matching the documented "Staff: View Only"
-  // row of this feature's role matrix.
-  generateIdCard:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   // PHASE 3.4b — Fee Collection. Super Admin + Manager: Create/Edit
   // (Record Payment, Edit, Delete). Staff keeps page access (View Only)
   // via PAGE_PERMISSIONS.fees above, but every mutating action re-checks
@@ -3423,9 +3395,8 @@ const ACTION_PERMISSIONS = {
   manageFees:           [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   // PHASE 3.4c — Receipt System (Task 1: Receipt Generation). Kept
   // separate from manageFees on purpose — printing/downloading a receipt
-  // for an already-recorded payment is a read/output action, not an edit,
-  // the same reasoning generateIdCard was kept separate from
-  // manageStudents. Same role set as manageFees for now; separating them
+  // for an already-recorded payment is a read/output action, not an edit.
+  // Same role set as manageFees for now; separating them
   // leaves room to open printing to Staff later without touching payment
   // edit rights. The preview modal itself is reachable by anyone with
   // Fees page access (Staff included) — this only gates Print/PDF.
@@ -3560,12 +3531,27 @@ function can(action) {
   if (!allowed) return true;
   return allowed.includes(CURRENT_USER.role);
 }
-function denyAccess(msg) {
+function denyAccess(msg, action) {
   showToast(msg || 'You do not have permission to do this.', 'error');
+  // ROOT CAUSE INVESTIGATION (requested): "do not silently fail" — every
+  // denial now records exactly which action was checked and what role
+  // the session actually had at that moment, visible in both the
+  // console (immediately) and the Diagnostics panel's Error Monitor
+  // (via the existing console.warn capture). If a Manager is ever wrongly
+  // denied again, this shows precisely why — the role string involved,
+  // not just a generic toast with no trace.
+  console.warn(`[Permission Denied] action="${action || '(unspecified)'}" role="${CURRENT_USER?.role}" user="${CURRENT_USER?.email || CURRENT_USER?.name}"`);
 }
 
 function _enterApp(user) {
-  CURRENT_USER = user; // { email, name, role }
+  // ROOT CAUSE FIX (defense in depth, alongside the Code.gs normalization):
+  // can()/hasPageAccess() do a case-sensitive match against
+  // 'superadmin'/'admin'/'staff'. Normalizing here too means this is
+  // still correct even before a Code.gs redeploy catches up, and covers
+  // any other path that might ever set CURRENT_USER directly. This does
+  // NOT change any permission table — it only makes the role STRING
+  // itself robust against case/whitespace variance in its source data.
+  CURRENT_USER = { ...user, role: String(user.role || '').trim().toLowerCase() };
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-badge').textContent = user.name;
@@ -3599,6 +3585,11 @@ function _enterApp(user) {
         // Finance, Coaches has no role-based data-hiding requirement), so
         // no access-gate check is needed here, unlike initFinanceFirebaseListener.
         window.initCoachesFirebaseListener?.();
+        // STAGE 1 — Booking Requests listener. Same as Coaches: visible
+        // to every role (Staff can view the Requests page, even though
+        // confirmRequest/rejectRequest remain gated to Super Admin/Admin
+        // only, unchanged), so no access-gate check needed here.
+        window.initBookingRequestsFirebaseListener?.();
         // Verify connection after initialization
         setTimeout(() => {
           window.verifyFirebaseConnection?.().then((verification) => {
@@ -3742,7 +3733,7 @@ async function doLogin() {
     localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
   } catch (e) {}
   _enterApp(sessionUser);
-  loadAllData().then(() => { renderDashboard(); _consumeStudentDeepLinkIfAny(); });
+  loadAllData().then(() => { renderDashboard(); });
 }
 
 function doLogout() {
@@ -3756,6 +3747,7 @@ function doLogout() {
   // was never started, e.g. a Manager/Staff session).
   window.stopFinanceFirebaseListener?.();
   window.stopCoachesFirebaseListener?.();
+  window.stopBookingRequestsFirebaseListener?.();
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   // Clear password field for security
@@ -3794,7 +3786,7 @@ window.logoutUser = doLogout;
           role: cached ? cached.role : localSession.role
         };
         _enterApp(sessionUser);
-        loadAllData().then(() => { renderDashboard(); _consumeStudentDeepLinkIfAny(); });
+        loadAllData().then(() => { renderDashboard(); });
 
         // Background re-check against the live Sheet — never blocks the UI,
         // and its own failure (network down, Sheet unreachable) must never
@@ -3809,7 +3801,7 @@ window.logoutUser = doLogout;
               return;
             }
             if (fresh.role !== CURRENT_USER.role || fresh.name !== CURRENT_USER.name) {
-              CURRENT_USER.role = fresh.role;
+              CURRENT_USER.role = String(fresh.role || '').trim().toLowerCase(); // ROOT CAUSE FIX — same normalization as _enterApp
               CURRENT_USER.name = fresh.name;
               const updatedSession = { email: CURRENT_USER.email, name: CURRENT_USER.name, role: CURRENT_USER.role, ts: Date.now() };
               try { localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSession)); } catch(e) {}
@@ -4238,6 +4230,9 @@ window.addEventListener('focus', () => { if (CURRENT_USER) syncCoachesFromSheet(
 let _coachesFirebaseUnsubscribe = null;
 let _coachesFirebaseSeeded = false;
 const _ddtzAnnouncedCoachEvents = new Set(); // "coachId:kind" already announced this session
+let _bookingRequestsFirebaseUnsubscribe = null;
+let _bookingRequestsFirebaseSeeded = false;
+const _ddtzAnnouncedBookingRequestEvents = new Set(); // "requestId:kind" already announced this session
 
 window.initCoachesFirebaseListener = () => {
   if (typeof window.listenCoaches !== 'function') return;
@@ -4341,6 +4336,111 @@ window.stopCoachesFirebaseListener = () => {
     _coachesFirebaseUnsubscribe = null;
     _coachesFirebaseSeeded = false;
     console.log('✓ Coaches Firebase listener stopped');
+  }
+};
+
+// ============================================================================
+// STAGE 1 — Reservation Requests Firebase listener
+// ----------------------------------------------------------------------------
+// Realtime transport ONLY. Does not reimplement duplicate prevention,
+// overlap detection, autoRejectConflictingRequests, or the Sheets-
+// authoritative conflict check — all of that stays exactly where it
+// already is, in confirmBookingRequest/_confirmBookingRequestInner/
+// rejectBookingRequest, completely untouched by this listener. This
+// function's only job is: a record changed in Firebase → reflect it into
+// window.DB.bookingRequests → re-render → update the badge → notify.
+//
+// Per the approved Stage 1 scope: toast + bell only. Voice notification
+// is a deliberately separate, NOT-YET-IMPLEMENTED enhancement — the one
+// line that would add it is marked below, to be added only after Stage 1
+// itself is confirmed live-passing.
+// ============================================================================
+window.initBookingRequestsFirebaseListener = () => {
+  if (typeof window.listenBookingRequests !== 'function') return;
+  if (_bookingRequestsFirebaseUnsubscribe) return; // already subscribed this session
+
+  _bookingRequestsFirebaseUnsubscribe = window.listenBookingRequests((remoteRequests) => {
+    const isFirstSnapshot = !_bookingRequestsFirebaseSeeded;
+    let changed = false;
+
+    remoteRequests.forEach(remote => {
+      if (!remote.requestId) return;
+      const local = window.DB.bookingRequests.find(r => r.requestId === remote.requestId);
+      const me = CURRENT_USER?.name || CURRENT_USER?.email;
+      const isOwnAction = (remote.confirmedBy && remote.confirmedBy === me) || (remote.rejectedBy && remote.rejectedBy === me);
+
+      if (!local) {
+        // Genuinely new — either a brand-new public request, or (less
+        // commonly) this device's first sight of one already actioned
+        // elsewhere before it connected.
+        const rec = { ...remote, id: remote.requestId };
+        _lsAddPreservingId('bookingRequests', rec);
+        window.DB.bookingRequests.push(rec);
+        changed = true;
+        window._ddtzDiag?.recordEvent('booking_request', 'Create'); // TEMP DIAGNOSTICS
+        if (!isFirstSnapshot && remote.status === 'PENDING') {
+          _announceBookingRequestEvent(remote.requestId, 'received', {
+            text: `New reservation request — ${remote.name || ''} (${remote.sport || ''}, ${formatDate(remote.date)})`
+            // voice: 'A new reservation request has been received.' — ADD THIS LINE ONLY once Stage 1 is confirmed live-passing; see _announceBookingRequestEvent below
+          });
+        }
+      } else {
+        const remoteUpdatedAt = remote._fbUpdatedAt || 0;
+        if (remoteUpdatedAt && remoteUpdatedAt !== local._fbUpdatedAt) {
+          const merged = { ...local, ...remote, id: local.id, _fbUpdatedAt: remoteUpdatedAt };
+          LS.update('bookingRequests', local.id, merged);
+          Object.assign(local, merged);
+          changed = true;
+          window._ddtzDiag?.recordEvent('booking_request', 'Update'); // TEMP DIAGNOSTICS
+          if (!isFirstSnapshot && !isOwnAction && remote.status !== 'PENDING') {
+            _announceBookingRequestEvent(remote.requestId, 'status:' + remote.status, {
+              text: `Reservation ${remote.status === 'CONFIRMED' ? 'confirmed' : 'rejected'} — ${remote.name || ''}`
+            });
+          }
+        }
+      }
+    });
+
+    _bookingRequestsFirebaseSeeded = true;
+    if (changed) {
+      updateRequestsBadge();
+      if (document.getElementById('page-requests')?.classList.contains('active')) renderBookingRequests();
+    }
+  });
+
+  console.log('✓ Firebase realtime listener active for Booking Requests');
+};
+
+function _announceBookingRequestEvent(requestId, kind, { text }) {
+  const eventKey = requestId + ':' + kind;
+  if (_ddtzAnnouncedBookingRequestEvents.has(eventKey)) return;
+  _ddtzAnnouncedBookingRequestEvents.add(eventKey);
+
+  showToast(`📝 ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'BOOKREQFB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: 'Reservations', role: '', module: 'booking_request', moduleLabel: 'Reservation',
+    icon: '📝', action: text, recordId: requestId, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  // Voice deliberately NOT called here yet — approved as a separate,
+  // later enhancement once Stage 1's realtime sync itself is confirmed
+  // live-passing. Enabling it later is exactly one line:
+  //   window.playVoiceAnnouncement?.(voice, false);
+  // with a `voice` string passed in alongside `text` at each call site
+  // above — no other change needed.
+}
+
+window.stopBookingRequestsFirebaseListener = () => {
+  if (_bookingRequestsFirebaseUnsubscribe) {
+    _bookingRequestsFirebaseUnsubscribe();
+    _bookingRequestsFirebaseUnsubscribe = null;
+    _bookingRequestsFirebaseSeeded = false;
+    console.log('✓ Booking Requests Firebase listener stopped');
   }
 };
 
@@ -4764,8 +4864,71 @@ window.openSidebar = () => { document.getElementById('sidebar').classList.add('o
 window.closeSidebar = () => { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); };
 
 // ===== MODALS =====
-window.openModal = (id) => document.getElementById(id).classList.add('open');
-window.closeModal = (id) => document.getElementById(id).classList.remove('open');
+// UI/UX ENHANCEMENT — background scroll lock while any modal is open
+// (mobile requirement: prevent background scrolling behind an open
+// modal). Uses a COUNTER, not a boolean, because modals can legitimately
+// stack (e.g. the duplicate-fee warning opens on top of the still-open
+// fee entry form) — scroll must stay locked until the LAST modal closes,
+// not the first. Applies to every modal in the app via these same two
+// functions, rather than needing a change at each individual call site.
+let _openModalCount = 0;
+window.openModal = (id) => {
+  const el = document.getElementById(id);
+  if (!el.classList.contains('open')) { el.classList.add('open'); _openModalCount++; }
+  document.body.style.overflow = 'hidden';
+};
+window.closeModal = (id) => {
+  const el = document.getElementById(id);
+  if (el.classList.contains('open')) { el.classList.remove('open'); _openModalCount = Math.max(0, _openModalCount - 1); }
+  if (_openModalCount === 0) document.body.style.overflow = '';
+};
+
+// ============================================================================
+// UI/UX ENHANCEMENT — reusable "jump to and edit an existing record"
+// utility. Standard pattern across modules: clear filters if needed so
+// the record exists in the current table view, re-render, scroll to and
+// briefly highlight the row, then open its edit form. ONE implementation
+// used everywhere this applies, instead of each module duplicating the
+// sequence (Fees' duplicate-record flow is the first caller — see
+// _openExistingFeeFromDuplicateWarning below).
+// ============================================================================
+
+/**
+ * @param {Object} opts
+ * @param {string} opts.recordId    - the record's id
+ * @param {string} opts.rowIdPrefix - table row element id is rowIdPrefix + recordId (e.g. 'fee-row-')
+ * @param {Function} [opts.resetFilters] - optional; called first if the record might currently be filtered out of view
+ * @param {Function} [opts.render]       - re-renders the table; called after resetFilters so the row is guaranteed to exist
+ * @param {Function} [opts.edit]         - opens the record's edit modal; called with recordId
+ */
+window.openRecordWithHighlight = ({ recordId, rowIdPrefix, resetFilters, render, edit }) => {
+  if (resetFilters) resetFilters();
+  if (render) render();
+
+  const row = document.getElementById(rowIdPrefix + recordId);
+  if (row) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.style.transition = 'background-color 0.3s';
+    row.style.backgroundColor = '#fff9c4';
+    if (window._rowHighlight) clearTimeout(window._rowHighlight.timer); // supersede any previous highlight (different row/module)
+    window._rowHighlight = { rowIdPrefix, recordId, timer: setTimeout(() => window.clearRowHighlight(rowIdPrefix, recordId), 4000) };
+  }
+  if (edit) edit(recordId);
+};
+
+/**
+ * Clears a row's highlight — called by the fallback timer above, and
+ * explicitly by each module's own save function on a successful save of
+ * the same record (see saveFee for the pattern). Safe to call any number
+ * of times, or after the row no longer exists in the DOM.
+ */
+window.clearRowHighlight = (rowIdPrefix, recordId) => {
+  if (!window._rowHighlight || window._rowHighlight.rowIdPrefix !== rowIdPrefix || window._rowHighlight.recordId !== recordId) return;
+  const row = document.getElementById(rowIdPrefix + recordId);
+  if (row) row.style.backgroundColor = '';
+  clearTimeout(window._rowHighlight.timer);
+  window._rowHighlight = null;
+};
 
 // ===== TOAST =====
 window.showToast = (msg, type='success') => {
@@ -5663,6 +5826,7 @@ window.saveBooking = async () => {
     resetBookingForm();
     // Refresh every view live — no page reload needed anywhere
     renderBookings();
+    window.clearRowHighlight('booking-row-', data.id); // UI ENHANCEMENT: same pattern as Fees/Students/Coaches
     renderDashboard();
     if (typeof renderReports === 'function') renderReports();
     if (typeof renderCollectionReport === 'function' && !document.getElementById('rpt-daterange-view')?.classList.contains('hidden')) {
@@ -6874,6 +7038,7 @@ async function _confirmBookingRequestInner(req, id) {
   const idx = window.DB.bookingRequests.findIndex(r => r.id === req.id);
   if (idx >= 0) window.DB.bookingRequests[idx] = updatedReq;
   syncBookingRequestUpdate(updatedReq);
+  window.syncBookingRequestFirebase?.(updatedReq); // STAGE 1 — realtime transport only, additive to the Sheets sync above
 
   autoRejectConflictingRequests(updatedReq);
 
@@ -6904,6 +7069,7 @@ function autoRejectConflictingRequests(confirmedReq) {
     const idx = window.DB.bookingRequests.findIndex(x => x.id === r.id);
     if (idx >= 0) window.DB.bookingRequests[idx] = updated;
     syncBookingRequestUpdate(updated);
+    window.syncBookingRequestFirebase?.(updated); // STAGE 1 — realtime transport only, additive to the Sheets sync above
   });
   if (others.length) showToast(`ℹ️ ${others.length} other pending request(s) for that same time were automatically rejected.`, 'info');
 }
@@ -6917,6 +7083,7 @@ window.rejectBookingRequest = async (id) => {
   const idx = window.DB.bookingRequests.findIndex(r => r.id === req.id);
   if (idx >= 0) window.DB.bookingRequests[idx] = updated;
   syncBookingRequestUpdate(updated);
+  window.syncBookingRequestFirebase?.(updated); // STAGE 1 — realtime transport only, additive to the Sheets sync above
   renderBookingRequests();
   updateRequestsBadge();
   showToast('❌ Reservation request rejected — slot remains available.');
@@ -7235,6 +7402,29 @@ function resetBookingForm() {
 }
 
 // ===== EDIT BOOKING =====
+// UI/UX ENHANCEMENT: routes the Bookings table's Edit button through the
+// shared openRecordWithHighlight() utility — clears search/sport/date
+// filters first (dateF='' means "no date restriction," matching how
+// renderBookings' own filter logic already treats an empty value) so the
+// target booking is guaranteed visible regardless of which date range
+// happened to be selected.
+window.openBookingForEdit = (id) => {
+  openRecordWithHighlight({
+    recordId: id,
+    rowIdPrefix: 'booking-row-',
+    resetFilters: () => {
+      const searchEl = document.getElementById('booking-search');
+      const sportEl = document.getElementById('booking-sport-filter');
+      const dateEl = document.getElementById('booking-date-filter');
+      if (searchEl) searchEl.value = '';
+      if (sportEl) sportEl.value = '';
+      if (dateEl) dateEl.value = '';
+    },
+    render: renderBookings,
+    edit: editBooking
+  });
+};
+
 window.editBooking = (id) => {
   const b = window.DB.bookings.find(x => x.id === id);
   if (!b) return;
@@ -7996,7 +8186,7 @@ window.renderBookings = () => {
   if(!list.length){tbody.innerHTML=`<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">📅</div><p>No bookings found</p></div></td></tr>`;return;}
   tbody.innerHTML=list.map(b=>{
     const isReservation = b.bookingType === 'reservation';
-    return `<tr${isReservation ? ' style="border-left:4px solid #3b82f6;background:#eff6ff"' : ''}>
+    return `<tr id="booking-row-${b.id}"${isReservation ? ' style="border-left:4px solid #3b82f6;background:#eff6ff"' : ''}>
     <td><code style="font-size:11px;background:var(--gray);padding:2px 6px;border-radius:4px">${b.id?.substring(0,8)||'-'}</code></td>
     <td><div style="font-weight:600">${b.name}</div><div style="font-size:12px;color:var(--gray3)">${b.phone}</div>${isReservation ? '<span class="badge" style="background:#dbeafe;color:#1e40af;font-size:10px;margin-top:3px;display:inline-block">🔵 Reservation</span>' : ''}</td>
     <td>${sportBadge(b.sport)}</td>
@@ -8009,7 +8199,7 @@ window.renderBookings = () => {
     <td>${statusBadge(b.status)}</td>
     <td><div style="display:flex;gap:4px;flex-wrap:wrap">
       ${isReservation && can('deleteBooking') ? `<button class="btn btn-success btn-sm" onclick="confirmReservation('${b.id}')" title="Confirm as booking">✅</button>` : ''}
-      <button class="btn btn-info btn-sm" onclick="editBooking('${b.id}')">✏️</button>
+      <button class="btn btn-info btn-sm" onclick="openBookingForEdit('${b.id}')">✏️</button>
       <button class="btn btn-whatsapp btn-sm" onclick="sendBookingWhatsApp(window.DB.bookings.find(x=>x.id==='${b.id}'))">📱</button>
       ${can('deleteBooking') ? `<button class="btn btn-danger btn-sm" onclick="deleteBooking('${b.id}')">🗑️</button>` : ''}
     </div></td>
@@ -8118,6 +8308,7 @@ window.saveStudent = async () => {
   closeModal('student-modal');
   resetStudentForm();
   renderStudents();
+  window.clearRowHighlight('student-row-', id); // UI ENHANCEMENT: same pattern as Fees
   renderDashboard();
   populateFeeStudentSelect();
   showToast('Student saved! ✅');
@@ -8309,6 +8500,32 @@ function setStudentFormReadOnly(readOnly){
   if (saveBtn) saveBtn.style.display = readOnly ? 'none' : '';
 }
 
+// UI/UX ENHANCEMENT: routes View/Edit through the shared
+// openRecordWithHighlight() utility — clears Students' six filter fields
+// (search/sport/status/coach/batch/joined-month) so the target student
+// is guaranteed to be in the current table view, EXCEPT the "Show
+// Archived" checkbox, which is set to match the target student's own
+// archived state (not blindly reset to false) — otherwise an archived
+// student would be hidden by the very "reset" meant to reveal them.
+function _resetStudentFiltersFor(student) {
+  ['student-search','student-sport-filter','student-status-filter','student-coach-filter','student-batch-filter','student-joined-month-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const archivedCheckbox = document.getElementById('student-show-archived');
+  if (archivedCheckbox) archivedCheckbox.checked = !!student.archived;
+}
+window.openStudentForView = (id) => {
+  const s = window.DB.students.find(x => x.id === id);
+  if (!s) return;
+  openRecordWithHighlight({ recordId: id, rowIdPrefix: 'student-row-', resetFilters: () => _resetStudentFiltersFor(s), render: renderStudents, edit: viewStudent });
+};
+window.openStudentForEdit = (id) => {
+  const s = window.DB.students.find(x => x.id === id);
+  if (!s) return;
+  openRecordWithHighlight({ recordId: id, rowIdPrefix: 'student-row-', resetFilters: () => _resetStudentFiltersFor(s), render: renderStudents, edit: editStudent });
+};
+
 window.viewStudent = (id) => {
   editStudent(id);
   document.getElementById('student-modal-title').textContent = '👁️ View Student';
@@ -8377,7 +8594,7 @@ window.editStudent = (id, _readOnlyReset) => {
 };
 
 window.archiveStudent = async (id) => {
-  if (!can('archiveStudents')) { denyAccess(); return; }
+  if (!can('archiveStudents')) { denyAccess(null, 'archiveStudents'); return; }
   if(!confirm('Archive this student? They will be hidden from active lists but can be restored anytime.'))return;
   const s = window.DB.students.find(x=>x.id===id);
   if (!s) return;
@@ -8391,7 +8608,7 @@ window.archiveStudent = async (id) => {
 };
 
 window.restoreStudent = async (id) => {
-  if (!can('archiveStudents')) { denyAccess(); return; }
+  if (!can('archiveStudents')) { denyAccess(null, 'archiveStudents'); return; }
   const s = window.DB.students.find(x=>x.id===id);
   if (!s) return;
   const updated = { ...s, archived: false };
@@ -8648,14 +8865,12 @@ window.renderStudents = () => {
     const feeLabel = `₹${Math.round(_computeEffectiveFee(_feeBase, s.discountType, s.discountValue)).toLocaleString('en-IN')}${_feePeriod}`;
     const photoCell = s.photo ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">` : `<div style="width:32px;height:32px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:14px">🎓</div>`;
     const actions = s.archived
-      ? `<button class="btn btn-info btn-sm" onclick="viewStudent('${s.id}')">👁️</button>
-         <button class="btn btn-secondary btn-sm" onclick="openIdCardModal('${s.id}')">🪪</button>
+      ? `<button class="btn btn-info btn-sm" onclick="openStudentForView('${s.id}')">👁️</button>
          <button class="btn btn-secondary btn-sm" data-requires-action="archiveStudents" onclick="restoreStudent('${s.id}')">♻️ Restore</button>`
-      : `<button class="btn btn-info btn-sm" onclick="viewStudent('${s.id}')">👁️</button>
-         <button class="btn btn-info btn-sm" onclick="editStudent('${s.id}')">✏️</button>
-         <button class="btn btn-secondary btn-sm" onclick="openIdCardModal('${s.id}')">🪪</button>
+      : `<button class="btn btn-info btn-sm" onclick="openStudentForView('${s.id}')">👁️</button>
+         <button class="btn btn-info btn-sm" onclick="openStudentForEdit('${s.id}')">✏️</button>
          <button class="btn btn-danger btn-sm" data-requires-action="archiveStudents" onclick="archiveStudent('${s.id}')">🗄️</button>`;
-    return `<tr${s.archived?' style="opacity:.6"':''}>
+    return `<tr id="student-row-${s.id}"${s.archived?' style="opacity:.6"':''}>
     <td><input type="checkbox" class="student-row-checkbox" data-id="${s.id}" ${SELECTED_STUDENT_IDS.has(s.id)?'checked':''} onchange="toggleStudentSelect('${s.id}', this.checked)"></td>
     <td>${photoCell}</td>
     <td><code style="font-size:11px;background:var(--gray);padding:2px 6px;border-radius:4px">${s.studentId||s.id}</code>${s.admissionNo?`<div style="font-size:10px;color:var(--gray3);margin-top:2px">Adm# ${s.admissionNo}</div>`:''}</td>
@@ -8749,246 +8964,12 @@ function _genQrDataUrl(text, size) {
   }
 }
 
-function _idCardFrontHTML(s, qrDataUrl, logoUrl) {
-  const photoHtml = s.photo
-    ? `<img class="idcard-photo" src="${s.photo}">`
-    : `<div class="idcard-photo-ph">🎓</div>`;
-  return `
-    <div class="idcard-head">
-      ${logoUrl ? `<img src="${logoUrl}">` : ''}
-      <div class="idcard-head-text">
-        <div class="brand">DD TURF ZONE</div>
-        <div class="sub">Student ID Card</div>
-      </div>
-    </div>
-    <div class="idcard-body">
-      ${photoHtml}
-      <div class="idcard-info">
-        <div class="idcard-name">${s.name || ''}</div>
-        <div class="idcard-idrow">${s.studentId || s.id}</div>
-        <div class="idcard-fields">
-          <b>Adm#</b> ${s.admissionNo || '-'}<br>
-          <b>Sport</b> ${categoryLabel(s.sport) || s.sport || '-'}<br>
-          <b>Batch</b> ${s.batch || '-'}<br>
-          <b>Coach</b> ${s.coach || '-'}<br>
-          <b>Emerg.</b> ${s.emergencyContact || s.phone || '-'}
-        </div>
-      </div>
-    </div>
-    <div class="idcard-qr">${qrDataUrl ? `<img src="${qrDataUrl}">` : ''}</div>
-    <div class="idcard-foot"></div>
-  `;
-}
-
-function _idCardBackHTML(s, biz) {
-  return `
-    <div class="idcard-back-head">Parent / Emergency Details</div>
-    <div class="idcard-back-body">
-      <b>Guardian</b> ${s.parent || '-'}<br>
-      <b>Parent Mobile</b> ${s.phone || '-'}${s.altPhone ? ` / ${s.altPhone}` : ''}<br>
-      <b>Address</b> ${s.address || '-'}
-      ${s.medicalNotes ? `<div class="idcard-medical">⚕️ ${s.medicalNotes}</div>` : ''}
-      <div class="idcard-terms">
-        This card is the property of ${biz.name} and must be shown on request.
-        In case of emergency, please contact the parent/guardian above, or
-        ${biz.contact}. If found, please return to ${biz.name}, ${biz.address}.
-      </div>
-    </div>
-    <div class="idcard-back-foot">${biz.name} · ${biz.contact}</div>
-  `;
-}
-
-window.openIdCardModal = (id) => {
-  const s = window.DB.students.find(x=>x.id===id);
-  if (!s) { showToast('Student not found', 'error'); return; }
-  document.getElementById('idcard-student-id').value = id;
-  const qr = _genQrDataUrl(_studentDeepLinkUrl(s.studentId || s.id), 120);
-  document.getElementById('idcard-front').innerHTML = _idCardFrontHTML(s, qr, _idCardLogoUrl());
-  document.getElementById('idcard-back').innerHTML = _idCardBackHTML(s, _idCardBizSettings());
-  // Staff gets the preview (View Only per the role matrix); the
-  // Print/PDF/PNG buttons themselves are already hidden for that role via
-  // data-requires-action="generateIdCard" — this note just explains why.
-  document.getElementById('idcard-view-only-note').style.display = can('generateIdCard') ? 'none' : '';
-  openModal('idcard-modal');
-};
-
-// Live-refreshes an already-open ID card if the record that just changed
-// (via real-time sync or a poll merge) is the one currently on screen —
-// this is what makes "Auto-refresh when student profile changes" apply
-// while the modal is open, not just the next time it's opened.
-window._refreshOpenIdCardIfNeeded = () => {
-  const modal = document.getElementById('idcard-modal');
-  if (!modal || !modal.classList.contains('open')) return;
-  const id = document.getElementById('idcard-student-id')?.value;
-  if (id) openIdCardModal(id);
-};
-
-// PHASE 3.2b-iii FIX: this used to log with type/module 'student' — but
-// 'student' is one of the types _rtMergeRecord() field-merges straight
-// into window.DB.students on every OTHER connected device (see
-// RT_MERGE_MAP). This payload only ever carries {action, studentId,
-// studentName} (no real profile fields), so a peer device would merge
-// those three keys onto its local copy of that student on its next RT
-// poll — harmless to the real fields (spread only touches keys actually
-// present), but it silently added a bogus `action`/`studentName` key to
-// the record. Using a distinct module ('student_card', not in
-// RT_MERGE_MAP — see below) keeps this purely an Activity Log/
-// notification entry, never a merge target.
-function _logIdCardActivity(s, action) {
-  logAudit({ type: 'student_card', action, studentId: s.studentId || s.id, studentName: s.name || '' });
-}
-
-// Same inline-CSS-in-a-popup approach as printCollectionReport() above —
-// a window.open('','_blank') document doesn't inherit this page's
-// stylesheet, so the .idcard-* rules are restated here in mm (matching
-// real CR80 card dimensions, 85.6mm x 54mm) instead of the px preview
-// sizing, since physical print size is what actually matters here.
-function _idCardPrintCss() {
-  return `
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Arial,Helvetica,sans-serif;padding:8mm;background:#fff}
-    .idcard-print-grid{display:flex;flex-wrap:wrap;gap:6mm}
-    .card-pair{page-break-inside:avoid;display:flex;gap:6mm;margin-bottom:6mm}
-    .idcard{width:85.6mm;height:54mm;border-radius:3mm;overflow:hidden;position:relative;border:0.3mm solid #e2e8f0}
-    .idcard-front .idcard-head{background:linear-gradient(135deg,#0B0C0E 0%,#0A3327 60%,#0F7A45 100%);color:#fff;padding:2.6mm 3mm;display:flex;align-items:center;gap:2mm}
-    .idcard-front .idcard-head img{width:7mm;height:7mm;object-fit:contain;border-radius:1.2mm;background:#fff;padding:0.5mm}
-    .idcard-front .idcard-head-text .brand{font-size:4mm;font-weight:800;letter-spacing:.2mm}
-    .idcard-front .idcard-head-text .sub{font-size:2.1mm;opacity:.85;font-weight:600;letter-spacing:.2mm;text-transform:uppercase}
-    .idcard-front .idcard-body{display:flex;gap:2.5mm;padding:2.6mm 3mm}
-    .idcard-front .idcard-photo{width:16mm;height:16mm;border-radius:2.4mm;object-fit:cover;border:0.3mm solid #e2e8f0}
-    .idcard-front .idcard-photo-ph{width:16mm;height:16mm;border-radius:2.4mm;background:#f8fafc;border:0.3mm solid #e2e8f0;display:flex;align-items:center;justify-content:center;font-size:6mm}
-    .idcard-front .idcard-info{flex:1;min-width:0}
-    .idcard-front .idcard-name{font-size:3.6mm;font-weight:800;color:#0B0C0E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .idcard-front .idcard-idrow{font-size:2.4mm;color:#0A3327;font-weight:700;background:#f0fdf4;display:inline-block;padding:0.3mm 1.5mm;border-radius:1.2mm;margin-top:0.5mm}
-    .idcard-front .idcard-fields{margin-top:1.3mm;font-size:2.4mm;color:#1e293b;line-height:1.5}
-    .idcard-front .idcard-fields b{color:#94a3b8;font-weight:700}
-    .idcard-front .idcard-qr{position:absolute;right:2.6mm;bottom:2mm;width:11.5mm;height:11.5mm;background:#fff;border-radius:1.5mm;padding:0.5mm;box-shadow:0 1px 2px rgba(0,0,0,.15)}
-    .idcard-front .idcard-qr img{width:100%;height:100%}
-    .idcard-front .idcard-foot{position:absolute;left:0;right:0;bottom:0;height:1.3mm;background:linear-gradient(90deg,#0F7A45,#eab308)}
-    .idcard-back{border:0.3mm solid #e2e8f0;display:flex;flex-direction:column}
-    .idcard-back .idcard-back-head{background:#0B0C0E;color:#fff;padding:1.8mm 3mm;font-size:2.8mm;font-weight:800;letter-spacing:.3mm;text-transform:uppercase}
-    .idcard-back .idcard-back-body{padding:2.3mm 3mm;font-size:2.4mm;line-height:1.5;flex:1}
-    .idcard-back .idcard-back-body b{color:#94a3b8;font-weight:700}
-    .idcard-back .idcard-medical{background:#fef2f2;border:0.3mm solid #fecaca;color:#991b1b;border-radius:1.5mm;padding:1mm 1.8mm;margin-top:1.3mm;font-size:2.2mm}
-    .idcard-back .idcard-terms{margin-top:1.5mm;font-size:2mm;color:#94a3b8;line-height:1.5}
-    .idcard-back .idcard-back-foot{background:#f8fafc;padding:1.3mm 3mm;font-size:2.1mm;color:#94a3b8;text-align:center;font-weight:600}
-    @media print { @page{size:A4;margin:8mm} body{padding:0} }
-  `;
-}
-
-function _buildIdCardPrintHTML(students) {
-  const biz = _idCardBizSettings();
-  const logoUrl = _idCardLogoUrl();
-  const cardsHtml = students.map(s => {
-    const qr = _genQrDataUrl(_studentDeepLinkUrl(s.studentId || s.id), 200);
-    return `<div class="card-pair">
-      <div class="idcard idcard-front">${_idCardFrontHTML(s, qr, logoUrl)}</div>
-      <div class="idcard idcard-back">${_idCardBackHTML(s, biz)}</div>
-    </div>`;
-  }).join('');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD Turf Zone - Student ID Card(s)</title>
-<style>${_idCardPrintCss()}</style></head><body>
-  <div class="idcard-print-grid">${cardsHtml}</div>
-</body></html>`;
-}
-
-function _openIdCardPrintWindow(students) {
-  const html = _buildIdCardPrintHTML(students);
-  const w = window.open('', '_blank');
-  if (!w) { showToast('Please allow popups to print ID cards', 'error'); return; }
-  w.document.write(html);
-  w.document.close();
-  const doPrint = () => { try { w.focus(); w.print(); } catch(e) {} };
-  w.onload = doPrint;
-  setTimeout(doPrint, 400); // fallback if onload doesn't fire in time
-}
-
-window.printCurrentIdCard = () => {
-  if (!can('generateIdCard')) { denyAccess(); return; }
-  const id = document.getElementById('idcard-student-id').value;
-  const s = window.DB.students.find(x=>x.id===id);
-  if (!s) return;
-  _openIdCardPrintWindow([s]);
-  _logIdCardActivity(s, 'id_card_print');
-};
-
-// PHASE 3.2b-ii — "Print (A4 multiple cards)". Reuses the exact same
-// Select checkbox/bulk-toolbar mechanism Phase 3.2b-i already built
-// (SELECTED_STUDENT_IDS) instead of a separate multi-select UI just for
-// this feature.
-window.bulkPrintIdCards = () => {
-  if (!can('generateIdCard')) { denyAccess(); return; }
-  const ids = [...SELECTED_STUDENT_IDS];
-  if (!ids.length) { showToast('Select at least one student first', 'error'); return; }
-  const students = ids.map(id => window.DB.students.find(x=>x.id===id)).filter(Boolean);
-  if (!students.length) return;
-  _openIdCardPrintWindow(students);
-  students.forEach(s => _logIdCardActivity(s, 'id_card_bulk_print'));
-};
-
-window.downloadIdCardPDF = async () => {
-  if (!can('generateIdCard')) { denyAccess(); return; }
-  const id = document.getElementById('idcard-student-id').value;
-  const s = window.DB.students.find(x=>x.id===id);
-  if (!s) return;
-  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
-  }
-  showToast('Preparing PDF…', 'info');
-  const frontCanvas = await html2canvas(document.getElementById('idcard-front'), { scale: 3, backgroundColor: '#ffffff' });
-  const backCanvas = await html2canvas(document.getElementById('idcard-back'), { scale: 3, backgroundColor: '#ffffff' });
-  const jsPDF = window.jspdf.jsPDF;
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [85.6, 54] });
-  doc.addImage(frontCanvas.toDataURL('image/png'), 'PNG', 0, 0, 85.6, 54);
-  doc.addPage([85.6, 54], 'landscape');
-  doc.addImage(backCanvas.toDataURL('image/png'), 'PNG', 0, 0, 85.6, 54);
-  doc.save(`ID_Card_${s.studentId || s.id}.pdf`);
-  showToast('ID card PDF downloaded ✅');
-  _logIdCardActivity(s, 'id_card_pdf');
-};
-
-window.downloadIdCardPNG = async () => {
-  if (!can('generateIdCard')) { denyAccess(); return; }
-  const id = document.getElementById('idcard-student-id').value;
-  const s = window.DB.students.find(x=>x.id===id);
-  if (!s) return;
-  if (typeof html2canvas === 'undefined') {
-    showToast('Export library failed to load — check your internet connection.', 'error'); return;
-  }
-  showToast('Preparing PNG…', 'info');
-  const frontCanvas = await html2canvas(document.getElementById('idcard-front'), { scale: 3, backgroundColor: '#ffffff' });
-  const backCanvas = await html2canvas(document.getElementById('idcard-back'), { scale: 3, backgroundColor: '#ffffff' });
-  const dl = (canvas, suffix) => {
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = `ID_Card_${s.studentId || s.id}_${suffix}.png`;
-    a.click();
-  };
-  dl(frontCanvas, 'front');
-  dl(backCanvas, 'back');
-  showToast('ID card PNG downloaded ✅');
-  _logIdCardActivity(s, 'id_card_png');
-};
-
-// PHASE 3.2b-ii — QR deep link: a scanned card's QR opens this same
-// admin.html with ?student=<id>, which should land straight on that
-// student's profile instead of the Dashboard. Consumed once per page
-// load, only after students are actually loaded into window.DB (so the
-// lookup can succeed), and the query param is stripped immediately after
-// so reloading or sharing the resulting URL doesn't keep re-triggering it.
-function _consumeStudentDeepLinkIfAny() {
-  try {
-    const params = new URLSearchParams(location.search);
-    const wantedId = params.get('student');
-    if (!wantedId) return;
-    history.replaceState({}, '', location.pathname);
-    if (!hasPageAccess('students')) return;
-    const s = window.DB.students.find(x => (x.studentId || x.id) === wantedId);
-    if (!s) { showToast("That QR code's student profile was not found on this device.", 'error'); return; }
-    showPage('students');
-    viewStudent(s.id);
-  } catch (e) { /* best-effort only — must never block normal app load */ }
-}
+// ID Card feature removed entirely (openIdCardModal, printCurrentIdCard,
+// bulkPrintIdCards, downloadIdCardPDF/PNG, _idCardFrontHTML/BackHTML,
+// _buildIdCardPrintHTML, _openIdCardPrintWindow, _logIdCardActivity, and
+// the QR-deep-link handler _consumeStudentDeepLinkIfAny, whose entire
+// purpose was handling a scan of the now-removed printed card). Its two
+// call sites (student-loaded events) were removed along with it.
 
 // ===== ATTENDANCE =====
 document.getElementById('att-date').valueAsDate=new Date();
@@ -9427,6 +9408,30 @@ window.saveFee = async (sendWA=false) => {
   }
   const existId=document.getElementById('fee-id').value;
   const existingRecord = existId ? window.DB.fees.find(x=>x.id===existId) : null;
+
+  // BUSINESS RULE: one fee record per student per billing period — no
+  // installment payments. Applies to Monthly and Quarterly fee collection
+  // (per explicit scope). Uses the EXACT SAME period-matching semantics
+  // as _dueMatchingFees (the Dues Engine) for consistency — one single
+  // definition of "same period," not a second, potentially-diverging one.
+  // Only blocks NEW records (existId empty) — editing the one existing
+  // record for a period is exactly the correct way to record its payment,
+  // not a duplicate.
+  if (!existId && (feeType === 'monthly' || feeType === 'quarterly')) {
+    const duplicate = window.DB.fees.find(f => {
+      if (f.studentId !== (st.studentId || st.id) || f.feeType !== feeType) return false;
+      if (feeType === 'monthly') return f.month === month && String(f.year) === String(year);
+      return f.quarter === quarter && String(f.year) === String(year); // quarterly
+    });
+    if (duplicate) {
+      window._feeDuplicateTargetId = duplicate.id; // read by _openExistingFeeFromDuplicateWarning below
+      document.getElementById('fee-duplicate-message').textContent =
+        `Fee already exists for ${st.name} for this billing period. Please edit the existing fee record instead.`;
+      openModal('fee-duplicate-modal');
+      return;
+    }
+  }
+
   const data = {
     studentId: st.studentId||st.id, studentName:st.name, sport:st.sport,
     batch: st.batch||'', coach: st.coach||'',
@@ -9448,6 +9453,12 @@ window.saveFee = async (sendWA=false) => {
   else{const idx=window.DB.fees.findIndex(x=>x.id===existId);if(idx>=0)window.DB.fees[idx]=data;}
   renderFees(); renderDashboard(); renderAccounts();
   closeModal('fee-modal');
+  // UI ENHANCEMENT: renderFees() just rebuilt the table's DOM from
+  // scratch, which already visually clears any inline highlight style on
+  // the old row element — this additionally resets the shared highlight
+  // tracking and cancels its fallback timer, so nothing fires pointlessly
+  // later if this was the row that had been highlighted.
+  window.clearRowHighlight('fee-row-', data.id);
 
   const syncRes = await autoSyncFee(data);
   // A brand-new payment gets its real ReceiptNo back from the server (see
@@ -9506,6 +9517,35 @@ window.saveFee = async (sendWA=false) => {
 };
 window.saveFeeAndWhatsApp=()=>saveFee(true);
 
+// Fired by the "Open Existing Record" button in the duplicate-fee
+// warning modal. Closes the warning and the (still-open) new-entry form,
+// then uses the shared openRecordWithHighlight() utility (see above) to
+// clear this table's filters, scroll to and highlight the existing
+// record, and open it in Edit Mode — the same sequence every module
+// uses, not a Fees-specific copy of it.
+window._openExistingFeeFromDuplicateWarning = () => {
+  const targetId = window._feeDuplicateTargetId;
+  closeModal('fee-duplicate-modal');
+  closeModal('fee-modal');
+  if (targetId) {
+    openRecordWithHighlight({
+      recordId: targetId,
+      rowIdPrefix: 'fee-row-',
+      resetFilters: () => {
+        const searchEl = document.getElementById('fee-search');
+        const statusEl = document.getElementById('fee-status-filter');
+        const monthEl = document.getElementById('fee-month-filter');
+        if (searchEl) searchEl.value = '';
+        if (statusEl) statusEl.value = '';
+        if (monthEl) monthEl.value = '';
+      },
+      render: renderFees,
+      edit: editFee
+    });
+  }
+  window._feeDuplicateTargetId = null;
+};
+
 window.renderFees = () => {
   const search=document.getElementById('fee-search')?.value.toLowerCase()||'';
   const status=document.getElementById('fee-status-filter')?.value||'';
@@ -9541,7 +9581,7 @@ window.renderFees = () => {
     const actions = (canEdit
       ? `<button class="btn btn-info btn-sm" onclick="editFee('${f.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="deleteFee('${f.id}')">🗑️</button>`
       : '') + `<button class="btn btn-secondary btn-sm" onclick="openReceiptModal('${f.id}')">🧾</button>`;
-    return `<tr>
+    return `<tr id="fee-row-${f.id}">
     <td style="font-size:11px;font-family:monospace">${f.receiptNo || '<span style="color:var(--gray3)">Pending sync…</span>'}</td>
     <td style="font-weight:600">${f.studentName}</td>
     <td>${sportBadge(f.sport)}</td>
@@ -10000,6 +10040,28 @@ function _populateDuesCoachBatchFilters() {
   rebuild(batchSel, batches, 'Batches');
 }
 
+// UI/UX ENHANCEMENT: routes the Due List's "View Student Profile" button
+// through the shared openRecordWithHighlight() utility — clears all
+// seven of this page's filters (search/sport/batch/coach/plan/status/
+// date-range) so the target due entry is guaranteed visible, highlights
+// its row on THIS page (not the separate Students page — the record
+// being "opened" here is this due entry, in the table the user is
+// currently looking at), then opens the student's profile.
+window.openDueStudentForView = (id) => {
+  openRecordWithHighlight({
+    recordId: id,
+    rowIdPrefix: 'due-row-',
+    resetFilters: () => {
+      ['dues-search','dues-sport-filter','dues-batch-filter','dues-coach-filter','dues-plan-filter','dues-status-filter','dues-from-date','dues-to-date'].forEach(elId => {
+        const el = document.getElementById(elId);
+        if (el) el.value = '';
+      });
+    },
+    render: renderDues,
+    edit: viewStudent
+  });
+};
+
 window.renderDues = () => {
   _populateDuesCoachBatchFilters();
   const list = _getDuesList();
@@ -10054,12 +10116,12 @@ window.renderDues = () => {
     const badge = _dueStatusBadge(d);
     const actions = [
       canManage ? `<button class="btn btn-info btn-sm" onclick="collectFeeForDue('${d.id}')" title="Collect Fee">💰</button>` : '',
-      `<button class="btn btn-secondary btn-sm" onclick="viewStudent('${d.id}')" title="View Student Profile">👁️</button>`,
+      `<button class="btn btn-secondary btn-sm" onclick="openDueStudentForView('${d.id}')" title="View Student Profile">👁️</button>`,
       `<button class="btn btn-secondary btn-sm" onclick="openDuesPaymentHistory('${d.studentId}')" title="View Payment History">📜</button>`,
       canManage ? `<button class="btn btn-whatsapp btn-sm" onclick="sendDueReminderWhatsApp('${d.studentId}')" title="Manual WhatsApp Reminder">💬</button>` : '',
       canManage ? `<button class="btn btn-secondary btn-sm" onclick="printReceiptHistoryForStudent('${d.studentId}')" title="Print Receipt History">🖨️</button>` : ''
     ].join('');
-    return `<tr>
+    return `<tr id="due-row-${d.id}">
       <td style="font-size:11px;font-family:monospace">${d.studentId}</td>
       <td style="font-weight:600">${_esc(d.name)}</td>
       <td>${_esc(d.parent || '-')}</td>
@@ -10852,7 +10914,7 @@ window.printEnrolmentQr = () => {
 // always wins immediately, sync follows in the background" model every
 // other module (Students, Enquiries, ...) already uses.
 window.saveCoach = async () => {
-  if (!can('manageCoaches')) { denyAccess('Only Admins and the Super Admin can manage coaches.'); return; }
+  if (!can('manageCoaches')) { denyAccess('Only Admins and the Super Admin can manage coaches.', 'manageCoaches'); return; }
   const name=document.getElementById('co-name').value.trim();
   const phone=document.getElementById('co-phone').value.trim();
   if(!name||!phone){showToast('Fill required fields','error');return;}
@@ -10892,12 +10954,14 @@ window.saveCoach = async () => {
     window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, false);
   });
   closeModal('coach-modal');
-  renderCoaches(); renderDashboard();
+  renderCoaches();
+  window.clearRowHighlight('coach-card-', data.id); // UI ENHANCEMENT: same pattern as Fees/Students
+  renderDashboard();
   showToast('Coach saved! ✅');
 };
 
 window.deleteCoach = async (id) => {
-  if (!can('manageCoaches')) { denyAccess('Only Admins and the Super Admin can manage coaches.'); return; }
+  if (!can('manageCoaches')) { denyAccess('Only Admins and the Super Admin can manage coaches.', 'manageCoaches'); return; }
   if(!confirm('Delete this coach?'))return;
   const c = window.DB.coaches.find(x=>x.id===id);
   await deleteDoc2('coaches',id);
@@ -10919,7 +10983,7 @@ window.renderCoaches = () => {
   if(!window.DB.coaches.length){container.innerHTML=`<div class="empty-state"><div class="empty-icon">👨‍🏫</div><p>No coaches added yet</p></div>`;return;}
   const canManage = can('manageCoaches'); // PHASE 3.5 Improvements — Staff sees this page as View Only now
   container.innerHTML=window.DB.coaches.map(c=>`
-    <div class="card">
+    <div class="card" id="coach-card-${c.id}">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <div style="width:48px;height:48px;background:var(--green-bg);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px">${c.sport==='cricket'?'🏏':c.sport==='football'?'⚽':'🥋'}</div>
         <div><div style="font-weight:700;font-size:16px">${c.name}</div><div style="font-size:12px;color:var(--gray3)">${c.phone}</div></div>
@@ -10931,10 +10995,24 @@ window.renderCoaches = () => {
       <div style="font-size:13px;color:var(--gray3)">Salary: <span style="color:var(--green);font-weight:700">₹${c.salary?.toLocaleString()}/mo</span></div>
       <div style="font-size:13px;color:var(--gray3)">Joined: ${formatDate(c.joined)}</div>
       ${canManage ? `<div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-info btn-sm" onclick="editCoach('${c.id}')">✏️ Edit</button>
+        <button class="btn btn-info btn-sm" onclick="openCoachForEdit('${c.id}')">✏️ Edit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteCoach('${c.id}')">🗑️ Delete</button>
       </div>` : ''}
     </div>`).join('');
+};
+
+// UI/UX ENHANCEMENT: routes the Edit button through the shared
+// openRecordWithHighlight() utility instead of calling editCoach()
+// directly — Coaches has no filters to reset (none exist on this page),
+// so this reduces to "re-render, scroll to and highlight the card, open
+// Edit Mode," the same standard sequence every module now uses.
+window.openCoachForEdit = (id) => {
+  openRecordWithHighlight({
+    recordId: id,
+    rowIdPrefix: 'coach-card-',
+    render: renderCoaches,
+    edit: editCoach
+  });
 };
 
 window.editCoach=(id)=>{const c=window.DB.coaches.find(x=>x.id===id);if(!c)return;document.getElementById('co-id').value=c.id;document.getElementById('co-name').value=c.name;document.getElementById('co-phone').value=c.phone;document.getElementById('co-sport').value=c.sport;document.getElementById('co-salary').value=c.salary||'';document.getElementById('co-joined').value=c.joined||'';document.getElementById('co-status').value=c.status;document.getElementById('coach-modal-title').textContent='✏️ Edit Coach';openModal('coach-modal');};
@@ -11334,7 +11412,7 @@ window.renderFinance = () => {
     tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">💰</div><p>No expenses in this period</p></div></td></tr>`;
   } else {
     tbody.innerHTML = list.map(e => `
-      <tr>
+      <tr id="finexp-row-${e.id}">
         <td>${formatDate(e.date)}</td>
         <td>${_esc(FINANCE_EXPENSE_CATEGORIES[e.categoryGroup]?.label || e.categoryGroup)}</td>
         <td>${_esc(e.expenseType)}</td>
@@ -11344,7 +11422,7 @@ window.renderFinance = () => {
         <td>${e.isRecurring ? `🔁 ${DUE_PLAN_LABELS[e.frequency] || e.frequency}` : '-'}</td>
         <td style="font-size:12px">${_esc(e.addedBy || '-')}</td>
         <td><div style="display:flex;gap:4px">
-          <button class="btn btn-secondary btn-sm" data-requires-action="manageFinanceExpense" onclick="openFinanceExpenseModal('${e.id}')" title="Edit">✏️</button>
+          <button class="btn btn-secondary btn-sm" data-requires-action="manageFinanceExpense" onclick="openFinanceExpenseForEdit('${e.id}')" title="Edit">✏️</button>
           <button class="btn btn-danger btn-sm" data-requires-action="manageFinanceExpense" onclick="deleteFinanceExpense('${e.id}')" title="Delete">🗑️</button>
         </div></td>
       </tr>`).join('');
@@ -11379,6 +11457,31 @@ function _finToggleRecurringFields() {
   });
 }
 window._finToggleRecurringFields = _finToggleRecurringFields;
+
+// UI/UX ENHANCEMENT: routes the Expenses table's Edit button through the
+// shared openRecordWithHighlight() utility — clears the category filter
+// and widens the date range to guarantee the target expense is visible
+// regardless of which period/category happened to be selected (a decade
+// back is a simple, safe way to include any realistic expense date
+// without needing to know exactly what range would "just barely" cover
+// it).
+window.openFinanceExpenseForEdit = (id) => {
+  const expense = window.DB.financeExpenses.find(x => x.id === id);
+  openRecordWithHighlight({
+    recordId: id,
+    rowIdPrefix: 'finexp-row-',
+    resetFilters: () => {
+      const groupEl = document.getElementById('fin-filter-group');
+      const fromEl = document.getElementById('fin-from-date');
+      const toEl = document.getElementById('fin-to-date');
+      if (groupEl) groupEl.value = '';
+      if (fromEl) fromEl.value = '2015-01-01';
+      if (toEl) toEl.value = getToday();
+    },
+    render: renderFinance,
+    edit: openFinanceExpenseModal
+  });
+};
 
 window.openFinanceExpenseModal = (id) => {
   if (!_finCanAccess() || !can('manageFinanceExpense')) { denyAccess(); return; }
@@ -11469,6 +11572,7 @@ window.saveFinanceExpense = async () => {
 
   closeModal('finance-expense-modal');
   renderFinance();
+  window.clearRowHighlight('finexp-row-', record.id); // UI ENHANCEMENT: same pattern as Fees/Students/Coaches/Booking
   showToast(id ? 'Expense updated ✅' : 'Expense added ✅');
 };
 
@@ -11918,10 +12022,15 @@ window.renderDiagnostics = () => {
   document.getElementById('diag-firebase-status').innerHTML += `<div style="margin-top:6px">🌐 Internet: ${navigator.onLine ? '🟢 Online' : '🔴 Offline'}</div>`;
 
   // This device's session (honest scope — see the limitation note in the HTML)
+  const _rawRole = CURRENT_USER?.role;
+  const _knownRoles = Object.values(ROLES); // ['superadmin','admin','staff'] — exact, case-sensitive
+  const _roleRecognized = _knownRoles.includes(_rawRole);
   document.getElementById('diag-session-status').innerHTML = `
-    <div>Role: <strong>${ROLE_LABELS[CURRENT_USER?.role] || CURRENT_USER?.role || 'Unknown'}</strong></div>
+    <div>Role (as used by permission checks): <strong>"${_rawRole}"</strong> ${_roleRecognized ? '🟢 recognized exactly' : '🔴 NOT an exact match to any known role — this is why permission checks would silently fail for this session'}</div>
+    <div>Role (friendly label): <strong>${ROLE_LABELS[_rawRole] || 'Unknown'}</strong></div>
     <div>User: <strong>${CURRENT_USER?.name || 'Unknown'}</strong> (${CURRENT_USER?.email || '—'})</div>
     <div>Device tag: <strong>${_deviceTag()}</strong></div>
+    ${!_roleRecognized ? `<div style="color:var(--red);font-weight:600;margin-top:6px">⚠️ Expected exactly one of: ${_knownRoles.map(r => '"' + r + '"').join(', ')}. If this account's Role cell in the Users sheet was ever typed with different capitalization or extra spaces, this is the root cause — normalization was added to Code.gs's login response and admin.html's session handling to fix this at the source, but that requires the Apps Script redeploy to actually be live.</div>` : ''}
   `;
 
   // Database Health
@@ -14768,7 +14877,6 @@ window._rtReloadAfterConflict = async () => {
   // pattern _rtApplyEvents already uses, never a full page reload.
   if (payload.type === 'booking' || payload.type === 'blocked_slot') window.syncBookingsAndBlocksFromSheet?.();
   if (payload.type === 'student' && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
-  if (payload.type === 'student') window._refreshOpenIdCardIfNeeded?.();
   if (payload.type === 'enquiry' && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
   if (payload.type === 'booking' && document.getElementById('page-bookings')?.classList.contains('active')) window.renderBookingCalendar?.();
   if (payload.type === 'booking_request_update') {
@@ -14852,6 +14960,16 @@ function _rtApplyEvents(events) {
     // Enrolments/Finance — this is a replacement, not a removal, so
     // cross-device awareness of coach changes is preserved, not lost.
     if (ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update' || ev.module === 'coach') return;
+    // STAGE 1 — 'booking_request'/'booking_request_update' events are
+    // excluded here ONLY while the Firebase listener is actually running
+    // (_bookingRequestsFirebaseUnsubscribe is set) — unlike Enrolments/
+    // Coaches above, this check is conditional on purpose, per the
+    // approved rollback design: if Firebase is ever disabled or fails to
+    // connect, this condition is false and the exact same notification
+    // path that already existed before Stage 1 fires again automatically,
+    // with no code change needed to "turn polling back on" — it was
+    // never removed, only bypassed while Firebase covers it.
+    if ((ev.module === 'booking_request' || ev.module === 'booking_request_update') && _bookingRequestsFirebaseUnsubscribe) return;
     const meta = _rtModuleMeta(ev.module);
     newNotifs.push({
       id: 'N' + ev.row,
@@ -14886,7 +15004,6 @@ function _rtApplyEvents(events) {
     window.fetchPendingRequestsFromSheet?.();
   }
   if (affected.has('student') && document.getElementById('page-students')?.classList.contains('active')) window.renderStudents?.();
-  if (affected.has('student')) window._refreshOpenIdCardIfNeeded?.();
   if (affected.has('attendance') && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
   if (affected.has('enquiry') && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
   if (affected.has('coach') && document.getElementById('page-coaches')?.classList.contains('active')) window.renderCoaches?.(); // PHASE 3.1
