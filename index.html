@@ -1686,15 +1686,20 @@
     // Secondary save — best-effort, for admins on a different device.
     const sheetRes = await postBookingRequestToSheet(payload);
     // STAGE 1 — third, best-effort leg: instant delivery to any admin
-    // device with the Firebase listener active. Deliberately does not
-    // affect savedLocally/sheetRes or the banner logic below at all —
-    // if Firebase isn't loaded, isn't reachable, or this browser is
-    // offline, the customer's request is already guaranteed saved by
-    // the two legs above, exactly as it was before this was added.
+    // device with the Firebase listener active.
+    //
+    // DELIBERATELY NOT AWAITED. This was originally written with `await`,
+    // which broke the WhatsApp hand-off below: browsers only allow
+    // window.open() within a short window after a real user gesture, and
+    // every await pushes further from that gesture until the popup gets
+    // blocked. This flow already had one unavoidable await
+    // (postBookingRequestToSheet); adding a second was enough to cross
+    // the line. Firing this without awaiting restores the original
+    // timing exactly, and loses nothing — the retry-on-failure behavior
+    // is identical, just handled in .then() instead of after an await.
     if (typeof window.submitBookingRequestFirebase === 'function') {
-      try {
-        const fbResult = await window.submitBookingRequestFirebase(payload);
-        if (!fbResult.success) {
+      window.submitBookingRequestFirebase(payload).then(fbResult => {
+        if (fbResult && !fbResult.success) {
           console.warn('DDTZ: Firebase submission failed — request is still safely saved locally and to Sheets.', fbResult.error);
           // Same condition and mechanism already proven in enroll.html:
           // only queue for automatic retry if this browser is actually
@@ -1704,12 +1709,12 @@
             window.queueForRetry(requestId, 'booking_request_submit', payload);
           }
         }
-      } catch (fbErr) {
+      }).catch(fbErr => {
         console.warn('DDTZ: Firebase submission threw — request is still safely saved locally and to Sheets.', fbErr);
         if (typeof window.queueForRetry === 'function' && !navigator.onLine) {
           window.queueForRetry(requestId, 'booking_request_submit', payload);
         }
-      }
+      });
     }
 
     btn.disabled = false; btn.textContent = originalLabel;

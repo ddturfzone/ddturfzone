@@ -302,10 +302,20 @@ tr:hover td{background:#f8fffe}
 #fee-student-info .fsi-name{font-size:14px;font-weight:800;color:var(--dark);margin-bottom:4px}
 /* ====== PHASE 3.4c — RECEIPT SYSTEM (Task 1: Receipt Generation) ====== */
 .receipt-doc{width:420px;max-width:100%;margin:0 auto;background:#fff;border:1px solid var(--gray2);border-radius:10px;padding:24px;font-family:'Inter',sans-serif;color:var(--text)}
-.receipt-doc .rc-head{text-align:center;margin-bottom:16px;padding-bottom:14px;border-bottom:2px solid var(--dark)}
-.receipt-doc .rc-head img{width:64px;height:64px;object-fit:contain;margin:0 auto 8px;display:block}
-.receipt-doc .rc-head .rc-biz-name{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--dark)}
+.receipt-doc .rc-head{text-align:center;margin-bottom:20px;padding-bottom:18px;border-bottom:2px solid var(--dark)}
+/* RECEIPT HEADER REDESIGN — logo is now the sole branding element (the
+   separate .rc-biz-name text was removed, since the logo image already
+   contains the "DD Turf Zone" wordmark and repeating it read as a
+   duplicate). height:auto instead of a fixed square keeps the wordmark's
+   true aspect ratio — the old 64x64 box with object-fit:contain
+   letterboxed a wide logo into a square, which is what made it look
+   small. max-width keeps it inside narrow phone screens. */
+.receipt-doc .rc-head img{width:190px;max-width:75%;height:auto;margin:0 auto 14px;display:block}
 .receipt-doc .rc-head .rc-biz-sub{font-size:11px;color:var(--gray3);margin-top:2px}
+/* Shown ONLY when no logo image is configured in Settings — without it
+   a logo-less receipt would carry no branding at all. Never appears
+   alongside the logo, so it can't reintroduce the duplicate title. */
+.receipt-doc .rc-head .rc-biz-name-fallback{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;color:var(--dark);margin-bottom:10px}
 .receipt-doc .rc-title{text-align:center;font-size:13px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--green-dark);margin:14px 0}
 .receipt-doc .rc-meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:14px;color:var(--gray3)}
 .receipt-doc .rc-meta b{color:var(--text);font-family:monospace}
@@ -4139,9 +4149,36 @@ async function syncBookingsAndBlocksFromSheet() {
       if (!remote.bookingId) return;
       const local = window.DB.bookings.find(b => b.bookingId === remote.bookingId);
       if (!local) {
+        // A booking cancelled elsewhere shouldn't be (re-)created here.
+        if (remote.status === 'cancelled') return;
         const id = LS.add('bookings', remote);
         window.DB.bookings.unshift({ ...remote, id });
         changed = true;
+      } else if (remote.status === 'cancelled') {
+        // DELETE SYNCHRONIZATION FIX.
+        // deleteBooking() HARD-removes the record on the device that
+        // performed the delete, but only syncs `status: 'cancelled'` to
+        // the Sheet. Other devices previously just flipped the local
+        // status to 'cancelled' and kept the row — and since
+        // renderBookings() does not filter cancelled records out, the
+        // deleted booking stayed visible on every other device until a
+        // manual refresh. That's the reported symptom exactly.
+        //
+        // Removing it here makes every device converge on the same state
+        // as the deleting device. This is sync reconciliation only — no
+        // Slot Booking business logic, conflict detection, or Sheets
+        // behaviour is touched; 'cancelled' already means "gone"
+        // everywhere else in this app (dashboard totals and public
+        // availability both exclude it).
+        //
+        // Guard: never drop a booking this device still has queued for
+        // sync — same reasoning as the blocked-slots guard below.
+        const stillPendingBooking = _getSyncQueue().some(p => p.type === 'booking' && p.bookingId === remote.bookingId);
+        if (!stillPendingBooking) {
+          LS.delete('bookings', local.id);
+          window.DB.bookings = window.DB.bookings.filter(b => b.id !== local.id);
+          changed = true;
+        }
       } else if (remote.status && remote.status !== local.status) {
         LS.update('bookings', local.id, { status: remote.status });
         local.status = remote.status;
@@ -4173,8 +4210,17 @@ async function syncBookingsAndBlocksFromSheet() {
 
     if (changed) {
       buildCustomers();
-      if (document.getElementById('page-bookings')?.classList.contains('active')) renderBookingCalendar();
+      // Previously this re-rendered ONLY renderBookingCalendar(), and only
+      // when the bookings page happened to be active. renderBookings() —
+      // which draws the Slot Booking LIST the user actually reported as
+      // stale — was never called at all. Both now render unconditionally;
+      // their target elements exist in the DOM at all times (pages are
+      // hidden via CSS, not removed), so rendering while hidden is safe
+      // and removes the "data updated but screen didn't" gap.
+      renderBookings();
+      renderBookingCalendar();
       renderDashboard();
+      console.log('[FB-DEBUG] Bookings re-rendered after Sheet sync (create/status/delete change detected)'); // TEMP DEBUG LOG
     }
   } catch (e) {
     // Network hiccup — local data (and the offline sync queue) is
@@ -4420,12 +4466,20 @@ window.initBookingRequestsFirebaseListener = () => {
           LS.update('bookingRequests', local.id, merged);
           Object.assign(local, merged);
           changed = true;
+          console.log(`[FB-DEBUG] Booking request UPDATED from Firebase: ${remote.requestId} status=${remote.status}`); // TEMP DEBUG LOG
           window._ddtzDiag?.recordEvent('booking_request', 'Update'); // TEMP DIAGNOSTICS
           if (!isFirstSnapshot && !isOwnAction && remote.status !== 'PENDING') {
             _announceBookingRequestEvent(remote.requestId, 'status:' + remote.status, {
               text: `Reservation ${remote.status === 'CONFIRMED' ? 'confirmed' : 'rejected'} — ${remote.name || ''}`
             });
           }
+        } else {
+          // The one failure mode that produces "notification arrived but
+          // the list never changed" with no other trace: the snapshot
+          // arrived, but its timestamp matched what we already had, so the
+          // update was skipped as a no-op. Logged so it can never be
+          // silent again.
+          console.log(`[FB-DEBUG] Booking request snapshot SKIPPED as unchanged: ${remote.requestId} status=${remote.status} remoteTs=${remoteUpdatedAt} localTs=${local._fbUpdatedAt}`); // TEMP DEBUG LOG
         }
       }
     });
@@ -4433,7 +4487,16 @@ window.initBookingRequestsFirebaseListener = () => {
     _bookingRequestsFirebaseSeeded = true;
     if (changed) {
       updateRequestsBadge();
-      if (document.getElementById('page-requests')?.classList.contains('active')) renderBookingRequests();
+      // Render UNCONDITIONALLY — the previous version only rendered when
+      // the Requests page happened to be the active page. The #requests-list
+      // element exists in the DOM at all times (pages are hidden with a CSS
+      // class, not removed), so rendering while hidden is harmless and
+      // cheap — and it removes an entire class of "the data updated but
+      // the screen didn't" staleness, which is exactly the reported symptom.
+      renderBookingRequests();
+      console.log('[FB-DEBUG] Booking requests UI re-rendered after Firebase update'); // TEMP DEBUG LOG
+    } else {
+      console.log('[FB-DEBUG] Booking requests snapshot received but nothing changed (no re-render needed)'); // TEMP DEBUG LOG
     }
   });
 
@@ -4493,10 +4556,33 @@ window.stopBookingRequestsFirebaseListener = () => {
 // individually guarded against double-subscription, so a redundant call
 // is a no-op — this can't create duplicate listeners.
 // ============================================================================
+// LISTENER LIFECYCLE — called from firebase.js whenever a listener's
+// error/cancel callback fires (permission revoked, subscription
+// cancelled, etc.). Clearing the `*Seeded` flag re-enables that module's
+// original polling fallback immediately (see _rtApplyEvents), and
+// clearing the unsubscribe handle lets the reconnect watchdog re-start
+// the listener on the next online/tab-focus/reconnect trigger. Without
+// this, a listener that worked and then died would keep suppressing the
+// fallback forever while silently delivering nothing.
+window._onFirebaseListenerFailed = (module) => {
+  console.warn(`[FB-DEBUG] Listener FAILED (${module}) — clearing its state so the polling fallback resumes and the watchdog can restart it`);
+  if (module === 'enrolments')      { _firebaseEnrolmentsSeeded = false;      _firebaseEnrolmentsUnsubscribe = null; }
+  if (module === 'coaches')         { _coachesFirebaseSeeded = false;         _coachesFirebaseUnsubscribe = null; }
+  if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseUnsubscribe = null; }
+  if (module === 'finance')         { _financeFirebaseUnsubscribe = null; }
+};
+
 function _firebaseReconnectWatchdog(trigger) {
   if (!CURRENT_USER) return; // not logged in — nothing should be running
   const status = window.getFirebaseStatus?.() || {};
   console.log(`[FB-DEBUG] Reconnect watchdog (${trigger}) — status=${status.status} fullyReady=${status.fullyReady} authState=${status.authState}`);
+
+  // Re-assert the topbar indicator from Firebase's ACTUAL live state.
+  // `.info/connected` only fires on CHANGE, so if the indicator ever gets
+  // stuck showing "Connecting..." while the connection is genuinely fine,
+  // nothing would ever correct it on its own. This gives it a recovery
+  // path on every reconnect / tab-focus / online event.
+  window.refreshFirebaseConnectionIndicator?.();
 
   if (!status.fullyReady) {
     console.log('[FB-DEBUG] Firebase not fully ready yet — watchdog will retry on the next trigger');
@@ -9727,8 +9813,9 @@ function _receiptDocHTML(f) {
   const typeLabels = { full: '✅ Full Payment', partial: '⚠️ Partial Payment', advance: '⏫ Advance Payment' };
   return `
     <div class="rc-head">
-      ${logoUrl ? `<img src="${logoUrl}">` : ''}
-      <div class="rc-biz-name">${biz.name}</div>
+      ${logoUrl
+        ? `<img src="${logoUrl}" alt="${biz.name}">`
+        : `<div class="rc-biz-name-fallback">${biz.name}</div>`}
       <div class="rc-biz-sub">${biz.address} · ${biz.contact}</div>
     </div>
     <div class="rc-title">Payment Receipt</div>
@@ -9777,10 +9864,14 @@ function _receiptPrintCss() {
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:Arial,Helvetica,sans-serif;padding:16mm;background:#fff}
     .receipt-doc{width:100%;max-width:420px;margin:0 auto;border:1px solid #e2e8f0;border-radius:6px;padding:20px;color:#1e293b}
-    .rc-head{text-align:center;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #0B0C0E}
-    .rc-head img{width:56px;height:56px;object-fit:contain;margin:0 auto 6px;display:block}
-    .rc-head .rc-biz-name{font-size:18px;font-weight:800;color:#0B0C0E}
+    .rc-head{text-align:center;margin-bottom:18px;padding-bottom:16px;border-bottom:2px solid #0B0C0E}
+    /* Matches the on-screen .receipt-doc rules — this stylesheet drives
+       both the print window and the html2canvas/jsPDF capture, so the
+       larger logo applies to Print, Download PDF, WhatsApp PDF and Email
+       PDF alike (they all render this same document). */
+    .rc-head img{width:170px;max-width:75%;height:auto;margin:0 auto 12px;display:block}
     .rc-head .rc-biz-sub{font-size:10px;color:#94a3b8;margin-top:2px}
+    .rc-head .rc-biz-name-fallback{font-size:24px;font-weight:800;color:#0B0C0E;margin-bottom:10px}
     .rc-title{text-align:center;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#0A3327;margin:12px 0}
     .rc-meta{display:flex;justify-content:space-between;font-size:11px;margin-bottom:12px;color:#94a3b8}
     .rc-meta b{color:#1e293b;font-family:monospace}
@@ -9883,16 +9974,112 @@ function _receiptMessageText(f, parentName) {
   ].join('\n');
 }
 
-window.shareReceiptWhatsApp = () => {
-  if (!can('printReceipts')) { denyAccess(); return; }
+// Builds the WhatsApp-specific message. Deliberately SEPARATE from
+// _receiptMessageText (which Copy Message and Email both share) so this
+// wording change cannot regress those two paths. The closing line differs
+// depending on whether the PDF actually got attached or was downloaded
+// for the user to attach manually.
+function _receiptWhatsAppMessage(f, parentName, pdfAttached) {
+  const amount = f.amountReceived ?? f.paid ?? 0;
+  return [
+    'DD Turf Zone',
+    '',
+    `Dear ${parentName || 'Customer'},`,
+    '',
+    'Thank you for your payment.',
+    '',
+    pdfAttached
+      ? 'Please find your payment receipt attached.'
+      : 'Your payment receipt has been downloaded to your device. Please attach it to this chat before sending.',
+    '',
+    `Receipt No: ${f.receiptNo || 'Pending sync'}`,
+    `Student Name: ${f.studentName || '-'}`,
+    `Amount Paid: Rs. ${Number(amount).toLocaleString('en-IN')}`,
+    `Payment Date: ${formatDate(f.receiptDate || f.date)}`,
+    '',
+    'Thank you for choosing DD Turf Zone.'
+  ].join('\n');
+}
+
+window.shareReceiptWhatsApp = async () => {
+  if (!can('printReceipts')) { denyAccess(null, 'printReceipts'); return; }
   const feeId = document.getElementById('receipt-fee-id').value;
   const f = window.DB.fees.find(x => x.id === feeId);
   if (!f) return;
   const parent = _receiptParentContact(f);
-  if (!parent.phone) { showToast('No parent mobile number on file for this student.', 'error'); return; }
-  const msg = encodeURIComponent(_receiptMessageText(f, parent.name));
-  window.open(`https://wa.me/${buildWaPhone(parent.phone)}?text=${msg}`, '_blank');
+
+  // FIX #1 — this used to hard-return with an error toast when the student
+  // had no parent mobile on file, so the button simply did nothing for
+  // those students. wa.me works perfectly well WITHOUT a number: it opens
+  // WhatsApp with the message pre-filled and lets the sender pick the
+  // recipient. So a missing number is now a soft notice, never a dead end.
+  const waNumber = parent.phone ? buildWaPhone(parent.phone) : '';
+  if (!parent.phone) showToast('No parent mobile on file — pick the contact in WhatsApp.', 'info');
+
+  const libsReady = typeof html2canvas !== 'undefined' && typeof window.jspdf !== 'undefined';
+  // Checked SYNCHRONOUSLY, before any await, because the branch decision
+  // determines whether we still hold the user gesture (see FIX #2).
+  const canShareFiles = !!(navigator.share && navigator.canShare);
+
+  // PATH A — mobile / Web Share: hand the PDF straight to the OS share
+  // sheet, where WhatsApp appears as a target with the file attached.
+  // No window.open here, so no popup-blocking concern.
+  if (libsReady && canShareFiles) {
+    try {
+      showToast('Preparing receipt…', 'info');
+      const canvas = await html2canvas(document.getElementById('receipt-doc-container'), { scale: 3, backgroundColor: '#ffffff' });
+      const jsPDF = window.jspdf.jsPDF;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 15;
+      const imgWidth = pageWidth - margin * 2;
+      const imgHeight = imgWidth * (canvas.height / canvas.width);
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imgWidth, imgHeight);
+      const file = new File([doc.output('blob')], `Receipt_${f.receiptNo || f.id}.pdf`, { type: 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'DD Turf Zone Payment Receipt',
+          text: _receiptWhatsAppMessage(f, parent.name, true)
+        });
+        _logReceiptActivity(f, 'whatsapp');
+        showToast('Receipt shared ✅');
+        return;
+      }
+    } catch (err) {
+      // The user dismissing the share sheet is a normal outcome, not a
+      // failure — don't fall through and open a second thing behind them.
+      if (err && err.name === 'AbortError') return;
+      console.warn('Web Share failed — falling back to wa.me:', err);
+    }
+  }
+
+  // PATH B — desktop (and any platform without file sharing).
+  //
+  // FIX #2 — window.open MUST happen before any await. Browsers only allow
+  // popups within a short window of a real user gesture, and generating the
+  // PDF first (html2canvas is async and slow) would push past it, so the
+  // WhatsApp tab would be silently blocked. So: open the tab first, THEN
+  // build the PDF. This is the same class of bug that was breaking the
+  // public site's reservation WhatsApp hand-off.
+  const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(_receiptWhatsAppMessage(f, parent.name, false))}`;
+  const win = window.open(waUrl, '_blank');
+  if (!win) {
+    showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error');
+    return;
+  }
   _logReceiptActivity(f, 'whatsapp');
+
+  // Now (gesture no longer needed) download the PDF so the sender can
+  // attach it — the message opened above already tells them to. Reuses
+  // the existing, untouched downloadReceiptPDF pipeline.
+  if (libsReady) {
+    try {
+      await window.downloadReceiptPDF();
+    } catch (e) {
+      showToast('WhatsApp opened, but the PDF could not be prepared — use Download PDF.', 'error');
+    }
+  }
 };
 
 window.copyReceiptMessage = async () => {
@@ -15143,17 +15330,30 @@ function _rtApplyEvents(events) {
     // instead, using the same diffing pattern already proven for
     // Enrolments/Finance — this is a replacement, not a removal, so
     // cross-device awareness of coach changes is preserved, not lost.
-    if (ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update' || ev.module === 'coach') return;
-    // STAGE 1 — 'booking_request'/'booking_request_update' events are
-    // excluded here ONLY while the Firebase listener is actually running
-    // (_bookingRequestsFirebaseUnsubscribe is set) — unlike Enrolments/
-    // Coaches above, this check is conditional on purpose, per the
-    // approved rollback design: if Firebase is ever disabled or fails to
-    // connect, this condition is false and the exact same notification
-    // path that already existed before Stage 1 fires again automatically,
-    // with no code change needed to "turn polling back on" — it was
-    // never removed, only bypassed while Firebase covers it.
-    if ((ev.module === 'booking_request' || ev.module === 'booking_request_update') && _bookingRequestsFirebaseUnsubscribe) return;
+    // LISTENER LIFECYCLE FIX — fail-safe, not fail-silent.
+    //
+    // These modules suppress the poll-derived notification because their
+    // Firebase listener is supposed to own that job. The bug: suppression
+    // used to be gated on the listener merely being ATTACHED (or, for
+    // enrolments/coaches, on nothing at all — it was unconditional).
+    //
+    // `ref.on()` returns its unsubscribe handle synchronously, BEFORE the
+    // subscription is confirmed — a permission-denied or otherwise dead
+    // subscription still produces a truthy handle. So a silently-dead
+    // listener would suppress the working poll fallback, and the update
+    // would be lost entirely with no error surfaced anywhere. That is
+    // precisely the "notification arrived but the data never updated"
+    // pattern: the notification came from a DIFFERENT module's audit
+    // event, while this module's own data path was dead.
+    //
+    // Now gated on the `*Seeded` flags, which are set only when a real
+    // snapshot has actually been RECEIVED. If Firebase never delivers,
+    // these stay false and the original polling path resumes
+    // automatically — the same rollback principle already used for
+    // booking requests, now applied consistently to all three.
+    if ((ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update') && _firebaseEnrolmentsSeeded) return;
+    if (ev.module === 'coach' && _coachesFirebaseSeeded) return;
+    if ((ev.module === 'booking_request' || ev.module === 'booking_request_update') && _bookingRequestsFirebaseSeeded) return;
     const meta = _rtModuleMeta(ev.module);
     newNotifs.push({
       id: 'N' + ev.row,

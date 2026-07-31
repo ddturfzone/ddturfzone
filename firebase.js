@@ -400,6 +400,7 @@ window.listenPendingEnrolments = (callback) => {
     // visible cause. Now it's surfaced through the same channel the
     // connection indicator already uses.
     console.error('✗ Pending Enrolments listener error:', error);
+    window._onFirebaseListenerFailed?.('enrolments'); // LISTENER LIFECYCLE — re-enable the polling fallback
     lastFirebaseError = 'Pending Enrolments sync error: ' + error.message;
     connectionStatus = 'disconnected';
     _updateConnectionIndicator();
@@ -557,6 +558,36 @@ window.rejectEnrolmentFirebase = async (requestId, adminEmail, reason) => {
 // from Apps Script (a separate runtime that was never actually able to
 // call this file's JS functions in the first place — that comment was
 // aspirational, not accurate).
+
+/**
+ * Re-assert the connection indicator from Firebase's ACTUAL current
+ * state, rather than the cached `connectionStatus` variable.
+ *
+ * Why this exists: `.info/connected` only fires when the state CHANGES.
+ * If the indicator ever gets out of step with reality — it starts life
+ * as 'unknown' ("⚪ Firebase Connecting...") and only leaves that state
+ * when the first event arrives — there is otherwise no path back to a
+ * correct display until the connection genuinely flips. That would leave
+ * a permanently wrong "Connecting..." on screen while Firebase is in
+ * fact connected and working, which is exactly the reported symptom.
+ *
+ * This does a single one-off read of `.info/connected` and syncs both
+ * the variable and the indicator to it. Read-only, no writes.
+ */
+window.refreshFirebaseConnectionIndicator = () => {
+  if (!realtimeDb) return;
+  realtimeDb.ref('.info/connected').once('value').then(snap => {
+    const reallyConnected = snap.val() === true;
+    const previous = connectionStatus;
+    connectionStatus = reallyConnected ? 'connected' : 'disconnected';
+    if (previous !== connectionStatus) {
+      console.log(`[FB-DEBUG] Indicator re-synced from live state: ${previous} → ${connectionStatus}`); // TEMP DEBUG LOG
+    }
+    _updateConnectionIndicator();
+  }).catch(err => {
+    console.warn('[FB-DEBUG] Could not re-read live connection state:', err);
+  });
+};
 
 // ========== PHASE 4.1: VOICE NOTIFICATIONS ==========
 
@@ -890,6 +921,7 @@ window.listenFinanceExpenses = (callback) => {
     // EMERGENCY STABILITY FIX: same reasoning as the Pending Enrolments
     // listener above — no error callback previously existed here either.
     console.error('✗ Finance Expenses listener error:', error);
+    window._onFirebaseListenerFailed?.('finance'); // LISTENER LIFECYCLE — re-enable the polling fallback
     lastFirebaseError = 'Finance sync error: ' + error.message;
     connectionStatus = 'disconnected';
     _updateConnectionIndicator();
@@ -961,6 +993,7 @@ window.listenCoaches = (callback) => {
   };
   const errorHandler = (error) => {
     console.error('✗ Coaches listener error:', error);
+    window._onFirebaseListenerFailed?.('coaches'); // LISTENER LIFECYCLE — re-enable the polling fallback
     lastFirebaseError = 'Coaches sync error: ' + error.message;
     connectionStatus = 'disconnected';
     _updateConnectionIndicator();
@@ -1054,6 +1087,7 @@ window.listenBookingRequests = (callback) => {
   };
   const errorHandler = (error) => {
     console.error('✗ Booking requests listener error:', error);
+    window._onFirebaseListenerFailed?.('bookingRequests'); // LISTENER LIFECYCLE — re-enable the polling fallback
     lastFirebaseError = 'Booking requests sync error: ' + error.message;
     connectionStatus = 'disconnected';
     _updateConnectionIndicator();
