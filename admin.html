@@ -12439,10 +12439,10 @@ function csStudentFeeForMonth(student, monthLabel, year) {
   return { monthlyFee, collected, pending };
 }
 
-/** Attendance for one student in one month — schedule-aware where scheduleDays exists, falls back to marked-days-only otherwise (same shape _computeAttendanceStats already shows elsewhere). */
+/** Attendance for one student in one month — reads directly from the real Attendance module's own records (window.DB.attendance), same source and same matching convention as _computeAttendanceStats: attendance rows are always keyed by the student's internal id (see saveOneAttendance's rec.studentId=s.id), never by the business-facing student.studentId, so matching must use student.id here too. Schedule-aware where scheduleDays exists, falls back to marked-days-only otherwise. */
 function csStudentAttendanceForMonth(student, fromDateStr, toDateStr) {
   const scheduleDays = student.scheduleDays || [];
-  const records = (window.DB.attendance || []).filter(a => a.studentId === (student.studentId || student.id) && a.date >= fromDateStr && a.date <= toDateStr);
+  const records = (window.DB.attendance || []).filter(a => a.studentId === student.id && a.date >= fromDateStr && a.date <= toDateStr);
   const byDate = {};
   records.forEach(r => { byDate[r.date] = r.status; });
 
@@ -12500,6 +12500,15 @@ function csComputeSettlement(coachId, monthValue) {
   const above90 = attendedRows.filter(r => r.attendance.percent >= 90).length;
   const between75and90 = attendedRows.filter(r => r.attendance.percent >= 75 && r.attendance.percent < 90).length;
   const below75 = attendedRows.filter(r => r.attendance.percent < 75).length;
+  // PHASE 5 fix — coach-wide class totals (Total Scheduled Classes /
+  // Classes Attended / Classes Missed / overall Attendance %), summed
+  // across every student's own scheduled/attended/missed counts. Distinct
+  // from avgAttendance (the average of each student's own %) — this is
+  // the coach's aggregate class-level number.
+  const totalScheduled = studentRows.reduce((a,r)=>a+r.attendance.scheduled, 0);
+  const totalAttended = studentRows.reduce((a,r)=>a+r.attendance.attended, 0);
+  const totalMissed = studentRows.reduce((a,r)=>a+r.attendance.missed, 0);
+  const overallAttendancePercent = totalScheduled ? Math.round((totalAttended / totalScheduled) * 100) : 0;
 
   const netCollected = totalCollected; // "Net Collected Amount" — no coach-side deductions modeled yet
   const coachShareAmount = Math.round(netCollected * revenueShare / 100);
@@ -12513,6 +12522,7 @@ function csComputeSettlement(coachId, monthValue) {
     totals: {
       totalStudents: students.length, totalCollected, totalPending, netCollected,
       coachShareAmount, ddShareAmount,
+      totalScheduled, totalAttended, totalMissed, overallAttendancePercent,
       avgAttendance, above90, between75and90, below75
     }
   };
@@ -12731,19 +12741,23 @@ window.csRenderSettlement = () => {
         <div class="stat-card"><div class="stat-val">₹${s.totals.ddShareAmount.toLocaleString('en-IN')}</div><div class="stat-label">DD Turf Zone Share</div></div>
       </div>
       ${existing ? `<div style="font-size:13px;color:var(--gray3);margin-top:10px">Paid so far: <strong>₹${paidSoFar.toLocaleString('en-IN')}</strong> &nbsp;•&nbsp; Balance owed: <strong>₹${balanceOwed.toLocaleString('en-IN')}</strong></div>` : ''}
-      <div style="font-size:12px;color:var(--gray3);margin-top:8px">Attendance ≥90%: ${s.totals.above90} &nbsp;•&nbsp; 75–90%: ${s.totals.between75and90} &nbsp;•&nbsp; &lt;75%: ${s.totals.below75}</div>
+      <div style="font-size:12px;color:var(--gray3);margin-top:8px">Total Scheduled Classes: <strong>${s.totals.totalScheduled ?? '—'}</strong> &nbsp;•&nbsp; Classes Attended: <strong>${s.totals.totalAttended ?? '—'}</strong> &nbsp;•&nbsp; Classes Missed: <strong>${s.totals.totalMissed ?? '—'}</strong> &nbsp;•&nbsp; Attendance %: <strong>${s.totals.overallAttendancePercent ?? s.totals.avgAttendance}%</strong></div>
+      <div style="font-size:12px;color:var(--gray3);margin-top:4px">Attendance ≥90%: ${s.totals.above90} &nbsp;•&nbsp; 75–90%: ${s.totals.between75and90} &nbsp;•&nbsp; &lt;75%: ${s.totals.below75}</div>
 
       <div class="table-wrap mt-16" style="margin-top:14px">
         <table>
           <thead><tr><th>Student</th><th>Batch</th><th>Monthly Fee</th><th>Collected</th><th>Pending</th><th>Attendance</th></tr></thead>
           <tbody>
-            ${s.students.length ? s.students.map(r => `<tr>
-              <td>${r.name}</td><td>${r.batch}</td>
+            ${s.students.length ? s.students.map(r => {
+              const belowThreshold = r.attendance.scheduled > 0 && r.attendance.percent < 75;
+              return `<tr${belowThreshold ? ' style="background:#fee2e2"' : ''}>
+              <td>${r.name}${belowThreshold ? ' <span class="badge badge-red" style="font-size:9px;vertical-align:middle">⚠️ Below 75%</span>' : ''}</td><td>${r.batch}</td>
               <td>₹${r.monthlyFee.toLocaleString('en-IN')}</td>
               <td>₹${r.collected.toLocaleString('en-IN')}</td>
               <td>${r.pending > 0 ? `₹${r.pending.toLocaleString('en-IN')}` : '—'}</td>
-              <td>${r.attendance.scheduled ? `${r.attendance.percent}% (${r.attendance.attended}/${r.attendance.scheduled})` : '—'}</td>
-            </tr>`).join('') : '<tr><td colspan="6">No students assigned to this coach.</td></tr>'}
+              <td style="${belowThreshold ? 'color:var(--red);font-weight:700' : ''}">${r.attendance.scheduled ? `${r.attendance.percent}% (${r.attendance.attended}/${r.attendance.scheduled})` : '—'}</td>
+            </tr>`;
+            }).join('') : '<tr><td colspan="6">No students assigned to this coach.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -12852,30 +12866,180 @@ window.csRecordPaymentUI = async () => {
 // ----- PDF / WhatsApp / Email — real, working versions (the dev module's
 // WhatsApp/PDF were alert()-based previews; Email was already functional
 // via mailto: and is carried over unchanged). -----
-window.csDownloadPDF = () => {
+
+// PHASE 5 fix — the settlement document markup, built the same way
+// _receiptDocHTML builds a receipt: plain HTML string, reusing the same
+// logo (_idCardLogoUrl) and business details (_idCardBizSettings) already
+// used for Receipts/ID Cards, so there's no third copy of that lookup.
+// Rendered once and shared by both "Download PDF" (via html2canvas) and
+// a future on-screen preview if ever needed.
+function _csSettlementDocHTML(s, existing) {
+  const biz = _idCardBizSettings();
+  const logoUrl = _idCardLogoUrl();
+  const coach = (window.DB.coaches || []).find(c => (c.coachId || c.id) === s.coach.id);
+  const t = s.totals;
+  const paidSoFar = existing ? (existing.paymentHistory || []).reduce((a,h)=>a+(h.amountPaid||0), 0) : 0;
+  const balanceOwed = existing ? Math.max(0, t.coachShareAmount - paidSoFar) : t.coachShareAmount;
+  const status = (existing && existing.status) || 'Pending (not yet generated)';
+  const statusClass = status === 'Paid' ? 'badge-green' : status === 'Partially Paid' ? 'badge-yellow' : 'badge-gray';
+  const generatedDate = existing && existing.generatedDate ? formatDate(existing.generatedDate.slice(0,10)) : formatDate(getToday());
+  const generatedBy = (existing && existing.generatedBy) || CURRENT_USER?.email || CURRENT_USER?.name || '';
+
+  const studentRows = (s.students || []).map(r => {
+    const below = r.attendance.scheduled > 0 && r.attendance.percent < 75;
+    return `<tr${below ? ' class="cs-row-low"' : ''}>
+      <td>${_esc(r.name)}${below ? ' ⚠️' : ''}</td>
+      <td>${_esc(r.batch || '-')}</td>
+      <td>₹${(r.monthlyFee||0).toLocaleString('en-IN')}</td>
+      <td>₹${(r.collected||0).toLocaleString('en-IN')}</td>
+      <td>${r.pending > 0 ? `₹${r.pending.toLocaleString('en-IN')}` : '—'}</td>
+      <td class="${below ? 'cs-low-pct' : ''}">${r.attendance.scheduled ? `${r.attendance.percent}% (${r.attendance.attended}/${r.attendance.scheduled})` : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const paymentRows = existing && existing.paymentHistory && existing.paymentHistory.length
+    ? existing.paymentHistory.map(h => `<tr>
+        <td>${formatDate(h.date)}</td><td>₹${(h.amountPaid||0).toLocaleString('en-IN')}</td>
+        <td>${_esc(h.method || '-')}</td><td>₹${(h.balance||0).toLocaleString('en-IN')}</td>
+        <td>${_esc(h.remarks || '-')}</td><td>${_esc(h.updatedBy || '-')}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="6" style="text-align:center;color:#94a3b8">No payments recorded yet</td></tr>`;
+
+  return `
+    <div class="cs-head">
+      ${logoUrl ? `<img src="${logoUrl}" alt="${_esc(biz.name)}">` : `<div class="cs-biz-name-fallback">${_esc(biz.name)}</div>`}
+      <div class="cs-biz-sub">${_esc(biz.address)} · ${_esc(biz.contact)}</div>
+    </div>
+    <div class="cs-title">Coach Settlement Report — ${s.monthLabel} ${s.year}</div>
+
+    <div class="cs-section-label">Coach Details</div>
+    <div class="cs-grid">
+      <div class="cs-row"><span>Coach Name</span><b>${_esc(s.coach.name)}</b></div>
+      <div class="cs-row"><span>Sport</span><b>${_esc(categoryLabel ? (categoryLabel(s.coach.sport)||s.coach.sport) : s.coach.sport)}</b></div>
+      <div class="cs-row"><span>Phone</span><b>${_esc(coach?.phone || '-')}</b></div>
+      <div class="cs-row"><span>Revenue Share</span><b>${s.revenueSharePercent}%</b></div>
+      <div class="cs-row"><span>Settlement Month</span><b>${s.monthLabel} ${s.year}</b></div>
+      <div class="cs-row"><span>Status</span><b><span class="cs-badge ${statusClass}">${_esc(status)}</span></b></div>
+    </div>
+
+    <div class="cs-section-label">Attendance Summary</div>
+    <div class="cs-grid">
+      <div class="cs-row"><span>Total Scheduled Classes</span><b>${t.totalScheduled ?? '—'}</b></div>
+      <div class="cs-row"><span>Classes Attended</span><b>${t.totalAttended ?? '—'}</b></div>
+      <div class="cs-row"><span>Classes Missed</span><b>${t.totalMissed ?? '—'}</b></div>
+      <div class="cs-row"><span>Attendance %</span><b>${t.overallAttendancePercent ?? t.avgAttendance}%</b></div>
+      <div class="cs-row"><span>Average Coach Attendance</span><b>${t.avgAttendance}%</b></div>
+      <div class="cs-row"><span>Students Above 90%</span><b style="color:#166534">${t.above90}</b></div>
+      <div class="cs-row"><span>Students 75%–90%</span><b style="color:#854d0e">${t.between75and90}</b></div>
+      <div class="cs-row"><span>Students Below 75%</span><b style="color:#991b1b">${t.below75}</b></div>
+    </div>
+
+    <div class="cs-section-label">Student List (${t.totalStudents})</div>
+    <table class="cs-table">
+      <thead><tr><th>Student</th><th>Batch</th><th>Monthly Fee</th><th>Collected</th><th>Pending</th><th>Attendance</th></tr></thead>
+      <tbody>${studentRows || `<tr><td colspan="6" style="text-align:center;color:#94a3b8">No students assigned</td></tr>`}</tbody>
+    </table>
+    <div class="cs-legend"><span class="cs-legend-swatch"></span> Row highlighted = attendance below 75%</div>
+
+    <div class="cs-section-label">Fee Collection &amp; Settlement</div>
+    <div class="cs-grid">
+      <div class="cs-row"><span>Total Fees Collected</span><b>₹${(t.totalCollected||0).toLocaleString('en-IN')}</b></div>
+      <div class="cs-row"><span>Total Pending Fees</span><b>₹${(t.totalPending||0).toLocaleString('en-IN')}</b></div>
+      <div class="cs-row cs-total"><span>Coach Share (${s.revenueSharePercent}%)</span><b>₹${(t.coachShareAmount||0).toLocaleString('en-IN')}</b></div>
+      <div class="cs-row cs-total"><span>DD Turf Zone Share</span><b>₹${(t.ddShareAmount||0).toLocaleString('en-IN')}</b></div>
+      ${existing ? `<div class="cs-row"><span>Paid So Far</span><b>₹${paidSoFar.toLocaleString('en-IN')}</b></div>
+      <div class="cs-row"><span>Balance Owed</span><b>₹${balanceOwed.toLocaleString('en-IN')}</b></div>` : ''}
+    </div>
+
+    <div class="cs-section-label">Payment History</div>
+    <table class="cs-table">
+      <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Balance After</th><th>Remarks</th><th>By</th></tr></thead>
+      <tbody>${paymentRows}</tbody>
+    </table>
+
+    <div class="cs-foot">Generated on ${generatedDate}${generatedBy ? ' by ' + _esc(generatedBy) : ''}<br>${_esc(biz.name)} · ${_esc(biz.address)}</div>
+  `;
+}
+
+function _csSettlementPrintCss() {
+  return `
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,Helvetica,sans-serif;background:#fff}
+    .cs-doc{width:100%;max-width:720px;margin:0 auto;padding:24px;color:#1e293b}
+    .cs-head{text-align:center;margin-bottom:14px;padding-bottom:14px;border-bottom:2px solid #0B0C0E}
+    .cs-head img{width:150px;max-width:60%;height:auto;margin:0 auto 10px;display:block}
+    .cs-biz-sub{font-size:11px;color:#94a3b8;margin-top:2px}
+    .cs-biz-name-fallback{font-size:22px;font-weight:800;color:#0B0C0E;margin-bottom:8px}
+    .cs-title{text-align:center;font-size:15px;font-weight:800;color:#0A3327;margin:10px 0 16px}
+    .cs-section-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#0A3327;margin:16px 0 6px;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
+    .cs-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+    .cs-row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px dashed #e2e8f0}
+    .cs-row span{color:#64748b}
+    .cs-row.cs-total{font-size:13px;font-weight:800}
+    .cs-table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
+    .cs-table th{background:#f1f5f9;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#475569}
+    .cs-table td{padding:6px 8px;border-bottom:1px solid #f1f5f9}
+    .cs-row-low{background:#fee2e2}
+    .cs-low-pct{color:#991b1b;font-weight:700}
+    .cs-legend{font-size:10px;color:#94a3b8;margin-top:6px;display:flex;align-items:center;gap:6px}
+    .cs-legend-swatch{width:10px;height:10px;background:#fee2e2;border:1px solid #fca5a5;display:inline-block;border-radius:2px}
+    .cs-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700}
+    .badge-green{background:#dcfce7;color:#166534}.badge-yellow{background:#fef9c3;color:#854d0e}.badge-gray{background:#f1f5f9;color:#475569}
+    .cs-foot{text-align:center;margin-top:20px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8}
+  `;
+}
+
+window.csDownloadPDF = async () => {
   const s = window._csCurrentSettlement;
   if (!s) return;
-  if (typeof window.jspdf === 'undefined') { showToast('PDF library failed to load — check your internet connection.', 'error'); return; }
-  const jsPDF = window.jspdf.jsPDF;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-  doc.text('DD Turf Zone', 15, 20);
-  doc.setFontSize(12); doc.text(`Coach Settlement — ${s.monthLabel} ${s.year}`, 15, 28);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-  let y = 42;
-  [
-    `Coach: ${s.coach.name}`, `Sport: ${s.coach.sport}`, '',
-    `Students: ${s.totals.totalStudents}`,
-    `Fees Collected: Rs. ${s.totals.totalCollected.toLocaleString('en-IN')}`,
-    `Pending Fees: Rs. ${s.totals.totalPending.toLocaleString('en-IN')}`,
-    `Average Attendance: ${s.totals.avgAttendance}%`, '',
-    `Coach Share (${s.revenueSharePercent}%): Rs. ${s.totals.coachShareAmount.toLocaleString('en-IN')}`,
-    `DD Turf Zone Share: Rs. ${s.totals.ddShareAmount.toLocaleString('en-IN')}`,
-    `Status: ${s.status || 'Pending'}`
-  ].forEach(line => { doc.text(line, 15, y); y += 7; });
-  doc.save(`Settlement_${s.coach.name.replace(/\s+/g,'_')}_${s.monthValue}.pdf`);
-  logAudit({ type: 'coach_settlement', action: 'pdf_downloaded', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement PDF downloaded — ${s.coach.name} (${s.monthLabel} ${s.year})` });
-  showToast('Settlement PDF downloaded ✅');
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PDF…', 'info');
+  const existing = window.DB.coachSettlements.find(x => x.coachId === s.coach.id && x.monthValue === s.monthValue);
+
+  // Rendered off-screen (not display:none — html2canvas can't capture
+  // that) at a fixed width so the PDF layout is consistent regardless of
+  // the admin panel's own current window size, same technique used for
+  // ID cards/receipts elsewhere in the app.
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:768px;background:#fff';
+  holder.innerHTML = `<style>${_csSettlementPrintCss()}</style><div class="cs-doc">${_csSettlementDocHTML(s, existing)}</div>`;
+  document.body.appendChild(holder);
+
+  try {
+    const canvas = await html2canvas(holder.querySelector('.cs-doc'), { scale: 2.5, backgroundColor: '#ffffff' });
+    const jsPDF = window.jspdf.jsPDF;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/png');
+
+    // Multi-page slicing — a full settlement (many students + payment
+    // history) is routinely taller than one A4 page, unlike the short
+    // single-page receipt this pattern is borrowed from.
+    let heightLeft = imgHeight;
+    let position = 0;
+    doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      doc.addPage();
+      doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    doc.save(`Settlement_${s.coach.name.replace(/\s+/g,'_')}_${s.monthValue}.pdf`);
+    logAudit({ type: 'coach_settlement', action: 'pdf_downloaded', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement PDF downloaded — ${s.coach.name} (${s.monthLabel} ${s.year})` });
+    showToast('Settlement PDF downloaded ✅');
+  } catch (err) {
+    console.error('Coach Settlement PDF generation failed:', err);
+    showToast('PDF generation failed — please try again.', 'error');
+  } finally {
+    document.body.removeChild(holder);
+  }
 };
 
 window.csShareWhatsApp = () => {
