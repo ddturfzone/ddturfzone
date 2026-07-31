@@ -3410,6 +3410,68 @@ window.saveDoc = async (col, data, id) => {
   return LS.add(col, data);
 };
 
+// ===== AUDIT INFORMATION (Created/Updated By role + When) =====
+// Purely additive tracking layered on top of every record. Deliberately
+// uses its own field names (auditCreatedByRole/auditCreatedAt/
+// auditUpdatedByRole/auditUpdatedAt) rather than the pre-existing
+// createdBy/createdAt/updatedBy fields already used throughout the app —
+// those pre-existing fields store a person's NAME/EMAIL and are load-
+// bearing for real-time echo-suppression (isOwnAction checks in the
+// Firebase listeners), edit-conflict detection (the "ec-edited-by"
+// banner), and Reports/exports. Reusing or renaming them would touch
+// exactly the working Firebase-sync/conflict logic this task says not to
+// change. This feature's fields are new, parallel, and role-only, per spec.
+//
+// Call once, right after a module's `data` object is built and BEFORE
+// saveDoc(): _stampAudit(data, existingRecord). existingRecord is the
+// pre-edit record (or null/undefined for a brand-new record) — on an
+// edit, the original Created stamp is always carried forward untouched.
+function _stampAudit(data, existingRecord) {
+  const role = ROLE_LABELS[CURRENT_USER?.role] || CURRENT_USER?.role || 'Unknown';
+  const now = new Date().toISOString();
+  if (existingRecord && existingRecord.auditCreatedAt) {
+    data.auditCreatedByRole = existingRecord.auditCreatedByRole || 'Unknown';
+    data.auditCreatedAt = existingRecord.auditCreatedAt;
+  } else if (existingRecord) {
+    // Editing a pre-audit-feature record that has no Created stamp of its
+    // own — per spec, never invent one; leave it Unknown/blank so it
+    // displays exactly as the OLD RECORDS rule describes, forever.
+    data.auditCreatedByRole = existingRecord.auditCreatedByRole || '';
+    data.auditCreatedAt = existingRecord.auditCreatedAt || '';
+  } else {
+    data.auditCreatedByRole = role;
+    data.auditCreatedAt = now;
+  }
+  data.auditUpdatedByRole = role;
+  data.auditUpdatedAt = now;
+  console.log('[AUDIT] Stamped record', {isNew: !existingRecord, createdBy: data.auditCreatedByRole, updatedBy: data.auditUpdatedByRole});
+  return data;
+}
+function _fmtAuditDT(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+// Shared "Audit Information" panel markup — dropped into every module's
+// Edit/View modal. Old records with no audit fields at all display
+// exactly per spec: Created By/At = "Unknown", Last Updated By/At = "-".
+function renderAuditInfoBlock(record) {
+  const createdBy = record?.auditCreatedByRole || 'Unknown';
+  const createdAt = record?.auditCreatedAt ? (_fmtAuditDT(record.auditCreatedAt) || 'Unknown') : 'Unknown';
+  const updatedBy = record?.auditUpdatedByRole || '-';
+  const updatedAt = record?.auditUpdatedAt ? (_fmtAuditDT(record.auditUpdatedAt) || '-') : '-';
+  return `<div class="audit-info-block" style="margin-top:16px;padding:12px 14px;background:var(--gray);border-radius:8px;font-size:12.5px">
+    <div style="font-weight:700;margin-bottom:8px;color:var(--gray3)">📋 Audit Information</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">
+      <div><div style="color:var(--gray3)">Created By</div><div style="font-weight:600">${_esc(createdBy)}</div></div>
+      <div><div style="color:var(--gray3)">Created At</div><div style="font-weight:600">${_esc(createdAt)}</div></div>
+      <div><div style="color:var(--gray3)">Last Updated By</div><div style="font-weight:600">${_esc(updatedBy)}</div></div>
+      <div><div style="color:var(--gray3)">Last Updated At</div><div style="font-weight:600">${_esc(updatedAt)}</div></div>
+    </div>
+  </div>`;
+}
+
 window.deleteDoc2 = async (col, id) => {
   LS.delete(col, id);
 };
@@ -6437,6 +6499,7 @@ window.saveBooking = async () => {
     createdAt: existing?.createdAt || new Date().toISOString(),
     createdBy: existing?.createdBy || CURRENT_USER?.name || ''
   };
+  _stampAudit(data, existing);
 
   // Disable button during save
   const btn = document.getElementById('bk-submit-btn');
@@ -8529,6 +8592,7 @@ window.saveBlockSlot = async () => {
       }
       for (const m of members) {
         const data = { ...m, start, end, reason, notes };
+        _stampAudit(data, m);
         delete data.id;
         await saveDoc('blockedSlots', data, m.id);
         const idx = window.DB.blockedSlots.findIndex(x => x.id === m.id);
@@ -8548,6 +8612,7 @@ window.saveBlockSlot = async () => {
     if (otherBlockConflict) { showToast(`⛔ Overlaps another blocked slot (${otherBlockConflict.reason}).`, 'error'); return; }
 
     const data = { date, start, end, reason, notes, seriesId: seriesIdField || undefined, createdBy: CURRENT_USER?.name || '' };
+    _stampAudit(data, window.DB.blockedSlots.find(x => x.id === id));
     await saveDoc('blockedSlots', data, id);
     const idx = window.DB.blockedSlots.findIndex(x => x.id === id);
     if (idx >= 0) window.DB.blockedSlots[idx] = { ...data, id };
@@ -8582,6 +8647,7 @@ window.saveBlockSlot = async () => {
 
     const createdBy = CURRENT_USER?.name || '';
     const data = { date, start, end, reason, notes, createdBy };
+    _stampAudit(data, null);
     const savedId = await saveDoc('blockedSlots', data, null);
     window.DB.blockedSlots.unshift({ ...data, id: savedId });
     closeModal('block-slot-modal');
@@ -8641,6 +8707,7 @@ window.saveBlockSlot = async () => {
     const batch = toSync.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (date) => {
       const data = { date, start, end, reason, notes, createdBy, seriesId };
+      _stampAudit(data, null);
       const savedId = await saveDoc('blockedSlots', data, null);
       window.DB.blockedSlots.unshift({ ...data, id: savedId });
       const syncRes = await autoSyncBlockedSlot({ ...data, id: savedId }, 'create');
@@ -9011,6 +9078,7 @@ window.saveStudent = async () => {
   // generated here — the old code minted a brand-new "ST<timestamp>" value
   // on every single edit, silently reassigning the student's ID each time.
   if (existId) data.studentId = window.DB.students.find(x=>x.id===existId)?.studentId || existId;
+  _stampAudit(data, existId ? window.DB.students.find(x=>x.id===existId) : null);
   const id=await saveDoc('students',data,existId||null);
   if(!existId){data.studentId=id;data.id=id;window.DB.students.unshift(data);}
   else{const idx=window.DB.students.findIndex(x=>x.id===existId);if(idx>=0)window.DB.students[idx]={...data,id:existId};}
@@ -9843,6 +9911,7 @@ async function saveOneAttendance(studentId, status) {
   const rec = {studentId:s.id,studentName:s.name,sport,coach:s.coach||'',date,status};
   const existingIdx = (window.DB.attendance||[]).findIndex(a => a.studentId===s.id && a.date===date);
   const existingId = existingIdx>=0 ? window.DB.attendance[existingIdx].id : null;
+  _stampAudit(rec, existingIdx>=0 ? window.DB.attendance[existingIdx] : null);
   const id = await saveDoc('attendance',rec,existingId||null);
   if (existingIdx>=0) window.DB.attendance[existingIdx] = {...rec, id};
   else window.DB.attendance.unshift({...rec, id});
@@ -10201,6 +10270,7 @@ window.saveFee = async (sendWA=false) => {
     receiptNo: existingRecord?.receiptNo || '',
     updatedAt: existingRecord?.updatedAt || ''
   };
+  _stampAudit(data, existingRecord);
   const id=await saveDoc('fees',data,existId||null);
   data.id=id;
   console.log('[FEE] Fee saved locally', {id: data.id, receiptNo: data.receiptNo, status: data.status, existId: !!existId});
@@ -11167,6 +11237,7 @@ window.saveDueAdjustment = async () => {
     amount, reason,
     updatedBy: CURRENT_USER?.name || CURRENT_USER?.email || '', updatedAt: new Date().toISOString()
   };
+  _stampAudit(record, null);
   window.DB.dueAdjustments = window.DB.dueAdjustments || [];
   window.DB.dueAdjustments.push(record);
   LS.set('dueAdjustments', window.DB.dueAdjustments);
@@ -11649,6 +11720,7 @@ window.saveEnrolmentEdit = async () => {
     batch: document.getElementById('enr-batch').value.trim(),
     medicalNotes: document.getElementById('enr-medical').value.trim()
   };
+  _stampAudit(updated, r);
   LS.update('enrolments', id, updated);
   const idx = window.DB.enrolments.findIndex(x => x.id === id);
   if (idx >= 0) window.DB.enrolments[idx] = updated;
@@ -11699,6 +11771,7 @@ async function _createStudentFromEnrolment(r) {
     status: 'active', address: r.address || '', medicalNotes: r.medicalNotes || '',
     remarks: `Created from Enrolment Request ${r.requestId}`, photo: '', archived: false
   };
+  _stampAudit(data, null);
   const id = await saveDoc('students', data, null);
   data.studentId = id; data.id = id;
   window.DB.students.unshift(data);
@@ -11765,6 +11838,7 @@ window.approveEnrolment = async (id) => {
   }
 
   const updated = { ...r, status: 'APPROVED', approvedStudentId: studentId };
+  _stampAudit(updated, r);
   LS.update('enrolments', id, updated);
   const idx = window.DB.enrolments.findIndex(x => x.id === id);
   if (idx >= 0) window.DB.enrolments[idx] = updated;
@@ -11941,13 +12015,16 @@ window.saveCoach = async () => {
   if(!name||!phone){showToast('Fill required fields','error');return;}
   const data={name,phone,sport:document.getElementById('co-sport').value,salary:Number(document.getElementById('co-salary').value)||0,joined:document.getElementById('co-joined').value||getToday(),status:document.getElementById('co-status').value,revenueSharePercent:Number(document.getElementById('co-revshare').value)||50};
   const existId=document.getElementById('co-id').value;
+  let _existingCoach = null;
   if (existId) {
     // Carry the existing coachId/updatedAt forward so autoSyncCoach can
     // find the right Sheet row and the conflict check has a real baseline.
     const existing = window.DB.coaches.find(x=>x.id===existId) || {};
+    _existingCoach = existing;
     data.coachId = existing.coachId || existId;
     data.updatedAt = existing.updatedAt || '';
   }
+  _stampAudit(data, _existingCoach);
   const id=await saveDoc('coaches',data,existId||null);
   if(!existId){data.id=id;data.coachId=id;window.DB.coaches.push(data);}
   else{const idx=window.DB.coaches.findIndex(x=>x.id===existId);if(idx>=0)window.DB.coaches[idx]={...data,id:existId};}
@@ -12573,6 +12650,7 @@ window.saveFinanceExpense = async () => {
     isRecurring, frequency: isRecurring ? frequency : '', nextDueDate: isRecurring ? nextDueDate : '',
     reminderBeforeDays: isRecurring ? reminderBeforeDays : 0
   };
+  _stampAudit(data, id ? window.DB.financeExpenses.find(x => x.id === id) : null);
 
   let record;
   if (id) {
@@ -13134,6 +13212,7 @@ window.csGenerateSettlement = async (coachId, monthValue) => {
     generatedDate: new Date().toISOString(),
     generatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
   };
+  _stampAudit(record, null);
 
   const id = LS.add('coachSettlements', record);
   record.id = id;
@@ -13165,6 +13244,7 @@ window.csRecordPayment = async (settlementId, { amountPaid, method, remarks }) =
     updatedAt: new Date().toISOString()
   });
   rec.status = newStatus;
+  _stampAudit(rec, rec);
   LS.update('coachSettlements', rec.id, rec);
   logAudit({ type: 'coach_settlement', action: 'payment_recorded', recordId: rec.settlementId,
     summary: `Settlement Payment — ${rec.coachName} (${rec.monthLabel} ${rec.year}) — ₹${Number(amountPaid||0).toLocaleString('en-IN')} via ${method || 'n/a'} — now ${newStatus}` });
