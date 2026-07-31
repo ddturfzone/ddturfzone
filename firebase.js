@@ -113,6 +113,7 @@ window.initializeFirebase = async () => {
     // fully settled (success or caught failure) — is Firebase genuinely
     // ready for a write/listener to depend on it.
     firebaseFullyReady = true;
+    console.log(`[FB-DEBUG] Firebase initialized — fullyReady=true, authState=${authState}`); // TEMP DEBUG LOG — remove after live verification
 
     return {
       success: true,
@@ -155,10 +156,28 @@ function _setupConnectionMonitoring() {
   // or other subscription failure.
   connectedRef.on('value', (snapshot) => {
     if (snapshot.val() === true) {
+      const wasDisconnected = connectionStatus === 'disconnected';
       connectionStatus = 'connected';
       lastFirebaseError = null;
       if (window._ddtzDiag) window._ddtzDiag.hasEverConnected = true; // TEMP SYSTEM HEALTH
       console.log('🟢 Firebase connected');
+      // Distinguishing first-connect from reconnect matters for live
+      // testing: during a Wi-Fi-off/on test the tester needs to actually
+      // SEE that the socket came back, not just infer it.
+      console.log(wasDisconnected
+        ? '[FB-DEBUG] Connection restored (reconnected after a drop)'
+        : '[FB-DEBUG] Connection established'); // TEMP DEBUG LOG — remove after live verification
+      if (wasDisconnected) {
+        // `.info/connected` flipping back to true is the AUTHORITATIVE
+        // signal that Firebase itself reconnected — strictly more
+        // reliable than the browser's 'online' event, which fires when
+        // the OS thinks there's a network, often before Firebase's own
+        // socket has actually re-established. Running the watchdog here
+        // too means a listener that failed to start is recovered at the
+        // first moment it genuinely can be. The watchdog is internally
+        // guarded, so this never double-subscribes.
+        window._firebaseReconnectWatchdog?.('firebase-reconnect');
+      }
     } else {
       connectionStatus = 'disconnected';
       console.log('🔴 Firebase disconnected');
@@ -548,32 +567,107 @@ let voicePitch = parseFloat(localStorage.getItem('ddtz_voice_pitch')) || 1.0;
 let voiceRate = parseFloat(localStorage.getItem('ddtz_voice_rate')) || 1.0;
 let lastAnnouncedEvents = {}; // Track last announcement time to prevent duplicates
 
+// ============================================================================
+// ROOT CAUSE FIX — Voice notifications never playing for ANY event.
+// ----------------------------------------------------------------------------
+// Cause #1 (primary): browsers (Chrome, Safari, and every mobile browser)
+// block speechSynthesis.speak() until the page has received a genuine
+// user activation — a real click/tap/keypress. Every voice call in this
+// app is triggered by a BACKGROUND Firebase listener, never by a click,
+// so speak() was being silently dropped: no sound, no error, onstart
+// never firing. Nothing about the calling code was wrong; the browser
+// was refusing before it ever got that far.
+//
+// The fix is to "prime" the speech engine once, from inside a real user
+// gesture (the first click/tap anywhere in the app — in practice the
+// login button), by speaking a zero-volume empty utterance. That single
+// primed call satisfies the activation requirement for the rest of the
+// page's lifetime, so later background-triggered announcements are
+// allowed through.
+//
+// Cause #2: speechSynthesis.cancel() was called immediately before
+// speak(). In Chrome these are processed asynchronously against the same
+// internal queue, and a cancel() issued in the same tick frequently kills
+// the utterance that was just queued behind it — a well-known Chrome
+// race. Cancel is now only issued when something is genuinely still
+// speaking, and speak() is deferred to the next tick so the queue has
+// settled first.
+// ============================================================================
+let _voiceUnlocked = false;
+
+function _primeSpeechSynthesis() {
+  if (_voiceUnlocked || !('speechSynthesis' in window)) return;
+  try {
+    const primer = new SpeechSynthesisUtterance('');
+    primer.volume = 0; // silent — the user never hears this
+    window.speechSynthesis.speak(primer);
+    _voiceUnlocked = true;
+    console.log('[VOICE-DEBUG] Speech synthesis primed by user gesture — background announcements are now permitted');
+  } catch (e) {
+    console.warn('[VOICE-DEBUG] Speech priming failed:', e);
+  }
+}
+
+// Prime on the first real user interaction, then stop listening. Uses
+// capture + once so it fires for the very first click/tap/key anywhere,
+// including the login button, without interfering with any existing
+// handler on that element.
+['click', 'touchstart', 'keydown'].forEach(evt => {
+  window.addEventListener(evt, _primeSpeechSynthesis, { capture: true, once: true, passive: true });
+});
+
 /**
  * Play voice announcement (Browser SpeechSynthesis API)
  * Only plays on OTHER devices, not the current device
  * isCurrentDevice = true means don't announce (user just did the action)
  */
 window.playVoiceAnnouncement = (message, isCurrentDevice = false) => {
-  if (!voiceNotificationEnabled || isCurrentDevice) {
-    return; // Don't announce on current device or if disabled
+  console.log('[VOICE-DEBUG] Event received:', message);
+  if (!voiceNotificationEnabled) {
+    console.log('[VOICE-DEBUG] Skipped — voice notifications are turned off in settings');
+    return;
+  }
+  if (isCurrentDevice) {
+    console.log('[VOICE-DEBUG] Skipped — this device performed the action');
+    return;
   }
 
   // Prevent duplicate announcements within 3 seconds
   const eventKey = message;
   const lastTime = lastAnnouncedEvents[eventKey] || 0;
   if (Date.now() - lastTime < 3000) {
-    console.log('⏭ Skipping duplicate announcement:', message);
+    console.log('[VOICE-DEBUG] Skipped — duplicate within 3s:', message);
+    return;
+  }
+  // Recorded up-front (not only in onend) so a second identical event
+  // arriving while the first is still speaking is still deduplicated —
+  // previously this was set only after speech COMPLETED, so overlapping
+  // duplicates slipped through.
+  lastAnnouncedEvents[eventKey] = Date.now();
+
+  if (!('speechSynthesis' in window)) {
+    console.warn('[VOICE-DEBUG] Speech Synthesis not supported by this browser — falling back to notification sound');
+    window._rtPlayNotifySound?.();
     return;
   }
 
-  if (!('speechSynthesis' in window)) {
-    console.warn('Speech Synthesis not supported');
+  if (!_voiceUnlocked) {
+    // Genuinely cannot speak yet — the user hasn't interacted with the
+    // page at all this session, so the browser will refuse. Say so
+    // explicitly rather than failing silently, and still make a sound.
+    console.warn('[VOICE-DEBUG] Speech blocked — no user interaction yet this session, so the browser will not allow speech. Falling back to notification sound. (Any click/tap in the app unlocks it for the rest of the session.)');
+    window._rtPlayNotifySound?.();
     return;
   }
 
   try {
-    // Cancel any pending speech
-    window.speechSynthesis.cancel();
+    // Only cancel if something is genuinely still speaking — see Cause #2
+    // above. An unconditional cancel() here was killing the utterance
+    // queued immediately after it.
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      console.log('[VOICE-DEBUG] Cancelling in-progress speech before new announcement');
+      window.speechSynthesis.cancel();
+    }
 
     const utterance = new SpeechSynthesisUtterance(message);
     utterance.rate = voiceRate;
@@ -581,22 +675,30 @@ window.playVoiceAnnouncement = (message, isCurrentDevice = false) => {
     utterance.volume = voiceVolume;
 
     utterance.onstart = () => {
-      console.log('🔊 Voice announcement started:', message);
+      console.log('[VOICE-DEBUG] Speech started:', message);
       window._ddtzDiag?.recordNotification('voice'); // TEMP DIAGNOSTICS — recorded here specifically, not at the call site, so it only counts when speech genuinely starts (not when disabled or deduped)
     };
 
     utterance.onend = () => {
-      console.log('✓ Voice announcement complete');
-      lastAnnouncedEvents[eventKey] = Date.now();
+      console.log('[VOICE-DEBUG] Speech completed');
     };
 
     utterance.onerror = (event) => {
-      console.error('✗ Voice announcement error:', event.error);
+      // Never silently fail — log the exact reason AND still make a
+      // sound, so the event is never missed entirely.
+      console.error('[VOICE-DEBUG] Speech failed:', event.error, '— falling back to notification sound');
+      window._rtPlayNotifySound?.();
     };
 
-    window.speechSynthesis.speak(utterance);
+    // Deferred one tick so any cancel() above has fully settled before
+    // this is queued — see Cause #2.
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance);
+      console.log('[VOICE-DEBUG] Voice queued:', message);
+    }, 0);
   } catch (error) {
-    console.error('✗ Error playing voice announcement:', error);
+    console.error('[VOICE-DEBUG] Error playing voice announcement:', error, '— falling back to notification sound');
+    window._rtPlayNotifySound?.();
   }
 };
 

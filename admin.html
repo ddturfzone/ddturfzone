@@ -2756,6 +2756,35 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- Priority 4 — Manual Due Correction. Super Admin/Manager only. -->
+<div class="modal-overlay" id="due-adjustment-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-title">✏️ Manual Due Correction</div>
+    <input type="hidden" id="due-adj-student-id">
+    <div style="font-size:14px;margin-bottom:10px">
+      Student: <strong id="due-adj-student-name"></strong> — Current Pending: <strong id="due-adj-current-pending"></strong>
+    </div>
+    <div class="form-group">
+      <label>Adjustment Amount (₹)</label>
+      <input type="number" id="due-adj-amount" placeholder="e.g. 500">
+      <div style="font-size:11px;color:var(--gray3);margin-top:3px">A positive amount reduces the pending balance for this period (e.g. a waiver or goodwill credit).</div>
+    </div>
+    <div class="form-group">
+      <label>Reason <span style="color:var(--red)">*</span> (required)</label>
+      <textarea id="due-adj-reason" rows="2" placeholder="Why is this correction being made?"></textarea>
+    </div>
+    <div style="font-size:12px;color:var(--gray3);margin-top:4px">This will be recorded with your name, date, and time, and added to the Activity Log — every correction is permanently traceable.</div>
+    <div style="margin-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray3);margin-bottom:4px">Prior corrections this period:</div>
+      <div id="due-adj-history"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('due-adjustment-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDueAdjustment()">💾 Save Correction</button>
+    </div>
+  </div>
+</div>
+
 <!-- ENROLMENT REQUEST MODAL (View/Edit) — PHASE 3.5 -->
 <div class="modal-overlay" id="enrolment-modal">
   <div class="modal">
@@ -3055,7 +3084,7 @@ const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZ
 //     Known Limitation entry. RESOLVED in Phase 3.1 — see the "PHASE 3.1 —
 //     Coaches Backend" comments on TABS.COACHES / autoSyncCoach /
 //     syncCoachesFromSheet / handleCoachesGet / handleCoachWrite.
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[], dueAdjustments:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -3872,7 +3901,7 @@ async function loadAllData() {
   // Read-only: copies whatever already exists in localStorage into memory.
   // Must never write a default/empty dataset here — see the DATA
   // PRESERVATION POLICY banner above the LS helper.
-  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments'];
+  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments','dueAdjustments'];
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
@@ -4236,7 +4265,7 @@ const _ddtzAnnouncedBookingRequestEvents = new Set(); // "requestId:kind" alread
 
 window.initCoachesFirebaseListener = () => {
   if (typeof window.listenCoaches !== 'function') return;
-  if (_coachesFirebaseUnsubscribe) return; // already subscribed this session
+  if (_coachesFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (coaches) — not re-subscribing'); return; } // already subscribed this session
 
   _coachesFirebaseUnsubscribe = window.listenCoaches((remoteCoaches) => {
     const isFirstSnapshot = !_coachesFirebaseSeeded;
@@ -4335,7 +4364,7 @@ window.stopCoachesFirebaseListener = () => {
     _coachesFirebaseUnsubscribe();
     _coachesFirebaseUnsubscribe = null;
     _coachesFirebaseSeeded = false;
-    console.log('✓ Coaches Firebase listener stopped');
+    console.log('[FB-DEBUG] Listener removed (coaches)'); // TEMP DEBUG LOG
   }
 };
 
@@ -4357,7 +4386,7 @@ window.stopCoachesFirebaseListener = () => {
 // ============================================================================
 window.initBookingRequestsFirebaseListener = () => {
   if (typeof window.listenBookingRequests !== 'function') return;
-  if (_bookingRequestsFirebaseUnsubscribe) return; // already subscribed this session
+  if (_bookingRequestsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (booking_requests) — not re-subscribing'); return; } // already subscribed this session
 
   _bookingRequestsFirebaseUnsubscribe = window.listenBookingRequests((remoteRequests) => {
     const isFirstSnapshot = !_bookingRequestsFirebaseSeeded;
@@ -4440,9 +4469,64 @@ window.stopBookingRequestsFirebaseListener = () => {
     _bookingRequestsFirebaseUnsubscribe();
     _bookingRequestsFirebaseUnsubscribe = null;
     _bookingRequestsFirebaseSeeded = false;
-    console.log('✓ Booking Requests Firebase listener stopped');
+    console.log('[FB-DEBUG] Listener removed (booking_requests)'); // TEMP DEBUG LOG
   }
 };
+
+// ============================================================================
+// FIREBASE RECONNECTION WATCHDOG
+// ----------------------------------------------------------------------------
+// Addresses: "Firebase stuck on Connecting", "listeners not restored after
+// reopening the app", "logout/login required to reconnect".
+//
+// What was already handled before this: the Firebase SDK reconnects its
+// own socket automatically, and existing .on('value') subscriptions
+// survive a brief network blip on their own. What was NOT handled: if a
+// listener was never started (e.g. initializeFirebase() hadn't finished
+// when _enterApp ran, so the `fullyReady` check failed), nothing ever
+// retried it — the only recovery was a full logout/login, which is
+// exactly the symptom reported.
+//
+// This watchdog re-checks, on reconnect and on tab-focus, whether each
+// listener that SHOULD be running actually is (its unsubscribe handle is
+// non-null), and restarts only the missing ones. The init functions are
+// individually guarded against double-subscription, so a redundant call
+// is a no-op — this can't create duplicate listeners.
+// ============================================================================
+function _firebaseReconnectWatchdog(trigger) {
+  if (!CURRENT_USER) return; // not logged in — nothing should be running
+  const status = window.getFirebaseStatus?.() || {};
+  console.log(`[FB-DEBUG] Reconnect watchdog (${trigger}) — status=${status.status} fullyReady=${status.fullyReady} authState=${status.authState}`);
+
+  if (!status.fullyReady) {
+    console.log('[FB-DEBUG] Firebase not fully ready yet — watchdog will retry on the next trigger');
+    return;
+  }
+
+  const missing = [];
+  if (!_firebaseEnrolmentsUnsubscribe) { missing.push('enrolments'); window.initPendingEnrolmentsListener?.(); }
+  if (!_coachesFirebaseUnsubscribe)    { missing.push('coaches');    window.initCoachesFirebaseListener?.(); }
+  if (!_bookingRequestsFirebaseUnsubscribe) { missing.push('bookingRequests'); window.initBookingRequestsFirebaseListener?.(); }
+  // Finance is Super-Admin-only by design — its init function gates
+  // itself internally, so calling it for any other role is a safe no-op.
+  if (!_financeFirebaseUnsubscribe && _finCanAccess()) { missing.push('finance'); window.initFinanceFirebaseListener?.(); }
+
+  if (missing.length) {
+    console.log('[FB-DEBUG] Watchdog restored missing listeners:', missing.join(', '));
+  } else {
+    console.log('[FB-DEBUG] All expected listeners already active — nothing to restore');
+  }
+}
+
+window.addEventListener('online', () => _firebaseReconnectWatchdog('online'));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) _firebaseReconnectWatchdog('tab-focus');
+});
+// Exposed on window explicitly (rather than relying on the implicit
+// global from the function declaration) so firebase.js's `.info/connected`
+// reconnect handler can call it — that's the authoritative "Firebase is
+// genuinely back" signal, more reliable than the browser's 'online' event.
+window._firebaseReconnectWatchdog = _firebaseReconnectWatchdog;
 
 // PHASE 3.2a — Student Core. Same merge model as syncCoachesFromSheet just
 // above: never overwrites a full local record with the Sheet's flattened
@@ -6654,6 +6738,11 @@ function _describeAuditAction(payload) {
   if (payload.type === 'attendance_summary') {
     const summaryActionLabels = { whatsapp_prepared: 'Attendance Summary Shared', pdf_downloaded: 'Attendance Summary PDF Downloaded' };
     if (summaryActionLabels[action]) return `${summaryActionLabels[action]}${ref ? ` — ${ref}` : ''}`;
+  }
+  // Priority 4 — Manual Due Correction. Reason is always present (saveDueAdjustment
+  // requires it before this is ever called), so it's always part of the log line.
+  if (payload.type === 'due_adjustment') {
+    return `Manual Due Correction — ₹${(Number(payload.amount) || 0).toLocaleString('en-IN')} — "${payload.reason}" — ${payload.studentName || payload.studentId || ''}`;
   }
   // FINAL ENROLMENT FIX — explicit Activity Log entry for Approve
   // specifically, separate from the generic "enrolment_request_update
@@ -9946,6 +10035,22 @@ function _dueMatchingFees(s, period) {
   });
 }
 
+// Manual Due Corrections for this student's current period — same exact
+// period-matching logic as _dueMatchingFees, so an adjustment always
+// applies to the same period a fee record would. This is what "Due must
+// always calculate from actual Fee Collection" means in practice for a
+// correction: it flows through the identical aggregation, not a separate
+// override sitting outside it.
+function _dueMatchingAdjustments(s, period) {
+  const sid = s.studentId || s.id;
+  return (window.DB.dueAdjustments || []).filter(a => {
+    if (a.studentId !== sid || a.feeType !== period.feeType) return false;
+    if (period.feeType === 'monthly') return a.month === period.month && String(a.year) === period.year;
+    if (period.feeType === 'quarterly') return a.quarter === period.quarter && String(a.year) === period.year;
+    return String(a.year) === period.year; // yearly
+  });
+}
+
 // The effective (post-discount) per-period fee amount — reuses the exact
 // same _computeEffectiveFee helper the Student modal's live preview and
 // Fee Collection's student-select prefill (Phase 3.4a/3.4b) already use,
@@ -9961,7 +10066,15 @@ const DUE_PLAN_LABELS = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Y
 function _computeDueEntry(s, today) {
   const period = _dueCurrentPeriod(s, today);
   const matches = _dueMatchingFees(s, period);
-  const received = matches.reduce((sum, f) => sum + (f.amountReceived ?? f.paid ?? 0), 0);
+  const feesReceived = matches.reduce((sum, f) => sum + (f.amountReceived ?? f.paid ?? 0), 0);
+  // Manual Due Corrections net into the same "received" figure — an
+  // adjustment functions as additional credit toward this period, exactly
+  // like a payment would, which is why it correctly reduces pending and
+  // can move status to Paid. The full audit trail (reason/who/when) lives
+  // on the adjustment record itself, not lost by folding it into one number.
+  const adjustments = _dueMatchingAdjustments(s, period);
+  const adjustmentTotal = adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+  const received = feesReceived + adjustmentTotal;
   const amountDue = _dueAmountForStudent(s);
   const pending = Math.max(0, amountDue - received);
 
@@ -9980,7 +10093,8 @@ function _computeDueEntry(s, today) {
     id: s.id, studentId: s.studentId || s.id, name: s.name, parent: s.parent || '', phone: s.phone || '', email: s.email || '',
     sport: s.sport, batch: s.batch || '', coach: s.coach || '',
     feeStructure: s.feeStructure || 'monthly', planLabel: DUE_PLAN_LABELS[s.feeStructure || 'monthly'],
-    dueDate: dueDateOnly, amountDue, received, pending, status, daysOverdue
+    dueDate: dueDateOnly, amountDue, received, pending, status, daysOverdue,
+    hasAdjustment: adjustments.length > 0, adjustmentTotal, period
   };
 }
 
@@ -10116,6 +10230,7 @@ window.renderDues = () => {
     const badge = _dueStatusBadge(d);
     const actions = [
       canManage ? `<button class="btn btn-info btn-sm" onclick="collectFeeForDue('${d.id}')" title="Collect Fee">💰</button>` : '',
+      canManage ? `<button class="btn btn-secondary btn-sm" onclick="openDueAdjustmentModal('${d.id}')" title="Manual Due Correction">✏️ Adjust</button>` : '',
       `<button class="btn btn-secondary btn-sm" onclick="openDueStudentForView('${d.id}')" title="View Student Profile">👁️</button>`,
       `<button class="btn btn-secondary btn-sm" onclick="openDuesPaymentHistory('${d.studentId}')" title="View Payment History">📜</button>`,
       canManage ? `<button class="btn btn-whatsapp btn-sm" onclick="sendDueReminderWhatsApp('${d.studentId}')" title="Manual WhatsApp Reminder">💬</button>` : '',
@@ -10183,6 +10298,75 @@ window.openDuesPaymentHistory = (studentId) => {
     </table></div>`;
   }
   openModal('dues-history-modal');
+};
+
+// ============================================================================
+// Manual Due Correction (Priority 4) — Super Admin/Manager only (reuses
+// the existing manageDues permission, already correctly scoped — no new
+// permission entry needed). Every correction requires a Reason and is
+// recorded with Updated By/Date/Time, both in the adjustment record
+// itself and in the Activity Log. The adjustment nets into the SAME
+// _computeDueEntry aggregation every other Due figure already uses — see
+// _dueMatchingAdjustments above — so "Due always calculates from actual
+// Fee Collection" stays true; this isn't a second, competing status.
+// ============================================================================
+window.openDueAdjustmentModal = (dueEntryId) => {
+  if (!can('manageDues')) { denyAccess('Only Managers and the Super Admin can make manual Due corrections.', 'manageDues'); return; }
+  const list = _getDuesList();
+  const d = list.find(x => x.id === dueEntryId);
+  if (!d) { showToast('Student not found', 'error'); return; }
+  document.getElementById('due-adj-student-id').value = d.id;
+  document.getElementById('due-adj-student-name').textContent = d.name;
+  document.getElementById('due-adj-current-pending').textContent = `₹${d.pending.toLocaleString('en-IN')}`;
+  document.getElementById('due-adj-amount').value = '';
+  document.getElementById('due-adj-reason').value = '';
+  const existing = _dueMatchingAdjustments(window.DB.students.find(s => s.id === d.id), d.period);
+  const historyEl = document.getElementById('due-adj-history');
+  historyEl.innerHTML = existing.length
+    ? existing.map(a => `<div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--gray2)">₹${Number(a.amount).toLocaleString('en-IN')} — "${_esc(a.reason)}" — ${a.updatedBy} on ${new Date(a.updatedAt).toLocaleString()}</div>`).join('')
+    : '<div style="font-size:12px;color:var(--gray3)">No prior corrections for this period.</div>';
+  openModal('due-adjustment-modal');
+};
+
+window.saveDueAdjustment = async () => {
+  if (!can('manageDues')) { denyAccess('Only Managers and the Super Admin can make manual Due corrections.', 'manageDues'); return; }
+  const dueEntryId = document.getElementById('due-adj-student-id').value;
+  const amount = Number(document.getElementById('due-adj-amount').value);
+  const reason = document.getElementById('due-adj-reason').value.trim();
+  if (!amount || isNaN(amount)) { showToast('Enter a valid adjustment amount.', 'error'); return; }
+  if (!reason) { showToast('A reason is required for every manual Due correction.', 'error'); return; }
+
+  const s = window.DB.students.find(x => x.id === dueEntryId);
+  if (!s) { showToast('Student not found', 'error'); return; }
+  const period = _dueCurrentPeriod(s, new Date());
+
+  const record = {
+    id: 'ADJ' + Date.now().toString(36).toUpperCase(),
+    studentId: s.studentId || s.id, studentName: s.name,
+    feeType: period.feeType, month: period.month, quarter: period.quarter, year: period.year,
+    amount, reason,
+    updatedBy: CURRENT_USER?.name || CURRENT_USER?.email || '', updatedAt: new Date().toISOString()
+  };
+  window.DB.dueAdjustments = window.DB.dueAdjustments || [];
+  window.DB.dueAdjustments.push(record);
+  LS.set('dueAdjustments', window.DB.dueAdjustments);
+
+  // Background Sheets sync — same fire-and-forget, non-blocking pattern
+  // every other module already uses; Due Management is not yet Firebase-
+  // migrated (still Sheets-based end to end), so this correctly matches
+  // its surrounding architecture rather than introducing Firebase for
+  // just this one sub-feature while the rest of Fees/Due stays on Sheets.
+  postToGoogleSheet({ type: 'due_adjustment', ...record }).catch(() => {});
+
+  logAudit({
+    type: 'due_adjustment', amount: record.amount, reason: record.reason,
+    studentId: record.studentId, studentName: record.studentName
+  });
+
+  closeModal('due-adjustment-modal');
+  renderDues();
+  renderDashboard();
+  showToast('Due correction recorded ✅');
 };
 
 // Same plain-text template style as the Receipt Delivery / Save & WhatsApp
@@ -10372,7 +10556,7 @@ window.initPendingEnrolmentsListener = () => {
     return;
   }
   if (_firebaseEnrolmentsUnsubscribe) {
-    console.log('Pending enrolments Firebase listener already active — not re-subscribing');
+    console.log('[FB-DEBUG] Listener already active (pending_enrolments) — not re-subscribing');
     return;
   }
 
@@ -10507,7 +10691,7 @@ window.stopPendingEnrolmentsListener = () => {
     _firebaseEnrolmentsUnsubscribe();
     _firebaseEnrolmentsUnsubscribe = null;
     _firebaseEnrolmentsSeeded = false;
-    console.log('✓ Pending enrolments Firebase listener stopped');
+    console.log('[FB-DEBUG] Listener removed (pending_enrolments)'); // TEMP DEBUG LOG
   }
 };
 
@@ -11837,7 +12021,7 @@ let _financeFirebaseUnsubscribe = null;
 window.initFinanceFirebaseListener = () => {
   if (!_finCanAccess()) return; // hard gate — this must never even attempt to subscribe for Manager/Staff
   if (typeof window.listenFinanceExpenses !== 'function') return;
-  if (_financeFirebaseUnsubscribe) return; // already subscribed this session
+  if (_financeFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (finance_expenses) — not re-subscribing'); return; } // already subscribed this session
 
   _financeFirebaseUnsubscribe = window.listenFinanceExpenses((remoteExpenses) => {
     let changed = false;
@@ -11865,7 +12049,7 @@ window.stopFinanceFirebaseListener = () => {
   if (_financeFirebaseUnsubscribe) {
     _financeFirebaseUnsubscribe();
     _financeFirebaseUnsubscribe = null;
-    console.log('✓ Finance Firebase listener stopped');
+    console.log('[FB-DEBUG] Listener removed (finance_expenses)'); // TEMP DEBUG LOG
   }
 };
 
