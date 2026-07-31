@@ -3717,6 +3717,15 @@ function _enterApp(user) {
         // confirmRequest/rejectRequest remain gated to Super Admin/Admin
         // only, unchanged), so no access-gate check needed here.
         window.initBookingRequestsFirebaseListener?.();
+        // PHASE 6 — Dues Synchronization. Students/Fees available to every
+        // role like Coaches (Staff can view Students/Fees/Dues pages, same
+        // as before); Due Adjustments has no role gate of its own here
+        // either — same reasoning as Booking Requests above, since
+        // manageDues is already enforced at the point of writing an
+        // adjustment (saveDueAdjustment), not at the point of reading them.
+        window.initStudentsFirebaseListener?.();
+        window.initFeesFirebaseListener?.();
+        window.initDueAdjustmentsFirebaseListener?.();
         // Verify connection after initialization
         setTimeout(() => {
           window.verifyFirebaseConnection?.().then((verification) => {
@@ -3875,6 +3884,11 @@ function doLogout() {
   window.stopFinanceFirebaseListener?.();
   window.stopCoachesFirebaseListener?.();
   window.stopBookingRequestsFirebaseListener?.();
+  // PHASE 6 — tear down the Dues Synchronization listeners too, same
+  // reasoning as every listener above.
+  window.stopStudentsFirebaseListener?.();
+  window.stopFeesFirebaseListener?.();
+  window.stopDueAdjustmentsFirebaseListener?.();
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   // Clear password field for security
@@ -4509,6 +4523,194 @@ window.stopCoachesFirebaseListener = () => {
 };
 
 // ============================================================================
+// PHASE 6 — DUES SYNCHRONIZATION: STUDENTS / FEES / DUE ADJUSTMENTS
+// ----------------------------------------------------------------------------
+// Same reason this exists as the Coaches listener above: Manager, Super
+// Admin, and Admin all run _computeDueEntry() over window.DB.students /
+// window.DB.fees / window.DB.dueAdjustments — so Dues can only be
+// identical across devices if THOSE THREE inputs are identical in real
+// time. Before this phase, Students/Fees only refreshed on a 30s Sheets
+// poll (see syncStudentsFromSheet/syncFeesFromSheet above), and
+// DueAdjustments never refreshed at all (write-only, no GET). This gives
+// all three the same Firebase-listener shape Coaches already has, and —
+// unlike the generic per-module renders — every one of these three ALSO
+// re-renders the Dues page itself when it's open, since none of the
+// existing sync paths ever called renderDues() on new data arriving.
+// ============================================================================
+
+let _studentsFirebaseUnsubscribe = null;
+let _studentsFirebaseSeeded = false;
+let _feesFirebaseUnsubscribe = null;
+let _feesFirebaseSeeded = false;
+let _dueAdjustmentsFirebaseUnsubscribe = null;
+let _dueAdjustmentsFirebaseSeeded = false;
+
+// Shared by all three listeners below: re-render the Dues page in place
+// if it's the currently active page, with no navigation/refresh required.
+function _refreshDuesIfActive() {
+  if (document.getElementById('page-dues')?.classList.contains('active')) renderDues();
+}
+
+window.initStudentsFirebaseListener = () => {
+  if (typeof window.listenStudents !== 'function') return;
+  if (_studentsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (students) — not re-subscribing'); return; }
+
+  _studentsFirebaseUnsubscribe = window.listenStudents((remoteStudents) => {
+    let changed = false;
+    const seenStudentIds = new Set();
+
+    remoteStudents.forEach(remote => {
+      if (!remote.studentId) return;
+      seenStudentIds.add(remote.studentId);
+      const local = window.DB.students.find(s => s.studentId === remote.studentId);
+
+      if (!local) {
+        // Photo excluded from the merge on the update branch below (same
+        // reasoning as syncStudentsFromSheet — it's never synced), so it's
+        // excluded here on create too for consistency, even though a
+        // brand-new remote record wouldn't have a local photo to clobber.
+        const { photo, ...remoteNoPhoto } = remote;
+        const rec = { ...remoteNoPhoto, id: remote.studentId };
+        _lsAddPreservingId('students', rec);
+        window.DB.students.push(rec);
+        changed = true;
+        window._ddtzDiag?.recordEvent('students', 'Create'); // TEMP DIAGNOSTICS
+      } else {
+        const remoteUpdatedAt = remote.updatedAt || 0;
+        if (remoteUpdatedAt && remoteUpdatedAt !== local._fbUpdatedAt) {
+          const { photo, ...remoteNoPhoto } = remote;
+          const merged = { ...local, ...remoteNoPhoto, id: local.id, _fbUpdatedAt: remoteUpdatedAt };
+          LS.update('students', local.id, merged);
+          Object.assign(local, merged);
+          changed = true;
+          window._ddtzDiag?.recordEvent('students', 'Update'); // TEMP DIAGNOSTICS
+        }
+      }
+    });
+
+    // Archived/removed on another device — same reconciliation
+    // syncStudentsFromSheet already did for the Sheets-poll path, now also
+    // driven by Firebase. Guarded against this device's own not-yet-synced
+    // archive/delete, same as syncStudentsFromSheet's stillPendingArchive.
+    if (_studentsFirebaseSeeded) {
+      const stillPendingArchive = new Set(_getSyncQueue().filter(p => p.type === 'student' && (p.action === 'archive' || p.action === 'delete')).map(p => p.studentId));
+      const beforeCount = window.DB.students.length;
+      window.DB.students = window.DB.students.filter(s => !s.studentId || seenStudentIds.has(s.studentId) || stillPendingArchive.has(s.studentId));
+      if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students); window._ddtzDiag?.recordEvent('students', 'Delete'); }
+    }
+
+    _studentsFirebaseSeeded = true;
+    if (changed) {
+      populateFeeStudentSelect();
+      if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
+      _refreshDuesIfActive();
+    }
+  });
+
+  console.log('✓ Firebase realtime listener active for Students');
+};
+
+window.stopStudentsFirebaseListener = () => {
+  if (_studentsFirebaseUnsubscribe) {
+    _studentsFirebaseUnsubscribe();
+    _studentsFirebaseUnsubscribe = null;
+    _studentsFirebaseSeeded = false;
+    console.log('[FB-DEBUG] Listener removed (students)'); // TEMP DEBUG LOG
+  }
+};
+
+window.initFeesFirebaseListener = () => {
+  if (typeof window.listenFees !== 'function') return;
+  if (_feesFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (fees) — not re-subscribing'); return; }
+
+  _feesFirebaseUnsubscribe = window.listenFees((remoteFees) => {
+    let changed = false;
+    const seenReceiptNos = new Set();
+    const deletedIds = new Set(_getLocallyDeletedFeeIds());
+
+    remoteFees.forEach(remote => {
+      if (!remote.receiptNo || deletedIds.has(remote.receiptNo)) return;
+      seenReceiptNos.add(remote.receiptNo);
+      const local = window.DB.fees.find(f => f.receiptNo === remote.receiptNo);
+
+      if (!local) {
+        const rec = { ...remote, id: remote.receiptNo };
+        _lsAddPreservingId('fees', rec);
+        window.DB.fees.push(rec);
+        changed = true;
+        window._ddtzDiag?.recordEvent('fees', 'Create'); // TEMP DIAGNOSTICS
+      } else {
+        const remoteUpdatedAt = remote.updatedAt || 0;
+        if (remoteUpdatedAt && remoteUpdatedAt !== local._fbUpdatedAt) {
+          const merged = { ...local, ...remote, id: local.id, _fbUpdatedAt: remoteUpdatedAt };
+          LS.update('fees', local.id, merged);
+          Object.assign(local, merged);
+          changed = true;
+          window._ddtzDiag?.recordEvent('fees', 'Update'); // TEMP DIAGNOSTICS
+        }
+      }
+    });
+
+    _feesFirebaseSeeded = true;
+    if (changed) {
+      if (document.getElementById('page-fees')?.classList.contains('active')) renderFees();
+      _refreshDuesIfActive();
+    }
+  });
+
+  console.log('✓ Firebase realtime listener active for Fees');
+};
+
+window.stopFeesFirebaseListener = () => {
+  if (_feesFirebaseUnsubscribe) {
+    _feesFirebaseUnsubscribe();
+    _feesFirebaseUnsubscribe = null;
+    _feesFirebaseSeeded = false;
+    console.log('[FB-DEBUG] Listener removed (fees)'); // TEMP DEBUG LOG
+  }
+};
+
+// Append-only, same as its Sheets tab: a Due Adjustment is never updated
+// or removed once written, so this merge only ever ADDS records it hasn't
+// seen — no update/delete reconciliation branch needed, unlike Students/
+// Fees/Coaches above.
+window.initDueAdjustmentsFirebaseListener = () => {
+  if (typeof window.listenDueAdjustments !== 'function') return;
+  if (_dueAdjustmentsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (due_adjustments) — not re-subscribing'); return; }
+
+  _dueAdjustmentsFirebaseUnsubscribe = window.listenDueAdjustments((remoteAdjustments) => {
+    let changed = false;
+    window.DB.dueAdjustments = window.DB.dueAdjustments || [];
+    const knownIds = new Set(window.DB.dueAdjustments.map(a => a.id));
+
+    remoteAdjustments.forEach(remote => {
+      if (!remote.id || knownIds.has(remote.id)) return;
+      window.DB.dueAdjustments.push(remote);
+      knownIds.add(remote.id);
+      changed = true;
+      window._ddtzDiag?.recordEvent('dueAdjustments', 'Create'); // TEMP DIAGNOSTICS
+    });
+
+    _dueAdjustmentsFirebaseSeeded = true;
+    if (changed) {
+      LS.set('dueAdjustments', window.DB.dueAdjustments);
+      _refreshDuesIfActive();
+    }
+  });
+
+  console.log('✓ Firebase realtime listener active for Due Adjustments');
+};
+
+window.stopDueAdjustmentsFirebaseListener = () => {
+  if (_dueAdjustmentsFirebaseUnsubscribe) {
+    _dueAdjustmentsFirebaseUnsubscribe();
+    _dueAdjustmentsFirebaseUnsubscribe = null;
+    _dueAdjustmentsFirebaseSeeded = false;
+    console.log('[FB-DEBUG] Listener removed (due_adjustments)'); // TEMP DEBUG LOG
+  }
+};
+
+// ============================================================================
 // STAGE 1 — Reservation Requests Firebase listener
 // ----------------------------------------------------------------------------
 // Realtime transport ONLY. Does not reimplement duplicate prevention,
@@ -4665,6 +4867,10 @@ window._onFirebaseListenerFailed = (module) => {
   if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseUnsubscribe = null; }
   if (module === 'finance')         { _financeFirebaseUnsubscribe = null; }
   if (module === 'coachSettlements'){ _csFirebaseUnsubscribe = null; }
+  // PHASE 6 — Dues Synchronization listeners.
+  if (module === 'students')        { _studentsFirebaseSeeded = false;       _studentsFirebaseUnsubscribe = null; }
+  if (module === 'fees')            { _feesFirebaseSeeded = false;           _feesFirebaseUnsubscribe = null; }
+  if (module === 'dueAdjustments')  { _dueAdjustmentsFirebaseSeeded = false; _dueAdjustmentsFirebaseUnsubscribe = null; }
 };
 
 function _firebaseReconnectWatchdog(trigger) {
@@ -4694,6 +4900,11 @@ function _firebaseReconnectWatchdog(trigger) {
   // PHASE 5 — Coach Settlement is Super-Admin-only by design, same
   // self-gating reasoning as Finance directly above.
   if (!_csFirebaseUnsubscribe && _csCanAccess()) { missing.push('coachSettlements'); window.initCoachSettlementFirebaseListener?.(); }
+  // PHASE 6 — Dues Synchronization. Students/Fees/DueAdjustments are
+  // available to every role, same as Coaches/BookingRequests above.
+  if (!_studentsFirebaseUnsubscribe)       { missing.push('students');       window.initStudentsFirebaseListener?.(); }
+  if (!_feesFirebaseUnsubscribe)           { missing.push('fees');           window.initFeesFirebaseListener?.(); }
+  if (!_dueAdjustmentsFirebaseUnsubscribe) { missing.push('dueAdjustments'); window.initDueAdjustmentsFirebaseListener?.(); }
 
   if (missing.length) {
     console.log('[FB-DEBUG] Watchdog restored missing listeners:', missing.join(', '));
@@ -8578,6 +8789,18 @@ window.saveStudent = async () => {
   const id=await saveDoc('students',data,existId||null);
   if(!existId){data.studentId=id;data.id=id;window.DB.students.unshift(data);}
   else{const idx=window.DB.students.findIndex(x=>x.id===existId);if(idx>=0)window.DB.students[idx]={...data,id:existId};}
+  // PHASE 6 — Firebase-first, same non-blocking fail-soft pattern as
+  // saveCoach: attempt+await the Firebase write (normally sub-second) so
+  // other open sessions see it live, THEN fire the existing Sheets sync
+  // as a separate, non-blocking call. Firebase failing never blocks this
+  // save or the Sheets write — same established convention as Coaches.
+  const fbStudentResult = await window.syncStudentFirebase?.({
+    ...data,
+    updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
+  });
+  if (fbStudentResult && !fbStudentResult.success) {
+    console.warn('Student Firebase sync failed (Sheets sync still proceeding):', fbStudentResult.error);
+  }
   autoSyncStudent(data, existId ? 'update' : 'create');
   closeModal('student-modal');
   resetStudentForm();
@@ -8876,6 +9099,11 @@ window.archiveStudent = async (id) => {
   await saveDoc('students', updated, id);
   const idx = window.DB.students.findIndex(x=>x.id===id);
   if (idx>=0) window.DB.students[idx] = updated;
+  // PHASE 6 — archived students drop out of _getDuesList() (only
+  // non-archived active students are computed), so this needs the same
+  // Firebase-first push as saveStudent, or other devices keep billing a
+  // student that was just archived until their next 30s Sheets poll.
+  window.syncStudentFirebase?.({ ...updated, updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '' });
   autoSyncStudent(updated, 'archive');
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
   showToast('Student archived 🗄️');
@@ -8889,6 +9117,7 @@ window.restoreStudent = async (id) => {
   await saveDoc('students', updated, id);
   const idx = window.DB.students.findIndex(x=>x.id===id);
   if (idx>=0) window.DB.students[idx] = updated;
+  window.syncStudentFirebase?.({ ...updated, updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '' });
   autoSyncStudent(updated, 'restore');
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
   showToast('Student restored ✅');
@@ -9036,6 +9265,11 @@ window.bulkDeleteStudents = async () => {
     if (!s) continue;
     await deleteDoc2('students', id);
     window.DB.students = window.DB.students.filter(x=>x.id!==id);
+    // PHASE 6 — mirror the permanent delete into Firebase too, same
+    // fail-soft non-blocking pattern as deleteCoach.
+    window.deleteStudentFirebase?.(s.studentId || s.id).then(r => {
+      if (r && !r.success) console.warn('Student Firebase delete failed (Sheets delete still proceeding):', r.error);
+    });
     autoSyncStudent(s, 'permanent_delete');
     count++;
   }
@@ -9746,6 +9980,19 @@ window.saveFee = async (sendWA=false) => {
     const idx = window.DB.fees.findIndex(x=>x.id===data.id);
     if (idx>=0) window.DB.fees[idx] = data;
     renderFees();
+  }
+  // PHASE 6 — Firebase-first push, once receiptNo is known (it's assigned
+  // by Sheets above for a brand-new record, or already present on an
+  // edit) — same reasoning as saveStudent/saveCoach: other open sessions
+  // should see this fee/Due change live, not on their next 30s poll.
+  if (data.receiptNo) {
+    const fbFeeResult = await window.syncFeeFirebase?.({
+      ...data,
+      updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
+    });
+    if (fbFeeResult && !fbFeeResult.success) {
+      console.warn('Fee Firebase sync failed (Sheets sync still proceeding):', fbFeeResult.error);
+    }
   }
   if (syncRes && syncRes.ok) showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
   else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
@@ -10637,11 +10884,17 @@ window.saveDueAdjustment = async () => {
   window.DB.dueAdjustments.push(record);
   LS.set('dueAdjustments', window.DB.dueAdjustments);
 
-  // Background Sheets sync — same fire-and-forget, non-blocking pattern
-  // every other module already uses; Due Management is not yet Firebase-
-  // migrated (still Sheets-based end to end), so this correctly matches
-  // its surrounding architecture rather than introducing Firebase for
-  // just this one sub-feature while the rest of Fees/Due stays on Sheets.
+  // PHASE 6 — Dues Synchronization. This correction used to be a true
+  // dead end for every OTHER device (write-only to Sheets, no GET to read
+  // it back — see Code.gs handleDueAdjustmentsGet, added this phase, and
+  // firebase.js syncDueAdjustmentFirebase/listenDueAdjustments). Firebase
+  // write is awaited first so it's live everywhere in real time; the
+  // Sheets write below remains the fire-and-forget permanent record,
+  // same non-blocking pattern every other module in this file uses.
+  const fbAdjResult = await window.syncDueAdjustmentFirebase?.(record);
+  if (fbAdjResult && !fbAdjResult.success) {
+    console.warn('Due Adjustment Firebase sync failed (Sheets sync still proceeding):', fbAdjResult.error);
+  }
   postToGoogleSheet({ type: 'due_adjustment', ...record }).catch(() => {});
 
   logAudit({
@@ -13097,7 +13350,11 @@ window.renderDiagnostics = () => {
     { name: 'Connection Monitor', active: fb.status === 'connected' || fb.status === 'disconnected' },
     { name: 'Pending Enrolments', active: !!_firebaseEnrolmentsUnsubscribe },
     { name: 'Finance', active: !!_financeFirebaseUnsubscribe },
-    { name: 'Coaches', active: !!_coachesFirebaseUnsubscribe }
+    { name: 'Coaches', active: !!_coachesFirebaseUnsubscribe },
+    // PHASE 6 — Dues Synchronization listeners.
+    { name: 'Students', active: !!_studentsFirebaseUnsubscribe },
+    { name: 'Fees', active: !!_feesFirebaseUnsubscribe },
+    { name: 'Due Adjustments', active: !!_dueAdjustmentsFirebaseUnsubscribe }
   ];
   document.getElementById('diag-listeners-tbody').innerHTML = listeners.map(l =>
     `<tr><td>${l.name}</td><td>${l.active ? '🟢 Active' : '⚪ Not active'}</td></tr>`

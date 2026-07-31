@@ -1006,6 +1006,205 @@ window.listenCoaches = (callback) => {
 console.log('✓ Phase 4.3.1 Coaches Realtime Sync Module Loaded');
 
 // ============================================================================
+// PHASE 6 — DUES SYNCHRONIZATION: STUDENTS / FEES / DUE ADJUSTMENTS
+// ----------------------------------------------------------------------------
+// Root cause being fixed: Manager, Super Admin, and Admin all compute Dues
+// off the exact same window.DB.students/fees/dueAdjustments via the exact
+// same _computeDueEntry() in admin.html — the divergence was never the
+// calculation, it was that those three inputs had no realtime transport.
+// Students/Fees were poll-to-Sheets-every-30s (localStorage in between);
+// DueAdjustments had no read path AT ALL (write-only into the Sheet — see
+// Code.gs handleDueAdjustmentsGet, added this phase). This module gives
+// all three the exact same shape Coaches already uses above: keyed .set()
+// writes, a realtime .on('value') listener with an error/cancel handler,
+// Sheets still the permanent backend (Firebase is the live-sync layer on
+// top of it, same as every other migrated module).
+//
+// Requires new Firebase Security Rules entries for /students, /fees, and
+// /due_adjustments (same shape as the existing /coaches rule) — this file
+// cannot deploy those; they must be added in the Firebase console.
+// ============================================================================
+
+/**
+ * Create or update a student in Firebase, keyed by studentId (same id
+ * used locally and in Sheets).
+ */
+window.syncStudentFirebase = async (record) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    const studentId = record.studentId || record.id;
+    if (!studentId) { resolve({ success: false, error: 'Missing studentId' }); return; }
+    realtimeDb.ref('students/' + studentId).set({
+      ...record,
+      studentId,
+      updatedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => resolve({ success: true }))
+      .catch((error) => {
+        console.error('✗ Student Firebase sync failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+  });
+};
+
+/**
+ * Remove a student from Firebase (mirrors a local archive/delete).
+ */
+window.deleteStudentFirebase = async (studentId) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    realtimeDb.ref('students/' + studentId).remove()
+      .then(() => resolve({ success: true }))
+      .catch((error) => resolve({ success: false, error: error.message }));
+  });
+};
+
+/**
+ * Real-time listener for students. Same error/cancel-callback shape as
+ * every listener in this file since the Phase 4.2 emergency fix.
+ */
+window.listenStudents = (callback) => {
+  if (!realtimeDb) {
+    console.error('Firebase not initialized');
+    return null;
+  }
+  const ref = realtimeDb.ref('students');
+  const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (students)'); // TEMP DEBUG LOG — remove after live verification
+    const students = [];
+    snapshot.forEach((child) => students.push({ firebaseKey: child.key, ...child.val() }));
+    callback(students);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ Students listener error:', error);
+    window._onFirebaseListenerFailed?.('students'); // LISTENER LIFECYCLE — re-enable the 30s Sheets-poll fallback
+    lastFirebaseError = 'Students sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (students)'); // TEMP DEBUG LOG — remove after live verification
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Phase 6 Students Realtime Sync Module Loaded');
+
+/**
+ * Create or update a fee record in Firebase, keyed by receiptNo (same id
+ * admin.html already uses locally and in Sheets for fees).
+ */
+window.syncFeeFirebase = async (record) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    const receiptNo = record.receiptNo || record.id;
+    if (!receiptNo) { resolve({ success: false, error: 'Missing receiptNo' }); return; }
+    realtimeDb.ref('fees/' + receiptNo).set({
+      ...record,
+      receiptNo,
+      updatedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => resolve({ success: true }))
+      .catch((error) => {
+        console.error('✗ Fee Firebase sync failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+  });
+};
+
+/**
+ * Remove a fee record from Firebase (mirrors a local delete).
+ */
+window.deleteFeeFirebase = async (receiptNo) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    realtimeDb.ref('fees/' + receiptNo).remove()
+      .then(() => resolve({ success: true }))
+      .catch((error) => resolve({ success: false, error: error.message }));
+  });
+};
+
+/**
+ * Real-time listener for fees.
+ */
+window.listenFees = (callback) => {
+  if (!realtimeDb) {
+    console.error('Firebase not initialized');
+    return null;
+  }
+  const ref = realtimeDb.ref('fees');
+  const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (fees)'); // TEMP DEBUG LOG — remove after live verification
+    const fees = [];
+    snapshot.forEach((child) => fees.push({ firebaseKey: child.key, ...child.val() }));
+    callback(fees);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ Fees listener error:', error);
+    window._onFirebaseListenerFailed?.('fees'); // LISTENER LIFECYCLE — re-enable the 30s Sheets-poll fallback
+    lastFirebaseError = 'Fees sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (fees)'); // TEMP DEBUG LOG — remove after live verification
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Phase 6 Fees Realtime Sync Module Loaded');
+
+/**
+ * Create a Manual Due Correction in Firebase, keyed by its own id (e.g.
+ * 'ADJ...' — generated in admin.html's saveDueAdjustment). Append-only by
+ * convention (never updated/removed once written), same as the Sheets
+ * side (handleAppendOnly) — this is a .set() rather than .push() purely
+ * so the same record can never be double-written if a retry occurs.
+ */
+window.syncDueAdjustmentFirebase = async (record) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    const id = record.id;
+    if (!id) { resolve({ success: false, error: 'Missing id' }); return; }
+    realtimeDb.ref('due_adjustments/' + id).set({
+      ...record,
+      syncedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => resolve({ success: true }))
+      .catch((error) => {
+        console.error('✗ Due Adjustment Firebase sync failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+  });
+};
+
+/**
+ * Real-time listener for Manual Due Corrections. No delete function —
+ * append-only, same as its Sheets tab (TABS.DUE_ADJUSTMENTS is never
+ * modified after a row is written, by design — see Code.gs).
+ */
+window.listenDueAdjustments = (callback) => {
+  if (!realtimeDb) {
+    console.error('Firebase not initialized');
+    return null;
+  }
+  const ref = realtimeDb.ref('due_adjustments');
+  const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (due_adjustments)'); // TEMP DEBUG LOG — remove after live verification
+    const adjustments = [];
+    snapshot.forEach((child) => adjustments.push({ firebaseKey: child.key, ...child.val() }));
+    callback(adjustments);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ Due Adjustments listener error:', error);
+    window._onFirebaseListenerFailed?.('dueAdjustments'); // LISTENER LIFECYCLE — re-enable the Sheets-poll fallback
+    lastFirebaseError = 'Due Adjustments sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (due_adjustments)'); // TEMP DEBUG LOG — remove after live verification
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Phase 6 Due Adjustments Realtime Sync Module Loaded');
+
+// ============================================================================
 // PHASE 5 — COACH SETTLEMENT REALTIME SYNC (Super Admin only, same
 // convention as Finance above — page/action gates live in admin.html,
 // this is just the transport). Requires a matching Firebase Rules entry
