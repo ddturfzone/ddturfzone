@@ -412,6 +412,12 @@ tr:hover td{background:#f8fffe}
         <button class="nav-item" data-page-nav="fees" onclick="showPage('fees')"><span class="nav-icon">💰</span>Fee Collection</button>
         <button class="nav-item" data-page-nav="dues" onclick="showPage('dues')"><span class="nav-icon">📆</span>Dues</button>
         <button class="nav-item" data-page-nav="coaches" onclick="showPage('coaches')"><span class="nav-icon">👨‍🏫</span>Coaches</button>
+        <!-- PHASE 5 — Coach Settlement. Super Admin only (see
+             PAGE_PERMISSIONS.coachSettlement) — applyRolePermissionsToUI
+             hides this button for Manager/Staff, and showPage()'s own
+             hasPageAccess() check is the real, unavoidable gate, same
+             pattern as Finance/Accounts above. -->
+        <button class="nav-item" data-page-nav="coachSettlement" onclick="showPage('coachSettlement')"><span class="nav-icon">🤝</span>Coach Settlement</button>
       </div>
       <div class="nav-section">
         <div class="nav-section-label">Café</div>
@@ -429,7 +435,6 @@ tr:hover td{background:#f8fffe}
              applyRolePermissionsToUI) — but that's UX only. showPage()'s own
              hasPageAccess() check below is the real, unavoidable gate. -->
         <button class="nav-item" data-page-nav="finance" onclick="showPage('finance')"><span class="nav-icon">💰</span>Finance</button>
-        <button class="nav-item" data-page-nav="coachSettlement" onclick="showPage('coachSettlement')"><span class="nav-icon">🤝</span>Coach Settlement</button>
         <!-- TEMP DIAGNOSTICS PANEL — remove this line + page-diagnostics
              + renderDiagnostics() + the diagnostics: permission entry
              once Phase 4.x migrations are complete and verified. -->
@@ -6891,13 +6896,14 @@ function _describeAuditAction(payload) {
     booking: 'Booking', cafe_sale: 'Café sale', blocked_slot: 'Blocked slot',
     student: 'Student', attendance: 'Attendance', enquiry: 'Enquiry',
     coaching_football: 'Coaching fee (Football)', coaching_cricket: 'Coaching fee (Cricket)',
-    coaching_taekwondo: 'Coaching fee (Taekwondo)'
+    coaching_taekwondo: 'Coaching fee (Taekwondo)',
+    coach_settlement: 'Coach Settlement' // PHASE 5 — Coach Settlement Backend
   };
   const label = labels[payload.type] || payload.type;
   let action = payload.action;
   if (!action && payload.type === 'booking') action = payload.status === 'cancelled' ? 'cancel' : 'save';
   if (!action) action = 'create';
-  const ref = payload.bookingId || payload.blockId || payload.studentId || payload.enquiryId || payload.attendanceId || payload.name || payload.itemName || '';
+  const ref = payload.bookingId || payload.blockId || payload.studentId || payload.enquiryId || payload.attendanceId || payload.settlementId || payload.name || payload.itemName || '';
   // PHASE 3.4c Task 2 — Receipt Delivery. Print/PDF (Task 1) keep their
   // existing generic "receipt print — X" / "receipt pdf — X" summary
   // unchanged; only the four new delivery actions get friendlier labels
@@ -14219,7 +14225,7 @@ window.renderSettings = () => {
   document.getElementById('settings-auto-reminder').checked = backupPref;
 
   const pages = Object.keys(PAGE_PERMISSIONS);
-  const pageLabels = {dashboard:'Dashboard',bookings:'Slot Bookings',customers:'Customers',students:'Coaching',attendance:'Attendance',fees:'Fee Collection',coaches:'Coaches',enquiries:'Enquiries',cafe:'Café',accounts:'Accounts',reports:'Reports',users:'User Management',settings:'Settings'};
+  const pageLabels = {dashboard:'Dashboard',bookings:'Slot Bookings',customers:'Customers',students:'Coaching',attendance:'Attendance',fees:'Fee Collection',dues:'Dues',coaches:'Coaches',coachSettlement:'Coach Settlement',enquiries:'Enquiries',cafe:'Café',accounts:'Accounts',finance:'Finance',reports:'Reports',users:'User Management',settings:'Settings'};
   document.getElementById('settings-permissions-tbody').innerHTML = pages.map(p => {
     const allowed = PAGE_PERMISSIONS[p];
     const mark = (role) => allowed.includes(role) ? '✅' : '—';
@@ -15581,7 +15587,8 @@ const RT_MODULE_META = {
   reminder:               { icon: '📣', label: 'Reminder' }, // PHASE 3.4d — Due Engine & Reminder Dashboard
   enrolment_request:        { icon: '📝', label: 'Enrolment Request' }, // PHASE 3.5 — Student Enrolment Request System
   enrolment_request_update: { icon: '📝', label: 'Enrolment Request' },
-  attendance_summary:       { icon: '📊', label: 'Attendance Summary' } // PHASE 3.5 Improvements — Item 6
+  attendance_summary:       { icon: '📊', label: 'Attendance Summary' }, // PHASE 3.5 Improvements — Item 6
+  coach_settlement:         { icon: '🤝', label: 'Coach Settlement' } // PHASE 5 — Coach Settlement Backend
 };
 function _rtModuleMeta(mod) {
   if (RT_MODULE_META[mod]) return RT_MODULE_META[mod];
