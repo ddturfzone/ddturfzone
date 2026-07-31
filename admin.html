@@ -429,6 +429,7 @@ tr:hover td{background:#f8fffe}
              applyRolePermissionsToUI) — but that's UX only. showPage()'s own
              hasPageAccess() check below is the real, unavoidable gate. -->
         <button class="nav-item" data-page-nav="finance" onclick="showPage('finance')"><span class="nav-icon">💰</span>Finance</button>
+        <button class="nav-item" data-page-nav="coachSettlement" onclick="showPage('coachSettlement')"><span class="nav-icon">🤝</span>Coach Settlement</button>
         <!-- TEMP DIAGNOSTICS PANEL — remove this line + page-diagnostics
              + renderDiagnostics() + the diagnostics: permission entry
              once Phase 4.x migrations are complete and verified. -->
@@ -1098,6 +1099,52 @@ tr:hover td{background:#f8fffe}
                 <th>Method</th><th>Recurring</th><th>Added By</th><th>Actions</th>
               </tr></thead>
               <tbody id="finance-expenses-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           PHASE 5 — COACH SETTLEMENT & REVENUE SHARING (Super Admin
+           only, same visibility level as Finance). Integrated from the
+           isolated coach-settlement-dev.html preview module — this is
+           the real, connected version: reads window.DB directly (no
+           separate localStorage), writes to LS + Firebase + Sheets on
+           generate/payment-update, same as every other module here.
+      ============================================================ -->
+      <div class="page" id="page-coachSettlement">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">🤝 Coach Settlement</div>
+            <div style="color:var(--gray3);font-size:13px">Monthly revenue share, attendance & fee reconciliation — Super Admin only</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Select Coach & Month</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0"><label>Coach</label><select id="cs-coach-select" onchange="csRenderSettlement()"></select></div>
+            <div class="form-group" style="margin:0"><label>Month</label><input type="month" id="cs-month-select" onchange="csRenderSettlement()"></div>
+            <div class="form-group" style="margin:0"><label>Revenue Share %</label><input type="number" id="cs-revshare-input" style="width:90px" min="0" max="100" onchange="csApplyRevShareOverride()"></div>
+            <button class="btn btn-primary" data-requires-action="manageCoachSettlement" onclick="csGenerateSettlementUI()">📌 Generate Settlement</button>
+          </div>
+          <div id="cs-data-status" style="font-size:12px;color:var(--gray3);margin-top:10px"></div>
+        </div>
+
+        <div id="cs-settlement-container"></div>
+
+        <div class="card mt-16" style="margin-top:16px">
+          <div class="card-title">📋 Past Settlements</div>
+          <div class="filter-bar">
+            <select id="cs-history-filter-coach" onchange="csRenderSettlementHistory()"><option value="">All Coaches</option></select>
+            <select id="cs-history-filter-status" onchange="csRenderSettlementHistory()">
+              <option value="">All Statuses</option><option value="Pending">Pending</option><option value="Partially Paid">Partially Paid</option><option value="Paid">Paid</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Month</th><th>Coach</th><th>Sport</th><th>Students</th><th>Collected</th><th>Coach Share</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="cs-history-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -2864,10 +2911,36 @@ tr:hover td{background:#f8fffe}
       <div class="form-group"><label>Status</label>
         <select id="co-status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
       </div>
+      <!-- PHASE 5 — Coach Settlement. Default 50%, per Coach Settlement
+           spec section 2's default; used by csRevShareFor. -->
+      <div class="form-group"><label>Revenue Share % (Coach Settlement)</label><input type="number" id="co-revshare" min="0" max="100" placeholder="50"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('coach-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveCoach()">💾 Save Coach</button>
+    </div>
+  </div>
+</div>
+
+<!-- PHASE 5 — Coach Settlement: record a payment against the coach's
+     share for a settlement. Balance/status are recalculated from the
+     full payment history, never overwritten directly — see
+     csUpdatePaymentStatus. -->
+<div class="modal-overlay" id="cs-payment-modal">
+  <div class="modal">
+    <div class="modal-title">💵 Record Settlement Payment</div>
+    <input type="hidden" id="cs-payment-settlement-id">
+    <div id="cs-payment-modal-summary" style="font-size:13px;color:var(--gray3);margin-bottom:12px"></div>
+    <div class="form-grid">
+      <div class="form-group"><label>Amount Paid (₹) *</label><input type="number" id="cs-payment-amount" placeholder="e.g. 5000"></div>
+      <div class="form-group"><label>Method</label>
+        <select id="cs-payment-method"><option value="Cash">Cash</option><option value="GPay">GPay</option><option value="Bank Transfer">Bank Transfer</option><option value="Card">Card</option></select>
+      </div>
+      <div class="form-group" style="grid-column:1/-1"><label>Remarks</label><input type="text" id="cs-payment-remarks" placeholder="Optional note"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('cs-payment-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="csRecordPaymentUI()">💾 Record Payment</button>
     </div>
   </div>
 </div>
@@ -3094,7 +3167,7 @@ const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZ
 //     Known Limitation entry. RESOLVED in Phase 3.1 — see the "PHASE 3.1 —
 //     Coaches Backend" comments on TABS.COACHES / autoSyncCoach /
 //     syncCoachesFromSheet / handleCoachesGet / handleCoachWrite.
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[], dueAdjustments:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[], dueAdjustments:[], coachSettlements:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -3250,7 +3323,7 @@ const LAST_RESTORE_KEY = 'ddtz_last_restore';
 const LAST_DAILY_BACKUP_KEY = 'ddtz_last_daily_backup_date';
 // Same collections loadAllData() reads — the authoritative list of what's
 // actually persisted (customers/window.DB.customers is derived, not stored).
-const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments'];
+const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments','coachSettlements'];
 
 function _getBackupHistory() { try { return JSON.parse(localStorage.getItem(BACKUP_HISTORY_KEY) || '[]'); } catch(e){ return []; } }
 function _setBackupHistory(list) { try { localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(list)); } catch(e){} }
@@ -3369,6 +3442,11 @@ const PAGE_PERMISSIONS = {
   // is untouched) — Super Admin only, no exceptions, checked the same
   // way every other Super-Admin-only page already is.
   finance:    [ROLES.SUPER_ADMIN],
+  // PHASE 5 — Coach Settlement & Revenue Sharing. Same shape as Finance
+  // directly above: this is real money owed to real coaches, so it gets
+  // the same zero-Manager/Staff-visibility treatment as Finance, not the
+  // Staff-view-only pattern used by Students/Fees/Dues.
+  coachSettlement: [ROLES.SUPER_ADMIN],
   // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only. Safe to
   // delete this line (and everything else marked "TEMP DIAGNOSTICS")
   // once all Firebase migrations are complete and verified.
@@ -3403,6 +3481,11 @@ const ACTION_PERMISSIONS = {
   viewFinance:          [ROLES.SUPER_ADMIN],
   manageFinanceExpense: [ROLES.SUPER_ADMIN],
   exportFinanceReport:  [ROLES.SUPER_ADMIN],
+  // PHASE 5 — Coach Settlement. Generate settlements, edit Revenue Share
+  // %, and record payment status — all Super-Admin-only, same reasoning
+  // as manageFinanceExpense above (this is the payout side of the same
+  // money Finance tracks on the expense side).
+  manageCoachSettlement: [ROLES.SUPER_ADMIN],
   // PHASE 3.1 — Coaches Backend. Same roles as PAGE_PERMISSIONS.coaches
   // (Super Admin + Manager); this is the point-of-action gate that backs
   // up the page-level one, same as every other module here.
@@ -3921,6 +4004,10 @@ async function loadAllData() {
   // device's own localStorage (e.g. a shared device previously used by a
   // Super Admin) — not just never fetched over the network for them.
   window.DB.financeExpenses = _finCanAccess() ? LS.get('financeExpenses') : [];
+  // PHASE 5 — Coach Settlement. Same "must never enter window.DB for
+  // Manager/Staff at all" reasoning as Finance directly above — this is
+  // real payout data, not just a page-access restriction.
+  window.DB.coachSettlements = _csCanAccess() ? LS.get('coachSettlements') : [];
   _seedDefaultCoachingCategoriesOnce();
   refreshCategoryDropdowns();
   _dedupeBookingsByBookingId();
@@ -3953,6 +4040,8 @@ async function loadAllData() {
   // financeExpenses ever gets pulled from Sheets, and it simply never
   // runs unless _finCanAccess() is true.
   if (_finCanAccess()) syncFinanceExpensesFromSheet();
+  // PHASE 5 — Coach Settlement. Same Super-Admin-only gate as Finance.
+  if (_csCanAccess()) syncCoachSettlementsFromSheet();
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
@@ -4570,6 +4659,7 @@ window._onFirebaseListenerFailed = (module) => {
   if (module === 'coaches')         { _coachesFirebaseSeeded = false;         _coachesFirebaseUnsubscribe = null; }
   if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseUnsubscribe = null; }
   if (module === 'finance')         { _financeFirebaseUnsubscribe = null; }
+  if (module === 'coachSettlements'){ _csFirebaseUnsubscribe = null; }
 };
 
 function _firebaseReconnectWatchdog(trigger) {
@@ -4596,6 +4686,9 @@ function _firebaseReconnectWatchdog(trigger) {
   // Finance is Super-Admin-only by design — its init function gates
   // itself internally, so calling it for any other role is a safe no-op.
   if (!_financeFirebaseUnsubscribe && _finCanAccess()) { missing.push('finance'); window.initFinanceFirebaseListener?.(); }
+  // PHASE 5 — Coach Settlement is Super-Admin-only by design, same
+  // self-gating reasoning as Finance directly above.
+  if (!_csFirebaseUnsubscribe && _csCanAccess()) { missing.push('coachSettlements'); window.initCoachSettlementFirebaseListener?.(); }
 
   if (missing.length) {
     console.log('[FB-DEBUG] Watchdog restored missing listeners:', missing.join(', '));
@@ -4731,12 +4824,12 @@ window.showPage = (page) => {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`[onclick="showPage('${page}')"]`)?.classList.add('active');
-  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',enrolmentqr:'Enrolment QR',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',finance:'Finance',diagnostics:'Realtime Diagnostics (Temp)',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
+  const titles = {dashboard:'Dashboard',requests:'Pending Reservations',bookings:'Turf Bookings',customers:'Customers',enrolments:'Pending Enrolments',enrolmentqr:'Enrolment QR',students:'Students',attendance:'Attendance',fees:'Fee Collection',dues:'Dues & Reminders',coaches:'Coaches',enquiries:'Enquiries & Leads',cafe:'Café',accounts:'Accounts & Finance',finance:'Finance',coachSettlement:'Coach Settlement',diagnostics:'Realtime Diagnostics (Temp)',reports:'Reports',activity:'Activity Log',users:'User Management',settings:'Settings',website:'Website Content'};
   document.getElementById('page-title').textContent = titles[page]||page;
   closeSidebar();
   // Init report selectors on first visit
   if (page === 'reports') { initReportSelectors(); }
-  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,enrolmentqr:renderEnrolmentQrPage,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,finance:renderFinance,diagnostics:renderDiagnostics,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
+  const renders = {requests:renderBookingRequests,bookings:renderBookingCalendar,customers:renderCustomers,enrolments:renderEnrolments,enrolmentqr:renderEnrolmentQrPage,students:renderStudents,fees:renderFees,dues:renderDues,coaches:renderCoaches,enquiries:renderEnquiries,cafe:renderCafe,accounts:renderAccounts,finance:renderFinance,coachSettlement:renderCoachSettlementPage,diagnostics:renderDiagnostics,reports:renderReports,activity:renderActivityLog,dashboard:renderDashboard,users:renderUserManagement,settings:renderSettings,website:renderWebsiteContent};
   renders[page]?.();
   if (page === 'website') _pullSiteConfigFromSheet();
   if (page === 'requests') fetchPendingRequestsFromSheet();
@@ -11289,7 +11382,7 @@ window.saveCoach = async () => {
   const name=document.getElementById('co-name').value.trim();
   const phone=document.getElementById('co-phone').value.trim();
   if(!name||!phone){showToast('Fill required fields','error');return;}
-  const data={name,phone,sport:document.getElementById('co-sport').value,salary:Number(document.getElementById('co-salary').value)||0,joined:document.getElementById('co-joined').value||getToday(),status:document.getElementById('co-status').value};
+  const data={name,phone,sport:document.getElementById('co-sport').value,salary:Number(document.getElementById('co-salary').value)||0,joined:document.getElementById('co-joined').value||getToday(),status:document.getElementById('co-status').value,revenueSharePercent:Number(document.getElementById('co-revshare').value)||50};
   const existId=document.getElementById('co-id').value;
   if (existId) {
     // Carry the existing coachId/updatedAt forward so autoSyncCoach can
@@ -11386,7 +11479,7 @@ window.openCoachForEdit = (id) => {
   });
 };
 
-window.editCoach=(id)=>{const c=window.DB.coaches.find(x=>x.id===id);if(!c)return;document.getElementById('co-id').value=c.id;document.getElementById('co-name').value=c.name;document.getElementById('co-phone').value=c.phone;document.getElementById('co-sport').value=c.sport;document.getElementById('co-salary').value=c.salary||'';document.getElementById('co-joined').value=c.joined||'';document.getElementById('co-status').value=c.status;document.getElementById('coach-modal-title').textContent='✏️ Edit Coach';openModal('coach-modal');};
+window.editCoach=(id)=>{const c=window.DB.coaches.find(x=>x.id===id);if(!c)return;document.getElementById('co-id').value=c.id;document.getElementById('co-name').value=c.name;document.getElementById('co-phone').value=c.phone;document.getElementById('co-sport').value=c.sport;document.getElementById('co-salary').value=c.salary||'';document.getElementById('co-joined').value=c.joined||'';document.getElementById('co-status').value=c.status;document.getElementById('co-revshare').value=c.revenueSharePercent||'';document.getElementById('coach-modal-title').textContent='✏️ Edit Coach';openModal('coach-modal');};
 
 // ===== ENQUIRIES =====
 window.saveEnquiry = async () => {
@@ -12298,6 +12391,508 @@ function _finSyncSummaryToSheets() {
     expOwner: s.expOwner, expEmployee: s.expEmployee, netProfit: s.netProfit
   });
 }
+
+// ============================================================================
+// PHASE 5 — COACH SETTLEMENT & REVENUE SHARING (Super Admin only)
+// ----------------------------------------------------------------------------
+// Integrated from the isolated coach-settlement-dev.html preview module.
+// The calculation engine below is a direct port of that module's pure
+// functions — same aggregation logic (Fee Plan vs. actual fee records,
+// no installment-summing, matching the corrected Dues pattern), now
+// reading window.DB directly instead of its own separate localStorage
+// copy. Persistence moves from the dev module's isolated 'csdev_' keys
+// to the real 'ddtz_coachSettlements' key via LS, with logAudit, Firebase
+// sync (syncCoachSettlementFirebase), and Google Sheets sync (queuedSync,
+// type: 'coach_settlement') wired in exactly like every other module.
+// ============================================================================
+
+function _csCanAccess() { return CURRENT_USER?.role === ROLES.SUPER_ADMIN; }
+
+const CS_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const CS_WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+/** Every active student currently assigned to a coach (by coach name — same string-match convention the rest of the app uses for students.coach). */
+function csStudentsForCoach(coachName) {
+  return (window.DB.students || []).filter(s => s.coach === coachName && !s.archived);
+}
+
+/**
+ * Fee collection for one student in one month. DD Turf Zone does not
+ * support installment payments — one fee record per student per period —
+ * so this looks up the single record for the period rather than summing
+ * multiple, matching the corrected Dues aggregation pattern.
+ */
+function csStudentFeeForMonth(student, monthLabel, year) {
+  const record = (window.DB.fees || []).find(f =>
+    (f.studentId === (student.studentId || student.id)) &&
+    f.feeType === 'monthly' && f.month === monthLabel && String(f.year) === String(year)
+  );
+  const monthlyFee = Number(student.fee) || 0;
+  const collected = record ? (record.amountReceived ?? record.paid ?? 0) : 0;
+  const pending = Math.max(0, monthlyFee - collected);
+  return { monthlyFee, collected, pending };
+}
+
+/** Attendance for one student in one month — schedule-aware where scheduleDays exists, falls back to marked-days-only otherwise (same shape _computeAttendanceStats already shows elsewhere). */
+function csStudentAttendanceForMonth(student, fromDateStr, toDateStr) {
+  const scheduleDays = student.scheduleDays || [];
+  const records = (window.DB.attendance || []).filter(a => a.studentId === (student.studentId || student.id) && a.date >= fromDateStr && a.date <= toDateStr);
+  const byDate = {};
+  records.forEach(r => { byDate[r.date] = r.status; });
+
+  if (scheduleDays.length) {
+    let scheduled = 0, attended = 0;
+    let d = new Date(fromDateStr + 'T00:00:00');
+    const end = new Date(toDateStr + 'T00:00:00');
+    while (d <= end) {
+      if (scheduleDays.includes(CS_WEEKDAY_NAMES[d.getDay()])) {
+        scheduled++;
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (byDate[dateStr] === 'P') attended++;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    return { scheduled, attended, missed: scheduled - attended, percent: scheduled ? Math.round((attended/scheduled)*100) : 0 };
+  }
+  const attended = records.filter(r => r.status === 'P').length;
+  const missed = records.filter(r => r.status === 'A').length;
+  const scheduled = attended + missed;
+  return { scheduled, attended, missed, percent: scheduled ? Math.round((attended/scheduled)*100) : 0 };
+}
+
+/** Revenue Share % — reads the Coach Profile's own field (added by this integration), defaulting to 50 per spec. */
+function csRevShareFor(coach) { return Number(coach?.revenueSharePercent) || 50; }
+
+/** Full settlement computation for one coach, one month — pure/read-only, callable any time for a live preview. */
+function csComputeSettlement(coachId, monthValue) {
+  const coach = (window.DB.coaches || []).find(c => (c.coachId || c.id) === coachId);
+  if (!coach) return null;
+  const [year, monthNum] = monthValue.split('-').map(Number);
+  const monthLabel = CS_MONTH_NAMES[monthNum - 1];
+  const fromDate = `${monthValue}-01`;
+  const lastDay = new Date(year, monthNum, 0).getDate();
+  const toDate = `${monthValue}-${String(lastDay).padStart(2,'0')}`;
+
+  const students = csStudentsForCoach(coach.name);
+  const revenueShare = csRevShareFor(coach);
+
+  let totalCollected = 0, totalPending = 0;
+  const studentRows = students.map(s => {
+    const fee = csStudentFeeForMonth(s, monthLabel, year);
+    const att = csStudentAttendanceForMonth(s, fromDate, toDate);
+    totalCollected += fee.collected;
+    totalPending += fee.pending;
+    return {
+      studentId: s.studentId || s.id, name: s.name, batch: s.batch || '',
+      monthlyFee: fee.monthlyFee, collected: fee.collected, pending: fee.pending,
+      attendance: att
+    };
+  });
+
+  const attendedRows = studentRows.filter(r => r.attendance.scheduled > 0);
+  const avgAttendance = attendedRows.length ? Math.round(attendedRows.reduce((a,r)=>a+r.attendance.percent,0) / attendedRows.length) : 0;
+  const above90 = attendedRows.filter(r => r.attendance.percent >= 90).length;
+  const between75and90 = attendedRows.filter(r => r.attendance.percent >= 75 && r.attendance.percent < 90).length;
+  const below75 = attendedRows.filter(r => r.attendance.percent < 75).length;
+
+  const netCollected = totalCollected; // "Net Collected Amount" — no coach-side deductions modeled yet
+  const coachShareAmount = Math.round(netCollected * revenueShare / 100);
+  const ddShareAmount = netCollected - coachShareAmount;
+
+  return {
+    coach: { id: coach.coachId || coach.id, name: coach.name, sport: coach.sport },
+    monthLabel, year, monthValue,
+    revenueSharePercent: revenueShare,
+    students: studentRows,
+    totals: {
+      totalStudents: students.length, totalCollected, totalPending, netCollected,
+      coachShareAmount, ddShareAmount,
+      avgAttendance, above90, between75and90, below75
+    }
+  };
+}
+
+// ----- Persistence: real ddtz_coachSettlements collection, same LS/
+// logAudit/Firebase/Sheets pipeline every other module uses. -----
+
+/** "Generate" a settlement — snapshots computed values so past settlements retain the % used when generated, even if the coach's Revenue Share % is edited later. Never creates duplicates for the same coach+month. */
+window.csGenerateSettlement = async (coachId, monthValue) => {
+  if (!_csCanAccess() || !can('manageCoachSettlement')) { denyAccess(); return { success: false, error: 'Not authorized.' }; }
+  const existing = (window.DB.coachSettlements || []).find(s => s.coachId === coachId && s.monthValue === monthValue);
+  if (existing) return { success: false, error: 'A settlement for this coach and month already exists.' };
+
+  const computed = csComputeSettlement(coachId, monthValue);
+  if (!computed) return { success: false, error: 'Coach not found.' };
+
+  const record = {
+    settlementId: 'CS' + Date.now().toString(36).toUpperCase(),
+    coachId, coachName: computed.coach.name, sport: computed.coach.sport,
+    monthValue, monthLabel: computed.monthLabel, year: computed.year,
+    revenueSharePercent: computed.revenueSharePercent,
+    totals: computed.totals,
+    students: computed.students,
+    status: 'Pending',
+    paymentHistory: [],
+    generatedDate: new Date().toISOString(),
+    generatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
+  };
+
+  const id = LS.add('coachSettlements', record);
+  record.id = id;
+  window.DB.coachSettlements.unshift(record);
+  logAudit({ type: 'coach_settlement', action: 'generated', recordId: record.settlementId,
+    summary: `Settlement Generated — ${record.coachName} (${record.monthLabel} ${record.year}) — Coach Share ₹${record.totals.coachShareAmount.toLocaleString('en-IN')}` });
+
+  _csSyncFirebaseAndSheets(record);
+  return { success: true, record };
+};
+
+/** Record a payment against a settlement's coach share — appends to history, never overwrites it, recalculates status from the full history. */
+window.csRecordPayment = async (settlementId, { amountPaid, method, remarks }) => {
+  if (!_csCanAccess() || !can('manageCoachSettlement')) { denyAccess(); return { success: false, error: 'Not authorized.' }; }
+  const rec = (window.DB.coachSettlements || []).find(s => s.settlementId === settlementId);
+  if (!rec) return { success: false, error: 'Settlement not found.' };
+
+  const alreadyPaid = (rec.paymentHistory || []).reduce((s,h) => s + (h.amountPaid || 0), 0);
+  const newTotalPaid = alreadyPaid + Number(amountPaid || 0);
+  const balance = Math.max(0, rec.totals.coachShareAmount - newTotalPaid);
+  const newStatus = newTotalPaid <= 0 ? 'Pending' : balance > 0 ? 'Partially Paid' : 'Paid';
+
+  rec.paymentHistory = rec.paymentHistory || [];
+  rec.paymentHistory.push({
+    date: getToday(),
+    amountPaid: Number(amountPaid || 0),
+    balance, method: method || '', remarks: remarks || '',
+    updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '',
+    updatedAt: new Date().toISOString()
+  });
+  rec.status = newStatus;
+  LS.update('coachSettlements', rec.id, rec);
+  logAudit({ type: 'coach_settlement', action: 'payment_recorded', recordId: rec.settlementId,
+    summary: `Settlement Payment — ${rec.coachName} (${rec.monthLabel} ${rec.year}) — ₹${Number(amountPaid||0).toLocaleString('en-IN')} via ${method || 'n/a'} — now ${newStatus}` });
+
+  _csSyncFirebaseAndSheets(rec);
+  return { success: true, record: rec };
+};
+
+/** Firebase-first (same fail-soft convention as Coaches/Finance), then a non-blocking Sheets push with nested fields JSON-stringified — same convention as SiteConfig. */
+async function _csSyncFirebaseAndSheets(record) {
+  const fbResult = await window.syncCoachSettlementFirebase?.(record);
+  if (fbResult && !fbResult.success) {
+    console.warn('Coach Settlement Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+  }
+  queuedSync({
+    type: 'coach_settlement', action: 'update',
+    settlementId: record.settlementId, coachId: record.coachId, coachName: record.coachName, sport: record.sport,
+    monthValue: record.monthValue, monthLabel: record.monthLabel, year: record.year,
+    revenueSharePercent: record.revenueSharePercent,
+    totals: JSON.stringify(record.totals), students: JSON.stringify(record.students),
+    status: record.status, paymentHistory: JSON.stringify(record.paymentHistory),
+    generatedDate: record.generatedDate, generatedBy: record.generatedBy
+  });
+}
+
+// ----- Google Sheets: initial load + periodic merge (Super Admin only,
+// same gate and merge-by-id pattern as syncFinanceExpensesFromSheet). -----
+let _csSyncInFlight = false;
+async function syncCoachSettlementsFromSheet() {
+  if (!_csCanAccess()) return;
+  if (!window.DDTZ_SHEET_URL || _csSyncInFlight) return;
+  _csSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=coachSettlements&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    (data.settlements || []).forEach(remote => {
+      if (!remote.settlementId) return;
+      const local = window.DB.coachSettlements.find(r => r.settlementId === remote.settlementId);
+      if (!local) {
+        const id = LS.add('coachSettlements', remote);
+        window.DB.coachSettlements.unshift({ ...remote, id });
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        const merged = { ...local, ...remote, id: local.id };
+        LS.update('coachSettlements', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    if (changed && document.getElementById('page-coachSettlement')?.classList.contains('active')) csRenderSettlement();
+  } catch (e) {
+    // Network hiccup — local data unaffected, same as every other sync-from-sheet function.
+  } finally {
+    _csSyncInFlight = false;
+  }
+}
+
+// ----- Firebase realtime listener (Super Admin only, same pattern as Finance) -----
+let _csFirebaseUnsubscribe = null;
+window.initCoachSettlementFirebaseListener = () => {
+  if (!_csCanAccess()) return;
+  if (typeof window.listenCoachSettlements !== 'function') return;
+  if (_csFirebaseUnsubscribe) return;
+
+  _csFirebaseUnsubscribe = window.listenCoachSettlements((remoteSettlements) => {
+    let changed = false;
+    remoteSettlements.forEach(remote => {
+      if (!remote.settlementId) return;
+      const idx = window.DB.coachSettlements.findIndex(s => s.settlementId === remote.settlementId);
+      if (idx === -1) {
+        window.DB.coachSettlements.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
+        changed = true;
+      } else if ((remote.updatedAt || 0) !== (window.DB.coachSettlements[idx]._fbUpdatedAt || 0)) {
+        window.DB.coachSettlements[idx] = { ...window.DB.coachSettlements[idx], ...remote, _fbUpdatedAt: remote.updatedAt };
+        changed = true;
+      }
+    });
+    if (changed && document.getElementById('page-coachSettlement')?.classList.contains('active')) csRenderSettlement();
+  });
+  console.log('✓ Firebase realtime listener active for Coach Settlement (Super Admin)');
+};
+window.stopCoachSettlementFirebaseListener = () => {
+  if (_csFirebaseUnsubscribe) { _csFirebaseUnsubscribe(); _csFirebaseUnsubscribe = null; }
+};
+
+// ----- UI -----
+window._csCurrentSettlement = null;
+
+window.renderCoachSettlementPage = () => {
+  if (!_csCanAccess()) { denyAccess(); return; }
+  const coachSel = document.getElementById('cs-coach-select');
+  const activeCoaches = (window.DB.coaches || []).filter(c => c.status === 'active');
+  coachSel.innerHTML = activeCoaches.length
+    ? activeCoaches.map(c => `<option value="${c.coachId || c.id}">${c.name} (${c.sport})</option>`).join('')
+    : '<option value="">No active coaches</option>';
+
+  const monthInput = document.getElementById('cs-month-select');
+  if (!monthInput.value) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  }
+
+  const historyCoachFilter = document.getElementById('cs-history-filter-coach');
+  historyCoachFilter.innerHTML = '<option value="">All Coaches</option>' + activeCoaches.map(c => `<option value="${c.coachId || c.id}">${c.name}</option>`).join('');
+
+  document.getElementById('cs-data-status').textContent =
+    `${window.DB.students.length} students, ${window.DB.coaches.length} coaches, ${window.DB.coachSettlements.length} settlements generated.`;
+
+  csRenderSettlement();
+  csRenderSettlementHistory();
+};
+
+window.csRenderSettlement = () => {
+  const coachId = document.getElementById('cs-coach-select')?.value;
+  const monthValue = document.getElementById('cs-month-select')?.value;
+  const container = document.getElementById('cs-settlement-container');
+  if (!container) return;
+  if (!coachId || !monthValue) { container.innerHTML = ''; return; }
+
+  const coach = window.DB.coaches.find(c => (c.coachId || c.id) === coachId);
+  document.getElementById('cs-revshare-input').value = coach ? csRevShareFor(coach) : 50;
+
+  const existing = window.DB.coachSettlements.find(s => s.coachId === coachId && s.monthValue === monthValue);
+  const s = existing || csComputeSettlement(coachId, monthValue);
+  if (!s) { container.innerHTML = '<div class="empty-state">Coach not found.</div>'; return; }
+  window._csCurrentSettlement = s;
+
+  const statusBadge = existing
+    ? `<span class="badge badge-${existing.status === 'Paid' ? 'green' : existing.status === 'Partially Paid' ? 'yellow' : 'gray'}">${existing.status}</span>`
+    : `<span class="badge">Not yet generated — live preview</span>`;
+
+  const paidSoFar = existing ? (existing.paymentHistory || []).reduce((a,h)=>a+(h.amountPaid||0),0) : 0;
+  const balanceOwed = existing ? Math.max(0, existing.totals.coachShareAmount - paidSoFar) : s.totals.coachShareAmount;
+
+  container.innerHTML = `
+    <div class="card mt-16" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div class="card-title" style="margin:0">${s.coach.name} — ${s.monthLabel} ${s.year} ${statusBadge}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="csDownloadPDF()">📄 PDF</button>
+          <button class="btn btn-secondary btn-sm" onclick="csShareWhatsApp()">📱 WhatsApp</button>
+          <button class="btn btn-secondary btn-sm" onclick="csSendEmail()">✉️ Email</button>
+          ${existing ? `<button class="btn btn-primary btn-sm" data-requires-action="manageCoachSettlement" onclick="csOpenPaymentModal('${existing.settlementId}')">💵 Record Payment</button>` : ''}
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-val">${s.totals.totalStudents}</div><div class="stat-label">Students</div></div>
+        <div class="stat-card"><div class="stat-val">₹${s.totals.totalCollected.toLocaleString('en-IN')}</div><div class="stat-label">Fees Collected</div></div>
+        <div class="stat-card"><div class="stat-val">₹${s.totals.totalPending.toLocaleString('en-IN')}</div><div class="stat-label">Pending Fees</div></div>
+        <div class="stat-card"><div class="stat-val">${s.totals.avgAttendance}%</div><div class="stat-label">Avg Attendance</div></div>
+        <div class="stat-card"><div class="stat-val">₹${s.totals.coachShareAmount.toLocaleString('en-IN')}</div><div class="stat-label">Coach Share (${s.revenueSharePercent}%)</div></div>
+        <div class="stat-card"><div class="stat-val">₹${s.totals.ddShareAmount.toLocaleString('en-IN')}</div><div class="stat-label">DD Turf Zone Share</div></div>
+      </div>
+      ${existing ? `<div style="font-size:13px;color:var(--gray3);margin-top:10px">Paid so far: <strong>₹${paidSoFar.toLocaleString('en-IN')}</strong> &nbsp;•&nbsp; Balance owed: <strong>₹${balanceOwed.toLocaleString('en-IN')}</strong></div>` : ''}
+      <div style="font-size:12px;color:var(--gray3);margin-top:8px">Attendance ≥90%: ${s.totals.above90} &nbsp;•&nbsp; 75–90%: ${s.totals.between75and90} &nbsp;•&nbsp; &lt;75%: ${s.totals.below75}</div>
+
+      <div class="table-wrap mt-16" style="margin-top:14px">
+        <table>
+          <thead><tr><th>Student</th><th>Batch</th><th>Monthly Fee</th><th>Collected</th><th>Pending</th><th>Attendance</th></tr></thead>
+          <tbody>
+            ${s.students.length ? s.students.map(r => `<tr>
+              <td>${r.name}</td><td>${r.batch}</td>
+              <td>₹${r.monthlyFee.toLocaleString('en-IN')}</td>
+              <td>₹${r.collected.toLocaleString('en-IN')}</td>
+              <td>${r.pending > 0 ? `₹${r.pending.toLocaleString('en-IN')}` : '—'}</td>
+              <td>${r.attendance.scheduled ? `${r.attendance.percent}% (${r.attendance.attended}/${r.attendance.scheduled})` : '—'}</td>
+            </tr>`).join('') : '<tr><td colspan="6">No students assigned to this coach.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      ${existing && existing.paymentHistory && existing.paymentHistory.length ? `
+      <div class="mt-16" style="margin-top:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Payment History</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Balance After</th><th>Remarks</th><th>By</th></tr></thead>
+            <tbody>
+              ${existing.paymentHistory.map(h => `<tr>
+                <td>${h.date}</td><td>₹${(h.amountPaid||0).toLocaleString('en-IN')}</td><td>${h.method||'-'}</td>
+                <td>₹${(h.balance||0).toLocaleString('en-IN')}</td><td>${h.remarks||'-'}</td><td>${h.updatedBy||'-'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>` : ''}
+    </div>`;
+};
+
+window.csApplyRevShareOverride = async () => {
+  if (!_csCanAccess() || !can('manageCoachSettlement')) { denyAccess(); return; }
+  const coachId = document.getElementById('cs-coach-select').value;
+  const percent = Number(document.getElementById('cs-revshare-input').value);
+  const coach = window.DB.coaches.find(c => (c.coachId || c.id) === coachId);
+  if (!coach || isNaN(percent) || percent < 0 || percent > 100) { showToast('Enter a valid percentage (0-100).', 'error'); return; }
+  // Persisted directly on the Coach Profile (same save path as
+  // saveCoach) — future settlements read this; past ones keep their
+  // already-snapshotted revenueSharePercent unaffected.
+  const data = { ...coach, revenueSharePercent: percent };
+  await saveDoc('coaches', data, coach.id);
+  coach.revenueSharePercent = percent;
+  window.syncCoachFirebase?.({ ...(coach.coachId ? coach : { ...coach, coachId: coach.id }), updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '' });
+  autoSyncCoach?.(coach, 'update');
+  logAudit({ type: 'coach_settlement', action: 'revshare_updated', recordId: coach.coachId || coach.id, summary: `Revenue Share updated — ${coach.name} → ${percent}%` });
+  csRenderSettlement();
+  showToast('Revenue Share % updated ✅');
+};
+
+window.csGenerateSettlementUI = async () => {
+  const coachId = document.getElementById('cs-coach-select').value;
+  const monthValue = document.getElementById('cs-month-select').value;
+  if (!coachId || !monthValue) { showToast('Select a coach and month.', 'error'); return; }
+  const result = await window.csGenerateSettlement(coachId, monthValue);
+  if (!result.success) { showToast(result.error, 'error'); return; }
+  csRenderSettlement();
+  csRenderSettlementHistory();
+  showToast('Settlement generated ✅');
+};
+
+window.csRenderSettlementHistory = () => {
+  const coachFilter = document.getElementById('cs-history-filter-coach')?.value || '';
+  const statusFilter = document.getElementById('cs-history-filter-status')?.value || '';
+  const rows = (window.DB.coachSettlements || [])
+    .filter(s => !coachFilter || s.coachId === coachFilter)
+    .filter(s => !statusFilter || s.status === statusFilter)
+    .sort((a,b) => (b.monthValue || '').localeCompare(a.monthValue || ''));
+  const tbody = document.getElementById('cs-history-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = rows.length ? rows.map(s => `<tr>
+    <td>${s.monthLabel} ${s.year}</td><td>${s.coachName}</td><td>${s.sport}</td>
+    <td>${s.totals.totalStudents}</td><td>₹${s.totals.totalCollected.toLocaleString('en-IN')}</td>
+    <td>₹${s.totals.coachShareAmount.toLocaleString('en-IN')}</td>
+    <td><span class="badge badge-${s.status === 'Paid' ? 'green' : s.status === 'Partially Paid' ? 'yellow' : 'gray'}">${s.status}</span></td>
+    <td><button class="btn btn-secondary btn-sm" onclick="csJumpToSettlement('${s.coachId}','${s.monthValue}')">View</button></td>
+  </tr>`).join('') : '<tr><td colspan="8">No settlements generated yet.</td></tr>';
+};
+
+window.csJumpToSettlement = (coachId, monthValue) => {
+  document.getElementById('cs-coach-select').value = coachId;
+  document.getElementById('cs-month-select').value = monthValue;
+  csRenderSettlement();
+  document.getElementById('cs-settlement-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+window.csOpenPaymentModal = (settlementId) => {
+  if (!_csCanAccess() || !can('manageCoachSettlement')) { denyAccess(); return; }
+  const rec = window.DB.coachSettlements.find(s => s.settlementId === settlementId);
+  if (!rec) return;
+  const paidSoFar = (rec.paymentHistory || []).reduce((a,h)=>a+(h.amountPaid||0),0);
+  const balance = Math.max(0, rec.totals.coachShareAmount - paidSoFar);
+  document.getElementById('cs-payment-settlement-id').value = settlementId;
+  document.getElementById('cs-payment-modal-summary').textContent =
+    `${rec.coachName} — ${rec.monthLabel} ${rec.year} — Coach Share ₹${rec.totals.coachShareAmount.toLocaleString('en-IN')} — Balance owed ₹${balance.toLocaleString('en-IN')}`;
+  document.getElementById('cs-payment-amount').value = '';
+  document.getElementById('cs-payment-remarks').value = '';
+  openModal('cs-payment-modal');
+};
+
+window.csRecordPaymentUI = async () => {
+  const settlementId = document.getElementById('cs-payment-settlement-id').value;
+  const amountPaid = document.getElementById('cs-payment-amount').value;
+  const method = document.getElementById('cs-payment-method').value;
+  const remarks = document.getElementById('cs-payment-remarks').value;
+  if (!amountPaid || Number(amountPaid) <= 0) { showToast('Enter a valid payment amount.', 'error'); return; }
+  const result = await window.csRecordPayment(settlementId, { amountPaid, method, remarks });
+  if (!result.success) { showToast(result.error, 'error'); return; }
+  closeModal('cs-payment-modal');
+  csRenderSettlement();
+  csRenderSettlementHistory();
+  showToast('Payment recorded ✅');
+};
+
+// ----- PDF / WhatsApp / Email — real, working versions (the dev module's
+// WhatsApp/PDF were alert()-based previews; Email was already functional
+// via mailto: and is carried over unchanged). -----
+window.csDownloadPDF = () => {
+  const s = window._csCurrentSettlement;
+  if (!s) return;
+  if (typeof window.jspdf === 'undefined') { showToast('PDF library failed to load — check your internet connection.', 'error'); return; }
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+  doc.text('DD Turf Zone', 15, 20);
+  doc.setFontSize(12); doc.text(`Coach Settlement — ${s.monthLabel} ${s.year}`, 15, 28);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+  let y = 42;
+  [
+    `Coach: ${s.coach.name}`, `Sport: ${s.coach.sport}`, '',
+    `Students: ${s.totals.totalStudents}`,
+    `Fees Collected: Rs. ${s.totals.totalCollected.toLocaleString('en-IN')}`,
+    `Pending Fees: Rs. ${s.totals.totalPending.toLocaleString('en-IN')}`,
+    `Average Attendance: ${s.totals.avgAttendance}%`, '',
+    `Coach Share (${s.revenueSharePercent}%): Rs. ${s.totals.coachShareAmount.toLocaleString('en-IN')}`,
+    `DD Turf Zone Share: Rs. ${s.totals.ddShareAmount.toLocaleString('en-IN')}`,
+    `Status: ${s.status || 'Pending'}`
+  ].forEach(line => { doc.text(line, 15, y); y += 7; });
+  doc.save(`Settlement_${s.coach.name.replace(/\s+/g,'_')}_${s.monthValue}.pdf`);
+  logAudit({ type: 'coach_settlement', action: 'pdf_downloaded', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement PDF downloaded — ${s.coach.name} (${s.monthLabel} ${s.year})` });
+  showToast('Settlement PDF downloaded ✅');
+};
+
+window.csShareWhatsApp = () => {
+  const s = window._csCurrentSettlement;
+  if (!s) return;
+  const msg = `*DD Turf Zone*\nMonthly Coach Settlement\n\n*Coach:* ${s.coach.name}\n*Sport:* ${s.coach.sport}\n*Settlement Month:* ${s.monthLabel} ${s.year}\n\n*Students:* ${s.totals.totalStudents}\n*Total Fees Collected:* ₹${s.totals.totalCollected.toLocaleString('en-IN')}\n*Pending Fees:* ₹${s.totals.totalPending.toLocaleString('en-IN')}\n*Average Attendance:* ${s.totals.avgAttendance}%\n\n*Coach Share (${s.revenueSharePercent}%):* ₹${s.totals.coachShareAmount.toLocaleString('en-IN')}\n*DD Turf Zone Share:* ₹${s.totals.ddShareAmount.toLocaleString('en-IN')}\n\n*Status:* ${s.status || 'Pending'}\n\nRegards,\nDD Turf Zone`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  logAudit({ type: 'coach_settlement', action: 'whatsapp_shared', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement shared via WhatsApp — ${s.coach.name} (${s.monthLabel} ${s.year})` });
+};
+
+window.csSendEmail = () => {
+  const s = window._csCurrentSettlement;
+  if (!s) return;
+  const coach = window.DB.coaches.find(c => (c.coachId || c.id) === s.coach.id);
+  const coachEmail = coach?.email || prompt(`Coach's email address:`);
+  if (!coachEmail) return;
+  const subject = `DD Turf Zone — Coach Settlement for ${s.monthLabel} ${s.year}`;
+  const body = `Dear ${s.coach.name},\n\nPlease find your settlement summary for ${s.monthLabel} ${s.year} below.\n\nSport: ${s.coach.sport}\nStudents: ${s.totals.totalStudents}\nTotal Fees Collected: Rs. ${s.totals.totalCollected.toLocaleString('en-IN')}\nPending Fees: Rs. ${s.totals.totalPending.toLocaleString('en-IN')}\nAverage Attendance: ${s.totals.avgAttendance}%\n\nCoach Share (${s.revenueSharePercent}%): Rs. ${s.totals.coachShareAmount.toLocaleString('en-IN')}\nDD Turf Zone Share: Rs. ${s.totals.ddShareAmount.toLocaleString('en-IN')}\n\nStatus: ${s.status || 'Pending'}\n\n(Please attach the settlement PDF before sending — mailto: links cannot attach files automatically.)\n\nRegards,\nDD Turf Zone`;
+  window.location.href = `mailto:${encodeURIComponent(coachEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  logAudit({ type: 'coach_settlement', action: 'email_sent', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement emailed — ${s.coach.name} (${s.monthLabel} ${s.year})` });
+};
+
+console.log('✓ Phase 5 Coach Settlement Module Loaded');
 
 // ============================================================================
 // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.

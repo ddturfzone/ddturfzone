@@ -1006,6 +1006,63 @@ window.listenCoaches = (callback) => {
 console.log('✓ Phase 4.3.1 Coaches Realtime Sync Module Loaded');
 
 // ============================================================================
+// PHASE 5 — COACH SETTLEMENT REALTIME SYNC (Super Admin only, same
+// convention as Finance above — page/action gates live in admin.html,
+// this is just the transport). Requires a matching Firebase Rules entry
+// for /coach_settlements — see the Coach Settlement deploy notes.
+// ============================================================================
+
+/**
+ * Push/overwrite a coach settlement record to Firebase, keyed by its own
+ * settlementId (same "one identifier everywhere" pattern as Finance/
+ * Coaches — the same id is used locally, in Firebase, and in Sheets).
+ */
+window.syncCoachSettlementFirebase = async (record) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    if (!record || !record.settlementId) { resolve({ success: false, error: 'Missing settlementId' }); return; }
+    realtimeDb.ref('coach_settlements/' + record.settlementId).set({
+      ...record,
+      updatedAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => resolve({ success: true }))
+      .catch((error) => {
+        console.error('✗ Coach Settlement Firebase sync failed:', error);
+        resolve({ success: false, error: error.message });
+      });
+  });
+};
+
+/**
+ * Real-time listener for coach settlements. admin.html only calls this
+ * when _finCanAccess() (Super Admin) is true, same hard gate as Finance.
+ */
+window.listenCoachSettlements = (callback) => {
+  if (!realtimeDb) {
+    console.error('Firebase not initialized');
+    return null;
+  }
+  const ref = realtimeDb.ref('coach_settlements');
+  const handler = (snapshot) => {
+    console.log('[FB-DEBUG] Listener received update (coach_settlements)'); // TEMP DEBUG LOG — remove after live verification
+    const settlements = [];
+    snapshot.forEach((child) => settlements.push({ firebaseKey: child.key, ...child.val() }));
+    callback(settlements);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ Coach Settlements listener error:', error);
+    window._onFirebaseListenerFailed?.('coachSettlements'); // LISTENER LIFECYCLE — re-enable the polling fallback
+    lastFirebaseError = 'Coach Settlements sync error: ' + error.message;
+    connectionStatus = 'disconnected';
+    _updateConnectionIndicator();
+  };
+  ref.on('value', handler, errorHandler);
+  console.log('[FB-DEBUG] Listener attached (coach_settlements)'); // TEMP DEBUG LOG — remove after live verification
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Phase 5 Coach Settlement Realtime Sync Module Loaded');
+
+// ============================================================================
 // STAGE 1 — Reservation Requests Realtime Sync
 // ----------------------------------------------------------------------------
 // Firebase's role here is STRICTLY the realtime transport layer — instant
@@ -1201,7 +1258,7 @@ function _diagTimeWrite(moduleName, promiseFn) {
 // themselves are completely untouched; this only wraps their external
 // reference. Delete this block to fully remove timing instrumentation
 // with zero effect on the wrapped functions' actual behavior.
-['syncCoachFirebase', 'claimEnrolmentForApproval', 'finalizeEnrolmentApproval', 'rejectEnrolmentFirebase', 'syncFinanceExpenseFirebase'].forEach((name) => {
+['syncCoachFirebase', 'claimEnrolmentForApproval', 'finalizeEnrolmentApproval', 'rejectEnrolmentFirebase', 'syncFinanceExpenseFirebase', 'syncCoachSettlementFirebase'].forEach((name) => {
   const original = window[name];
   if (typeof original === 'function') {
     window[name] = (...args) => _diagTimeWrite(name, () => original(...args));
