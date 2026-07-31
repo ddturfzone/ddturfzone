@@ -4596,7 +4596,13 @@ let _dueAdjustmentsFirebaseSeeded = false;
 // Shared by all three listeners below: re-render the Dues page in place
 // if it's the currently active page, with no navigation/refresh required.
 function _refreshDuesIfActive() {
-  if (document.getElementById('page-dues')?.classList.contains('active')) renderDues();
+  if (document.getElementById('page-dues')?.classList.contains('active')) {
+    console.log('[DUE] Due Management page is active — re-rendering now');
+    renderDues();
+    console.log('[RENDER] Due Management re-rendered');
+  } else {
+    console.log('[DUE] Due Management page not active — will recompute fresh (no stale cache) next time it is opened');
+  }
 }
 
 const _ddtzAnnouncedStudentEvents = new Set(); // "studentId:kind" already announced this session
@@ -4760,8 +4766,21 @@ window.initFeesFirebaseListener = () => {
 
     _feesFirebaseSeeded = true;
     if (changed) {
-      if (document.getElementById('page-fees')?.classList.contains('active')) renderFees();
+      console.log('[FIREBASE] Fees snapshot changed — syncing window.DB.fees');
+      if (document.getElementById('page-fees')?.classList.contains('active')) {
+        console.log('[RENDER] Re-rendering Fee Collection from Firebase snapshot');
+        renderFees();
+      }
+      console.log('[DUE] Recalculating dues from Firebase fees snapshot');
       _refreshDuesIfActive();
+      // BUGFIX: this listener is what makes cross-device sync real-time
+      // (Manager saves -> Super Admin's open tab updates) — it was
+      // missing Dashboard and Finance, the other two consumers of
+      // window.DB.fees, so those two stayed stale on the OTHER device
+      // until that device's own next unrelated re-render.
+      console.log('[RENDER] Refreshing Dashboard and Finance summaries from Firebase snapshot');
+      renderDashboard();
+      renderAccounts();
     }
   });
 
@@ -7864,7 +7883,23 @@ async function syncFeesFromSheet() {
       }
     });
 
-    if (changed && document.getElementById('page-fees')?.classList.contains('active')) renderFees();
+    if (changed) {
+      console.log('[FEE] Fees changed via Sheets poll sync');
+      if (document.getElementById('page-fees')?.classList.contains('active')) {
+        console.log('[RENDER] Re-rendering Fee Collection from Sheets poll');
+        renderFees();
+      }
+      // BUGFIX: this fallback poll (window 'focus' listener below) was a
+      // bypass — it mutates window.DB.fees exactly like the Firebase
+      // listener and saveFee/deleteFee do, but never told Dues, Dashboard,
+      // or Finance about it. Same fix as the other paths: recompute/
+      // re-render everything downstream of a fee change, every time.
+      console.log('[DUE] Recalculating dues after Sheets poll sync');
+      _refreshDuesIfActive();
+      console.log('[RENDER] Refreshing Dashboard and Finance summaries after Sheets poll sync');
+      renderDashboard();
+      renderAccounts();
+    }
   } catch (e) {
     // Network hiccup — local data (and the offline sync queue) is unaffected.
   } finally {
@@ -10168,9 +10203,23 @@ window.saveFee = async (sendWA=false) => {
   };
   const id=await saveDoc('fees',data,existId||null);
   data.id=id;
+  console.log('[FEE] Fee saved locally', {id: data.id, receiptNo: data.receiptNo, status: data.status, existId: !!existId});
   if(!existId){window.DB.fees.unshift(data);}
   else{const idx=window.DB.fees.findIndex(x=>x.id===existId);if(idx>=0)window.DB.fees[idx]=data;}
+  console.log('[RENDER] Re-rendering Fee Collection, Dashboard, Accounts after fee save');
   renderFees(); renderDashboard(); renderAccounts();
+  // BUGFIX (Fee Collection / Dues sync): every other fee mutation path
+  // (deleteFee, and all three Firebase listeners — Students/Fees/
+  // DueAdjustments) already calls _refreshDuesIfActive() so the Dues page
+  // reflects the change immediately if it's open. saveFee() was the one
+  // path that never did — so Add/Edit Fee could show "Paid" in Fee
+  // Collection while an already-open Due Management page kept showing
+  // "Due" until the page was manually left and re-entered. Due Management
+  // itself has no stale state of its own (renderDues()/_computeDueEntry()
+  // always recompute live from window.DB.students/fees/dueAdjustments) —
+  // it just needed to be told to re-render.
+  console.log('[DUE] Recalculating dues after fee save (Add/Edit)');
+  _refreshDuesIfActive();
   closeModal('fee-modal');
   // UI ENHANCEMENT: renderFees() just rebuilt the table's DOM from
   // scratch, which already visually clears any inline highlight style on
@@ -10190,6 +10239,7 @@ window.saveFee = async (sendWA=false) => {
     LS.update('fees', data.id, { receiptNo: data.receiptNo, updatedAt: data.updatedAt });
     const idx = window.DB.fees.findIndex(x=>x.id===data.id);
     if (idx>=0) window.DB.fees[idx] = data;
+    console.log('[RENDER] Re-rendering Fee Collection after receiptNo reconciliation');
     renderFees();
   }
   // PHASE 6 — Firebase-first push, once receiptNo is known (it's assigned
@@ -10340,6 +10390,7 @@ window.deleteFee = async (id) => {
   if (!can('manageFees')) { denyAccess(null, 'manageFees'); return; }
   if(!confirm('Delete this fee record?'))return;
   const f = window.DB.fees.find(x=>x.id===id);
+  console.log('[FEE] Deleting fee record', {id, receiptNo: f?.receiptNo});
   await deleteDoc2('fees',id);
   window.DB.fees=window.DB.fees.filter(x=>x.id!==id);
   if (f && f.receiptNo) {
@@ -10357,7 +10408,16 @@ window.deleteFee = async (id) => {
     });
     autoSyncFee(f, 'delete');
   }
+  console.log('[RENDER] Re-rendering Fee Collection and Dashboard after fee delete');
   renderFees(); renderDashboard();
+  // BUGFIX: renderAccounts() reads window.DB.fees directly (rangeFees =
+  // window.DB.fees.filter(...)) for the Finance/Accounts summary, so a
+  // deleted payment left that screen overstating collections until it
+  // was manually reopened. Add/Edit (saveFee) already refreshed it —
+  // Delete was the one op that didn't.
+  console.log('[RENDER] Refreshing Finance/Accounts summary after fee delete');
+  renderAccounts();
+  console.log('[DUE] Recalculating dues after fee delete');
   _refreshDuesIfActive();
   showToast('Fee record deleted');
 };
