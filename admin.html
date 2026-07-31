@@ -302,16 +302,15 @@ tr:hover td{background:#f8fffe}
 #fee-student-info .fsi-name{font-size:14px;font-weight:800;color:var(--dark);margin-bottom:4px}
 /* ====== PHASE 3.4c — RECEIPT SYSTEM (Task 1: Receipt Generation) ====== */
 .receipt-doc{width:420px;max-width:100%;margin:0 auto;background:#fff;border:1px solid var(--gray2);border-radius:10px;padding:24px;font-family:'Inter',sans-serif;color:var(--text)}
-.receipt-doc .rc-head{text-align:center;margin-bottom:20px;padding-bottom:18px;border-bottom:2px solid var(--dark)}
-/* RECEIPT HEADER REDESIGN — logo is now the sole branding element (the
-   separate .rc-biz-name text was removed, since the logo image already
-   contains the "DD Turf Zone" wordmark and repeating it read as a
-   duplicate). height:auto instead of a fixed square keeps the wordmark's
-   true aspect ratio — the old 64x64 box with object-fit:contain
-   letterboxed a wide logo into a square, which is what made it look
-   small. max-width keeps it inside narrow phone screens. */
-.receipt-doc .rc-head img{width:190px;max-width:75%;height:auto;margin:0 auto 14px;display:block}
-.receipt-doc .rc-head .rc-biz-sub{font-size:11px;color:var(--gray3);margin-top:2px}
+.receipt-doc .rc-head{text-align:center;margin-bottom:20px;border-bottom:2px solid var(--dark)}
+/* RECEIPT HEADER — logo enlarged ~45% (190px -> 275px) per explicit
+   request; height:auto keeps true aspect ratio, max-width keeps it inside
+   narrow phone screens. padding-bottom removed from .rc-head itself —
+   .rc-contact's own margin-bottom is now what sits before the divider
+   border, so that one value is the exact, single source of the "16px
+   before the divider" spacing rather than two paddings stacking. */
+.receipt-doc .rc-head img{width:275px;max-width:80%;height:auto;margin:0 auto 14px;display:block}
+.receipt-doc .rc-head .rc-contact{font-size:13px;font-weight:500;color:#666;line-height:1.4;text-align:center;margin-top:8px;margin-bottom:16px}
 /* Shown ONLY when no logo image is configured in Settings — without it
    a logo-less receipt would carry no branding at all. Never appears
    alongside the logo, so it can't reintroduce the duplicate title. */
@@ -523,6 +522,7 @@ tr:hover td{background:#f8fffe}
             <div style="font-size:13px;color:rgba(255,255,255,.75);margin-top:2px">Turf Bookings · Football, Cricket & Taekwondo Coaching · Café — DD Turf Zone, Madambakkam</div>
           </div>
         </div>
+        <div id="dash-birthday-panel"></div>
         <div class="stats-grid" id="dash-stats"></div>
 
         <div class="card" style="margin-bottom:16px">
@@ -3172,7 +3172,7 @@ const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZ
 //     Known Limitation entry. RESOLVED in Phase 3.1 — see the "PHASE 3.1 —
 //     Coaches Backend" comments on TABS.COACHES / autoSyncCoach /
 //     syncCoachesFromSheet / handleCoachesGet / handleCoachWrite.
-window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[], dueAdjustments:[], coachSettlements:[] };
+window.DB = { bookings:[], students:[], fees:[], coaches:[], enquiries:[], expenses:[], customers:[], cafeItems:[], cafeSales:[], blockedSlots:[], attendance:[], bookingRequests:[], coachingCategories:[], enrolments:[], financeExpenses:[], dueAdjustments:[], coachSettlements:[], birthdayWishes:[] };
 try {
   // Falls back to the production URL if nothing is saved yet (first run,
   // or localStorage was cleared) — and immediately persists it, so the
@@ -3328,7 +3328,7 @@ const LAST_RESTORE_KEY = 'ddtz_last_restore';
 const LAST_DAILY_BACKUP_KEY = 'ddtz_last_daily_backup_date';
 // Same collections loadAllData() reads — the authoritative list of what's
 // actually persisted (customers/window.DB.customers is derived, not stored).
-const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments','coachSettlements'];
+const BACKUP_COLLECTIONS = ['bookings','students','fees','coaches','enquiries','expenses','financeExpenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments','coachSettlements','dueAdjustments'];
 
 function _getBackupHistory() { try { return JSON.parse(localStorage.getItem(BACKUP_HISTORY_KEY) || '[]'); } catch(e){ return []; } }
 function _setBackupHistory(list) { try { localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(list)); } catch(e){} }
@@ -3341,7 +3341,20 @@ function createBackup(type, trigger) {
   try {
     const snapshot = {};
     let recordCount = 0;
+    // SECURITY FIX (Phase 6 final verification) — this used to read every
+    // collection in BACKUP_COLLECTIONS straight from localStorage with no
+    // role check at all, and none of the three download buttons are
+    // permission-gated either. loadAllData() already established that
+    // financial data (financeExpenses, coachSettlements) must never even
+    // enter window.DB for Manager/Staff, specifically so a shared device
+    // previously used by a Super Admin can't leak it to a later session —
+    // but createBackup bypassed that entirely by reading raw localStorage
+    // directly, so a Manager/Staff session could download a backup
+    // containing financial data cached by an earlier Super Admin session
+    // on the same device. Same role check, same reasoning, applied here.
     BACKUP_COLLECTIONS.forEach(col => {
+      if (col === 'financeExpenses' && !_finCanAccess()) { snapshot[col] = []; return; }
+      if (col === 'coachSettlements' && !_csCanAccess()) { snapshot[col] = []; return; }
       const arr = LS.get(col);
       snapshot[col] = arr;
       recordCount += arr.length;
@@ -3670,15 +3683,40 @@ function denyAccess(msg, action) {
   console.warn(`[Permission Denied] action="${action || '(unspecified)'}" role="${CURRENT_USER?.role}" user="${CURRENT_USER?.email || CURRENT_USER?.name}"`);
 }
 
+// ROLE NORMALIZATION — permission checks (hasPageAccess/can) compare the
+// role string EXACTLY against 'superadmin' | 'admin' | 'staff'. Any
+// difference silently fails every check, surfacing as "the menu item
+// isn't there" or "the button does nothing" with no error anywhere —
+// this is what was behind the Diagnostics-page-invisible-to-Super-Admin
+// and Manager-cannot-delete reports, traced to this exact mechanism.
+//
+// A prior version of this only did .trim().toLowerCase(), which fixes
+// "SUPERADMIN" but NOT "Super Admin" — lowercasing leaves the internal
+// space, so "super admin" still doesn't match "superadmin". This strips
+// every non-alphanumeric character first, then also maps the labels the
+// UI itself displays (the role picker shows "Manager" for the 'admin'
+// role, so someone typing "Manager" into the Users sheet means exactly
+// that) — and logs whenever it has to correct something, so a
+// misconfigured Users sheet is visible instead of silently papered over.
+function _normalizeRole(raw) {
+  const cleaned = String(raw || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const aliases = {
+    superadmin: 'superadmin', super: 'superadmin', owner: 'superadmin',
+    admin: 'admin', manager: 'admin',
+    staff: 'staff'
+  };
+  const resolved = aliases[cleaned] || cleaned;
+  if (raw && resolved !== raw) {
+    console.warn(`[ROLE] Normalized role "${raw}" → "${resolved}". If this isn't what you expect, fix the Role cell in the Users sheet (expected exactly: superadmin / admin / staff).`);
+  }
+  if (!Object.values(ROLES).includes(resolved)) {
+    console.error(`[ROLE] Role "${raw}" does not match any known role — every permission check will fail for this account. Expected one of: ${Object.values(ROLES).join(', ')}`);
+  }
+  return resolved;
+}
+
 function _enterApp(user) {
-  // ROOT CAUSE FIX (defense in depth, alongside the Code.gs normalization):
-  // can()/hasPageAccess() do a case-sensitive match against
-  // 'superadmin'/'admin'/'staff'. Normalizing here too means this is
-  // still correct even before a Code.gs redeploy catches up, and covers
-  // any other path that might ever set CURRENT_USER directly. This does
-  // NOT change any permission table — it only makes the role STRING
-  // itself robust against case/whitespace variance in its source data.
-  CURRENT_USER = { ...user, role: String(user.role || '').trim().toLowerCase() };
+  CURRENT_USER = { ...user, role: _normalizeRole(user.role) };
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-badge').textContent = user.name;
@@ -3708,6 +3746,14 @@ function _enterApp(user) {
         // site added elsewhere — that starts it for a non-Super-Admin
         // session. Calling it unconditionally here is safe by design.
         window.initFinanceFirebaseListener?.();
+        // PHASE 5 FIX — Coach Settlement listener was defined and known to
+        // the watchdog, but never actually called here at login — it only
+        // ever started via an incidental later watchdog trigger (first
+        // tab-focus/online event), not immediately like every other
+        // listener. Same self-gating reasoning as Finance directly above
+        // (initCoachSettlementFirebaseListener checks _csCanAccess()
+        // internally), so calling it unconditionally here is equally safe.
+        window.initCoachSettlementFirebaseListener?.();
         // PHASE 4.3.1 — Coaches listener. Available to every role (unlike
         // Finance, Coaches has no role-based data-hiding requirement), so
         // no access-gate check is needed here, unlike initFinanceFirebaseListener.
@@ -3869,7 +3915,7 @@ async function doLogin() {
     localStorage.setItem(SESSION_KEY, JSON.stringify(newSession));
   } catch (e) {}
   _enterApp(sessionUser);
-  loadAllData().then(() => { renderDashboard(); });
+  loadAllData().then(() => { renderDashboard(); renderBirthdayWidget(); checkAndAnnounceBirthdays(); });
 }
 
 function doLogout() {
@@ -3889,6 +3935,7 @@ function doLogout() {
   window.stopStudentsFirebaseListener?.();
   window.stopFeesFirebaseListener?.();
   window.stopDueAdjustmentsFirebaseListener?.();
+  window.stopCoachSettlementFirebaseListener?.(); // PHASE 5 FIX — was defined but never called; listener would otherwise keep running after logout
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   // Clear password field for security
@@ -3927,7 +3974,7 @@ window.logoutUser = doLogout;
           role: cached ? cached.role : localSession.role
         };
         _enterApp(sessionUser);
-        loadAllData().then(() => { renderDashboard(); });
+        loadAllData().then(() => { renderDashboard(); renderBirthdayWidget(); checkAndAnnounceBirthdays(); });
 
         // Background re-check against the live Sheet — never blocks the UI,
         // and its own failure (network down, Sheet unreachable) must never
@@ -3942,7 +3989,7 @@ window.logoutUser = doLogout;
               return;
             }
             if (fresh.role !== CURRENT_USER.role || fresh.name !== CURRENT_USER.name) {
-              CURRENT_USER.role = String(fresh.role || '').trim().toLowerCase(); // ROOT CAUSE FIX — same normalization as _enterApp
+              CURRENT_USER.role = _normalizeRole(fresh.role); // ROOT CAUSE FIX — same normalization as _enterApp
               CURRENT_USER.name = fresh.name;
               const updatedSession = { email: CURRENT_USER.email, name: CURRENT_USER.name, role: CURRENT_USER.role, ts: Date.now() };
               try { localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSession)); } catch(e) {}
@@ -4013,7 +4060,7 @@ async function loadAllData() {
   // Read-only: copies whatever already exists in localStorage into memory.
   // Must never write a default/empty dataset here — see the DATA
   // PRESERVATION POLICY banner above the LS helper.
-  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments','dueAdjustments'];
+  const cols = ['bookings','students','fees','coaches','enquiries','expenses','cafeItems','cafeSales','blockedSlots','attendance','bookingRequests','coachingCategories','enrolments','dueAdjustments','birthdayWishes'];
   for (const col of cols) {
     window.DB[col] = LS.get(col);
   }
@@ -4416,6 +4463,7 @@ const _ddtzAnnouncedCoachEvents = new Set(); // "coachId:kind" already announced
 let _bookingRequestsFirebaseUnsubscribe = null;
 let _bookingRequestsFirebaseSeeded = false;
 const _ddtzAnnouncedBookingRequestEvents = new Set(); // "requestId:kind" already announced this session
+const _ddtzAnnouncedPollEvents = new Set(); // notification "N"+row ids already voiced this session, for the generic poll path (Slot Booking, Attendance, anything else not yet Firebase-migrated)
 
 window.initCoachesFirebaseListener = () => {
   if (typeof window.listenCoaches !== 'function') return;
@@ -4551,11 +4599,14 @@ function _refreshDuesIfActive() {
   if (document.getElementById('page-dues')?.classList.contains('active')) renderDues();
 }
 
+const _ddtzAnnouncedStudentEvents = new Set(); // "studentId:kind" already announced this session
+
 window.initStudentsFirebaseListener = () => {
   if (typeof window.listenStudents !== 'function') return;
   if (_studentsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (students) — not re-subscribing'); return; }
 
   _studentsFirebaseUnsubscribe = window.listenStudents((remoteStudents) => {
+    const isFirstSnapshot = !_studentsFirebaseSeeded;
     let changed = false;
     const seenStudentIds = new Set();
 
@@ -4563,6 +4614,8 @@ window.initStudentsFirebaseListener = () => {
       if (!remote.studentId) return;
       seenStudentIds.add(remote.studentId);
       const local = window.DB.students.find(s => s.studentId === remote.studentId);
+      const me = CURRENT_USER?.email || CURRENT_USER?.name;
+      const isOwnAction = remote.updatedBy && remote.updatedBy === me;
 
       if (!local) {
         // Photo excluded from the merge on the update branch below (same
@@ -4575,6 +4628,9 @@ window.initStudentsFirebaseListener = () => {
         window.DB.students.push(rec);
         changed = true;
         window._ddtzDiag?.recordEvent('students', 'Create'); // TEMP DIAGNOSTICS
+        if (!isFirstSnapshot && !isOwnAction) {
+          _announceStudentEvent(remote.studentId, 'created', `New student enrolled: ${remote.name || remote.studentId}`);
+        }
       } else {
         const remoteUpdatedAt = remote.updatedAt || 0;
         if (remoteUpdatedAt && remoteUpdatedAt !== local._fbUpdatedAt) {
@@ -4584,6 +4640,9 @@ window.initStudentsFirebaseListener = () => {
           Object.assign(local, merged);
           changed = true;
           window._ddtzDiag?.recordEvent('students', 'Update'); // TEMP DIAGNOSTICS
+          if (!isFirstSnapshot && !isOwnAction) {
+            _announceStudentEvent(remote.studentId, 'updated', `Student updated: ${remote.name || remote.studentId}`);
+          }
         }
       }
     });
@@ -4619,11 +4678,30 @@ window.stopStudentsFirebaseListener = () => {
   }
 };
 
+function _announceStudentEvent(studentId, kind, text) {
+  const eventKey = studentId + ':' + kind;
+  if (_ddtzAnnouncedStudentEvents.has(eventKey)) return;
+  _ddtzAnnouncedStudentEvents.add(eventKey);
+  showToast(`🎓 ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'STUDENTFB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: 'Students', role: '', module: 'student', moduleLabel: 'Student',
+    icon: '🎓', action: text, recordId: studentId, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  window.playVoiceAnnouncement?.(text, false);
+}
+
 window.initFeesFirebaseListener = () => {
   if (typeof window.listenFees !== 'function') return;
   if (_feesFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (fees) — not re-subscribing'); return; }
 
   _feesFirebaseUnsubscribe = window.listenFees((remoteFees) => {
+    const isFirstSnapshot = !_feesFirebaseSeeded;
     let changed = false;
     const seenReceiptNos = new Set();
     const deletedIds = new Set(_getLocallyDeletedFeeIds());
@@ -4632,6 +4710,8 @@ window.initFeesFirebaseListener = () => {
       if (!remote.receiptNo || deletedIds.has(remote.receiptNo)) return;
       seenReceiptNos.add(remote.receiptNo);
       const local = window.DB.fees.find(f => f.receiptNo === remote.receiptNo);
+      const me = CURRENT_USER?.email || CURRENT_USER?.name;
+      const isOwnAction = remote.updatedBy && remote.updatedBy === me;
 
       if (!local) {
         const rec = { ...remote, id: remote.receiptNo };
@@ -4639,6 +4719,9 @@ window.initFeesFirebaseListener = () => {
         window.DB.fees.push(rec);
         changed = true;
         window._ddtzDiag?.recordEvent('fees', 'Create'); // TEMP DIAGNOSTICS
+        if (!isFirstSnapshot && !isOwnAction) {
+          _announceFeeEvent(remote.receiptNo, 'created', `Fee collected: ${remote.studentName || remote.studentId} — ₹${(Number(remote.amountReceived)||0).toLocaleString('en-IN')}`);
+        }
       } else {
         const remoteUpdatedAt = remote.updatedAt || 0;
         if (remoteUpdatedAt && remoteUpdatedAt !== local._fbUpdatedAt) {
@@ -4647,9 +4730,33 @@ window.initFeesFirebaseListener = () => {
           Object.assign(local, merged);
           changed = true;
           window._ddtzDiag?.recordEvent('fees', 'Update'); // TEMP DIAGNOSTICS
+          if (!isFirstSnapshot && !isOwnAction) {
+            _announceFeeEvent(remote.receiptNo, 'updated', `Fee payment updated: ${remote.studentName || remote.studentId}`);
+          }
         }
       }
     });
+
+    // Fee Collection Integration (Phase 3) — REMOVAL DETECTION. This
+    // listener previously only ever added or updated — a fee deleted
+    // elsewhere (its Firebase node removed) would simply stop appearing
+    // in future snapshots, but nothing here noticed. The local, stale
+    // copy just sat in window.DB.fees forever, still counted by Due/
+    // Dashboard/Coach Settlement on every OTHER device. Same fix
+    // pattern already applied to Bookings: anything locally present but
+    // missing from this snapshot, and not itself still queued for this
+    // device's own pending sync, gets removed too.
+    const stillQueuedReceiptNos = new Set(_getSyncQueue().filter(p => p.type === 'fee' && p.receiptNo).map(p => p.receiptNo));
+    const before = window.DB.fees.length;
+    window.DB.fees = window.DB.fees.filter(f => {
+      if (!f.receiptNo) return true; // not yet synced to Sheets/Firebase at all — never remove locally-only records
+      if (seenReceiptNos.has(f.receiptNo) || stillQueuedReceiptNos.has(f.receiptNo)) return true;
+      return false;
+    });
+    if (window.DB.fees.length !== before) {
+      changed = true;
+      window._ddtzDiag?.recordEvent('fees', 'Delete'); // TEMP DIAGNOSTICS
+    }
 
     _feesFirebaseSeeded = true;
     if (changed) {
@@ -4670,6 +4777,25 @@ window.stopFeesFirebaseListener = () => {
   }
 };
 
+const _ddtzAnnouncedFeeEvents = new Set(); // "receiptNo:kind" already announced this session
+function _announceFeeEvent(receiptNo, kind, text) {
+  const eventKey = receiptNo + ':' + kind;
+  if (_ddtzAnnouncedFeeEvents.has(eventKey)) return;
+  _ddtzAnnouncedFeeEvents.add(eventKey);
+  showToast(`💰 ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'FEEFB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: 'Fees', role: '', module: 'fee', moduleLabel: 'Fee Collection',
+    icon: '💰', action: text, recordId: receiptNo, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  window.playVoiceAnnouncement?.(text, false);
+}
+
 // Append-only, same as its Sheets tab: a Due Adjustment is never updated
 // or removed once written, so this merge only ever ADDS records it hasn't
 // seen — no update/delete reconciliation branch needed, unlike Students/
@@ -4679,6 +4805,7 @@ window.initDueAdjustmentsFirebaseListener = () => {
   if (_dueAdjustmentsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (due_adjustments) — not re-subscribing'); return; }
 
   _dueAdjustmentsFirebaseUnsubscribe = window.listenDueAdjustments((remoteAdjustments) => {
+    const isFirstSnapshot = !_dueAdjustmentsFirebaseSeeded;
     let changed = false;
     window.DB.dueAdjustments = window.DB.dueAdjustments || [];
     const knownIds = new Set(window.DB.dueAdjustments.map(a => a.id));
@@ -4689,6 +4816,11 @@ window.initDueAdjustmentsFirebaseListener = () => {
       knownIds.add(remote.id);
       changed = true;
       window._ddtzDiag?.recordEvent('dueAdjustments', 'Create'); // TEMP DIAGNOSTICS
+      const me = CURRENT_USER?.email || CURRENT_USER?.name;
+      const isOwnAction = remote.updatedBy && remote.updatedBy === me;
+      if (!isFirstSnapshot && !isOwnAction) {
+        _announceDueAdjustmentEvent(remote.id, `Due correction recorded: ${remote.studentName || remote.studentId} — ₹${(Number(remote.amount)||0).toLocaleString('en-IN')}`);
+      }
     });
 
     _dueAdjustmentsFirebaseSeeded = true;
@@ -4709,6 +4841,24 @@ window.stopDueAdjustmentsFirebaseListener = () => {
     console.log('[FB-DEBUG] Listener removed (due_adjustments)'); // TEMP DEBUG LOG
   }
 };
+
+const _ddtzAnnouncedDueAdjustmentEvents = new Set(); // adjustment ids already announced this session — append-only, so a bare id is enough, no ":kind" needed
+function _announceDueAdjustmentEvent(adjustmentId, text) {
+  if (_ddtzAnnouncedDueAdjustmentEvents.has(adjustmentId)) return;
+  _ddtzAnnouncedDueAdjustmentEvents.add(adjustmentId);
+  showToast(`✏️ ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'DUEADJFB' + adjustmentId, row: null, timestamp: new Date().toISOString(),
+    user: 'Dues', role: '', module: 'due_adjustment', moduleLabel: 'Due Correction',
+    icon: '✏️', action: text, recordId: adjustmentId, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  window.playVoiceAnnouncement?.(text, false);
+}
 
 // ============================================================================
 // STAGE 1 — Reservation Requests Firebase listener
@@ -4751,8 +4901,8 @@ window.initBookingRequestsFirebaseListener = () => {
         window._ddtzDiag?.recordEvent('booking_request', 'Create'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && remote.status === 'PENDING') {
           _announceBookingRequestEvent(remote.requestId, 'received', {
-            text: `New reservation request — ${remote.name || ''} (${remote.sport || ''}, ${formatDate(remote.date)})`
-            // voice: 'A new reservation request has been received.' — ADD THIS LINE ONLY once Stage 1 is confirmed live-passing; see _announceBookingRequestEvent below
+            text: `New reservation request — ${remote.name || ''} (${remote.sport || ''}, ${formatDate(remote.date)})`,
+            voice: 'A new reservation request has been received.'
           });
         }
       } else {
@@ -4766,7 +4916,8 @@ window.initBookingRequestsFirebaseListener = () => {
           window._ddtzDiag?.recordEvent('booking_request', 'Update'); // TEMP DIAGNOSTICS
           if (!isFirstSnapshot && !isOwnAction && remote.status !== 'PENDING') {
             _announceBookingRequestEvent(remote.requestId, 'status:' + remote.status, {
-              text: `Reservation ${remote.status === 'CONFIRMED' ? 'confirmed' : 'rejected'} — ${remote.name || ''}`
+              text: `Reservation ${remote.status === 'CONFIRMED' ? 'confirmed' : 'rejected'} — ${remote.name || ''}`,
+              voice: remote.status === 'CONFIRMED' ? 'A reservation has been confirmed.' : 'A reservation has been rejected.'
             });
           }
         } else {
@@ -4799,7 +4950,7 @@ window.initBookingRequestsFirebaseListener = () => {
   console.log('✓ Firebase realtime listener active for Booking Requests');
 };
 
-function _announceBookingRequestEvent(requestId, kind, { text }) {
+function _announceBookingRequestEvent(requestId, kind, { text, voice }) {
   const eventKey = requestId + ':' + kind;
   if (_ddtzAnnouncedBookingRequestEvents.has(eventKey)) return;
   _ddtzAnnouncedBookingRequestEvents.add(eventKey);
@@ -4815,12 +4966,11 @@ function _announceBookingRequestEvent(requestId, kind, { text }) {
   }, ...notifications]);
   _rtRenderBell();
   window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
-  // Voice deliberately NOT called here yet — approved as a separate,
-  // later enhancement once Stage 1's realtime sync itself is confirmed
-  // live-passing. Enabling it later is exactly one line:
-  //   window.playVoiceAnnouncement?.(voice, false);
-  // with a `voice` string passed in alongside `text` at each call site
-  // above — no other change needed.
+  // PHASE 4 — VOICE NOTIFICATIONS: enabled. Previously deferred until
+  // Stage 1's realtime sync was confirmed live-passing; now explicitly
+  // authorized. Falls back to `text` if a call site doesn't pass a
+  // dedicated `voice` string.
+  window.playVoiceAnnouncement?.(voice || text, false);
 }
 
 window.stopBookingRequestsFirebaseListener = () => {
@@ -4865,8 +5015,8 @@ window._onFirebaseListenerFailed = (module) => {
   if (module === 'enrolments')      { _firebaseEnrolmentsSeeded = false;      _firebaseEnrolmentsUnsubscribe = null; }
   if (module === 'coaches')         { _coachesFirebaseSeeded = false;         _coachesFirebaseUnsubscribe = null; }
   if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseUnsubscribe = null; }
-  if (module === 'finance')         { _financeFirebaseUnsubscribe = null; }
-  if (module === 'coachSettlements'){ _csFirebaseUnsubscribe = null; }
+  if (module === 'finance')         { _financeFirebaseSeeded = false;        _financeFirebaseUnsubscribe = null; }
+  if (module === 'coachSettlements'){ _csFirebaseSeeded = false;             _csFirebaseUnsubscribe = null; }
   // PHASE 6 — Dues Synchronization listeners.
   if (module === 'students')        { _studentsFirebaseSeeded = false;       _studentsFirebaseUnsubscribe = null; }
   if (module === 'fees')            { _feesFirebaseSeeded = false;           _feesFirebaseUnsubscribe = null; }
@@ -4988,7 +5138,9 @@ async function syncStudentsFromSheet() {
     _studentSyncInFlight = false;
   }
 }
-setInterval(() => { if (CURRENT_USER) syncStudentsFromSheet(); }, 30000);
+// Dedicated 30s interval removed — Firebase now owns real-time sync for
+// Students (see initStudentsFirebaseListener). Kept as a focus-refresh
+// safety net only, same pattern as Coaches/Finance/Enrolments.
 window.addEventListener('focus', () => { if (CURRENT_USER) syncStudentsFromSheet(); });
 
 // Purely diagnostic — never modifies or restores data itself. Flags a
@@ -7140,6 +7292,12 @@ function _describeAuditAction(payload) {
   if (payload.type === 'due_adjustment') {
     return `Manual Due Correction — ₹${(Number(payload.amount) || 0).toLocaleString('en-IN')} — "${payload.reason}" — ${payload.studentName || payload.studentId || ''}`;
   }
+  // Birthday Reminder — Birthday History (requirement #6), tracked via
+  // this existing, already-Sheets-backed pipeline rather than a new
+  // collection/Sheets tab.
+  if (payload.type === 'birthday') {
+    return `Birthday Wish Sent — ${payload.studentName || payload.studentId || ''} by ${payload.sentBy || ''}`;
+  }
   // FINAL ENROLMENT FIX — explicit Activity Log entry for Approve
   // specifically, separate from the generic "enrolment_request_update
   // update — X" entry every edit/reject already gets automatically.
@@ -7325,6 +7483,22 @@ function updateRequestsBadge() {
 // back up yet) must not be silently reset back to PENDING by an older
 // row still sitting in the sheet.
 async function fetchPendingRequestsFromSheet(showFeedback) {
+  // SINGLE-SOURCE FIX (Phase 2.1) — this used to run unconditionally
+  // every 30s (plus on focus, login, and page-nav), merging into
+  // window.DB.bookingRequests regardless of whether the Firebase listener
+  // was also doing exactly that. That's a genuine second, always-on
+  // writer for the same collection, not just a duplicate notification —
+  // this function calls its own updateRequestsBadge()/renderBookingRequests()
+  // too. Now skipped for every AUTOMATIC caller (interval, focus, login,
+  // page-nav — none of which pass showFeedback) whenever Firebase is
+  // genuinely seeded and delivering data, so only one mechanism is ever
+  // live at a time. The manual "🔄 Refresh" button still works regardless
+  // (showFeedback=true) — that's a deliberate user action, not a second
+  // automatic realtime path, so it's left alone.
+  if (!showFeedback && _bookingRequestsFirebaseSeeded) {
+    console.log('[FB-DEBUG] Skipping automatic Sheets poll for booking requests — Firebase listener is active and seeded');
+    return;
+  }
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
   if (!SHEET_URL) { if (showFeedback) showToast('Add a Google Sheet Web App URL in Settings first.', 'error'); return; }
   try {
@@ -7605,12 +7779,12 @@ function autoSyncCafeSale(sale) {
 // "create" finally reaches the server and gets the real one assigned —
 // same idea as the (never-actually-exercised) provisional booking-ID
 // pattern elsewhere in this file, done correctly end-to-end here.
-function autoSyncFee(fee) {
+function autoSyncFee(fee, actionOverride) {
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
   if (!SHEET_URL) return Promise.resolve({ ok: false, skipped: true });
   const payload = {
     type: 'fee',
-    action: fee.receiptNo ? 'update' : 'create',
+    action: actionOverride || (fee.receiptNo ? 'update' : 'create'),
     localId: fee.id,
     receiptNo: fee.receiptNo || '',
     studentId: fee.studentId,
@@ -7668,7 +7842,13 @@ async function syncFeesFromSheet() {
 
     let changed = false;
     const deletedIds = new Set(_getLocallyDeletedFeeIds());
-    const remoteFees = (data.fees || []).filter(f => f.receiptNo && !deletedIds.has(f.receiptNo));
+    // Fee Collection Integration (Phase 3) — also exclude rows the Sheet
+    // itself now reports as soft-deleted (Status: 'deleted', see Code.gs's
+    // handleFeeWrite delete branch). The `deletedIds` guard above only
+    // protects THIS device (the one that performed the delete) — a
+    // different device's fresh login has no such local record and would
+    // otherwise re-import the still-present-but-deleted Sheet row.
+    const remoteFees = (data.fees || []).filter(f => f.receiptNo && !deletedIds.has(f.receiptNo) && f.status !== 'deleted');
 
     remoteFees.forEach(remote => {
       const local = window.DB.fees.find(f => f.receiptNo === remote.receiptNo);
@@ -7691,7 +7871,9 @@ async function syncFeesFromSheet() {
     _feeSyncInFlight = false;
   }
 }
-setInterval(() => { if (CURRENT_USER) syncFeesFromSheet(); }, 30000);
+// Dedicated 30s interval removed — Firebase now owns real-time sync for
+// Fees (see initFeesFirebaseListener). Kept as a focus-refresh safety
+// net only, same pattern as Coaches/Finance/Enrolments/Students above.
 window.addEventListener('focus', () => { if (CURRENT_USER) syncFeesFromSheet(); });
 
 // ----- The four modules the sync was requested for but that had no
@@ -8730,6 +8912,14 @@ window.saveStudent = async () => {
   if (!batch) { showToast('Batch is required','error'); return; }
   if (!joined) { showToast('Joining Date is required','error'); return; }
   if (!coach) { showToast('Please select a Coach for this sport','error'); return; }
+  // STUDENT UPDATE validation (requested) — Age is mandatory on every
+  // save. When DOB is present, autoCalcStudentAge() already keeps this
+  // field populated and locked, so this trivially passes. It only bites
+  // for an older record with no DOB on file, which is exactly when a
+  // staff member needs to actually type an age before saving.
+  const ageValue = document.getElementById('st-age').value;
+  if (!ageValue) { showToast('Age is required.', 'error'); return; }
+  if (isNaN(Number(ageValue)) || Number(ageValue) <= 0) { showToast('Age must be a valid positive number.', 'error'); return; }
   if (feeStructure==='monthly' && !fee) { showToast('Enter the monthly fee','error'); return; }
   if (feeStructure==='quarterly' && !qfee) { showToast('Enter the quarterly fee','error'); return; }
   if (feeStructure==='yearly' && !yearlyFee) { showToast('Enter the yearly fee','error'); return; }
@@ -8923,12 +9113,31 @@ window._refreshEffectiveFeePreview = () => {
 
 window.autoCalcStudentAge = () => {
   const dob = document.getElementById('st-dob').value;
-  if (!dob) return;
+  const ageField = document.getElementById('st-age');
+  if (!dob) {
+    // DOB → Age (requirement #3/#4) — no DOB means this is either a new
+    // entry left blank, or an older record that never had one. Age
+    // becomes manually editable in that case rather than staying locked
+    // with nothing to derive it from.
+    ageField.readOnly = false;
+    ageField.style.background = '';
+    ageField.style.color = '';
+    ageField.placeholder = 'Enter age manually (no DOB on file)';
+    return;
+  }
   const birth = new Date(dob), today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m===0 && today.getDate() < birth.getDate())) age--;
-  if (age >= 0 && age < 100) document.getElementById('st-age').value = age;
+  if (age >= 0 && age < 100) {
+    ageField.value = age;
+    // DOB is present, so age is derived from it, not manually entered —
+    // lock the field again (in case it had been made editable above for
+    // a record that previously had no DOB).
+    ageField.readOnly = true;
+    ageField.style.background = 'var(--gray)';
+    ageField.style.color = 'var(--gray3)';
+  }
 };
 
 // Resizes/compresses the photo client-side before storing as base64 —
@@ -8967,6 +9176,7 @@ function resetStudentForm(){
   ['st-id','st-admission-no','st-name','st-parent','st-mother','st-phone','st-altphone','st-email','st-age','st-batch','st-batch-text','st-schedule-days','st-school','st-emergency','st-address','st-medical','st-remarks','st-fee','st-qfee','st-photo','st-yearly-fee','st-discount-value','st-joining-fee','st-due-day'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('st-batch-football').value='';
   document.getElementById('st-dob').value='';
+  autoCalcStudentAge(); // resets Age's readonly/styling state to "editable" for a fresh form — otherwise it could visually inherit locked styling left over from whichever record was previously open
   document.getElementById('st-joined').valueAsDate=new Date();
   document.getElementById('st-gender').value='';
   document.getElementById('st-blood').value='';
@@ -9042,6 +9252,7 @@ window.editStudent = (id, _readOnlyReset) => {
   document.getElementById('st-email').value=s.email||'';
   document.getElementById('st-age').value=s.age||'';
   document.getElementById('st-dob').value=s.dob||'';
+  autoCalcStudentAge(); // sets the Age field's readonly state correctly for this record immediately (locked if DOB present, editable if not) rather than only reacting to a later DOB change
   document.getElementById('st-gender').value=s.gender||'';
   document.getElementById('st-blood').value=s.bloodGroup||'';
   document.getElementById('st-school').value=s.school||'';
@@ -9430,7 +9641,7 @@ function _idCardBizSettings() {
   try { biz = JSON.parse(localStorage.getItem('ddtz_business_settings') || '{}'); } catch(e) {}
   return {
     name: biz.name || 'DD Turf Zone',
-    address: biz.address || 'Madambakkam, Chennai',
+    address: biz.address || 'Madambakkam, Chennai - 600126',
     contact: biz.contact || '7305123765'
   };
 }
@@ -10126,13 +10337,28 @@ window.renderFees = () => {
 // lightweight local exclusion list, not a real remote delete. Voiding a
 // receipt server-side is out of scope for 3.4b.
 window.deleteFee = async (id) => {
-  if (!can('manageFees')) { denyAccess(); return; }
+  if (!can('manageFees')) { denyAccess(null, 'manageFees'); return; }
   if(!confirm('Delete this fee record?'))return;
   const f = window.DB.fees.find(x=>x.id===id);
   await deleteDoc2('fees',id);
   window.DB.fees=window.DB.fees.filter(x=>x.id!==id);
-  if (f && f.receiptNo) _addLocallyDeletedFeeId(f.receiptNo);
+  if (f && f.receiptNo) {
+    _addLocallyDeletedFeeId(f.receiptNo);
+    // Fee Collection Integration (Phase 3) — these two calls did not
+    // exist before. deleteFeeFirebase() and autoSyncFee()'s delete
+    // action both already existed as infrastructure; this is the first
+    // time deleteFee() actually calls them. Without this, Firebase and
+    // Google Sheets never learned the payment was gone: other devices'
+    // Due/Dashboard/Coach Settlement figures kept counting a payment
+    // that had been deleted on this device, and the Sheet — the
+    // permanent backend — silently diverged from the app forever.
+    window.deleteFeeFirebase?.(f.receiptNo).then(r => {
+      if (r && !r.success) console.warn('Fee Firebase delete failed (Sheets delete still proceeding):', r.error);
+    });
+    autoSyncFee(f, 'delete');
+  }
   renderFees(); renderDashboard();
+  _refreshDuesIfActive();
   showToast('Fee record deleted');
 };
 
@@ -10162,7 +10388,7 @@ function _receiptDocHTML(f) {
       ${logoUrl
         ? `<img src="${logoUrl}" alt="${biz.name}">`
         : `<div class="rc-biz-name-fallback">${biz.name}</div>`}
-      <div class="rc-biz-sub">${biz.address} · ${biz.contact}</div>
+      <div class="rc-contact">${biz.address}<br>📞 ${biz.contact}</div>
     </div>
     <div class="rc-title">Payment Receipt</div>
     <div class="rc-meta">
@@ -10210,13 +10436,14 @@ function _receiptPrintCss() {
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:Arial,Helvetica,sans-serif;padding:16mm;background:#fff}
     .receipt-doc{width:100%;max-width:420px;margin:0 auto;border:1px solid #e2e8f0;border-radius:6px;padding:20px;color:#1e293b}
-    .rc-head{text-align:center;margin-bottom:18px;padding-bottom:16px;border-bottom:2px solid #0B0C0E}
+    .rc-head{text-align:center;margin-bottom:18px;border-bottom:2px solid #0B0C0E}
     /* Matches the on-screen .receipt-doc rules — this stylesheet drives
-       both the print window and the html2canvas/jsPDF capture, so the
-       larger logo applies to Print, Download PDF, WhatsApp PDF and Email
-       PDF alike (they all render this same document). */
-    .rc-head img{width:170px;max-width:75%;height:auto;margin:0 auto 12px;display:block}
-    .rc-head .rc-biz-sub{font-size:10px;color:#94a3b8;margin-top:2px}
+       Print, Download PDF, WhatsApp PDF and Email PDF alike (they all
+       render this same document). Logo enlarged ~45% (170px -> 245px).
+       .rc-contact's own margin-bottom is the spacing before the divider
+       border, same single-source reasoning as the on-screen rules. */
+    .rc-head img{width:245px;max-width:80%;height:auto;margin:0 auto 12px;display:block}
+    .rc-head .rc-contact{font-size:12px;font-weight:500;color:#666;line-height:1.4;text-align:center;margin-top:8px;margin-bottom:16px}
     .rc-head .rc-biz-name-fallback{font-size:24px;font-weight:800;color:#0B0C0E;margin-bottom:10px}
     .rc-title{text-align:center;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#0A3327;margin:12px 0}
     .rc-meta{display:flex;justify-content:space-between;font-size:11px;margin-bottom:12px;color:#94a3b8}
@@ -11018,6 +11245,17 @@ function autoSyncEnrolment(req, action) {
 // interval and immediately whenever the real-time feed sees a change).
 let _enrolmentSyncInFlight = false;
 async function syncEnrolmentsFromSheet() {
+  // SINGLE-SOURCE FIX (Phase 2.1) — this ran on every login AND every
+  // tab-focus, merging into window.DB.enrolments with no check on
+  // whether the Firebase listener was already doing exactly that. For an
+  // admin panel, tab-focus can fire many times a day, making this a
+  // de-facto continuous second writer, not just an occasional fallback.
+  // No manual "refresh" button calls this, so the whole function can be
+  // gated — nothing legitimate is lost.
+  if (_firebaseEnrolmentsSeeded) {
+    console.log('[FB-DEBUG] Skipping automatic Sheets poll for enrolments — Firebase listener is active and seeded');
+    return;
+  }
   if (!window.DDTZ_SHEET_URL || _enrolmentSyncInFlight) return;
   _enrolmentSyncInFlight = true;
   try {
@@ -12557,26 +12795,37 @@ window.printFinanceReport = () => {
 // Manager/Staff; see the architecture note at the top of this module for
 // exactly what this can/cannot enforce). -----
 let _financeFirebaseUnsubscribe = null;
+let _financeFirebaseSeeded = false; // was missing entirely, same gap as Coach Settlement — without it, every existing expense would be announced on first login
 window.initFinanceFirebaseListener = () => {
   if (!_finCanAccess()) return; // hard gate — this must never even attempt to subscribe for Manager/Staff
   if (typeof window.listenFinanceExpenses !== 'function') return;
   if (_financeFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (finance_expenses) — not re-subscribing'); return; } // already subscribed this session
 
   _financeFirebaseUnsubscribe = window.listenFinanceExpenses((remoteExpenses) => {
+    const isFirstSnapshot = !_financeFirebaseSeeded;
     let changed = false;
     remoteExpenses.forEach(remote => {
       if (!remote.id) return;
       const idx = window.DB.financeExpenses.findIndex(e => e.id === remote.id);
+      const me = CURRENT_USER?.name || CURRENT_USER?.email;
+      const isOwnAction = remote.addedBy && remote.addedBy === me;
       if (idx === -1) {
         window.DB.financeExpenses.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
         changed = true;
         window._ddtzDiag?.recordEvent('finance', 'Create'); // TEMP DIAGNOSTICS
+        if (!isFirstSnapshot && !isOwnAction) {
+          _announceFinanceEvent(remote.id, 'created', `Expense recorded: ${remote.expenseType || ''} — ₹${(Number(remote.amount)||0).toLocaleString('en-IN')}`);
+        }
       } else if ((remote.updatedAt || 0) !== (window.DB.financeExpenses[idx]._fbUpdatedAt || 0)) {
         window.DB.financeExpenses[idx] = { ...window.DB.financeExpenses[idx], ...remote, _fbUpdatedAt: remote.updatedAt };
         changed = true;
         window._ddtzDiag?.recordEvent('finance', 'Update'); // TEMP DIAGNOSTICS
+        if (!isFirstSnapshot && !isOwnAction) {
+          _announceFinanceEvent(remote.id, 'updated', `Expense updated: ${remote.expenseType || ''}`);
+        }
       }
     });
+    _financeFirebaseSeeded = true;
     if (changed && document.getElementById('page-finance')?.classList.contains('active')) {
       renderFinance();
     }
@@ -12584,10 +12833,30 @@ window.initFinanceFirebaseListener = () => {
   console.log('✓ Firebase realtime listener active for Finance (Super Admin)');
 };
 
+const _ddtzAnnouncedFinanceEvents = new Set(); // "expenseId:kind" already announced this session
+function _announceFinanceEvent(expenseId, kind, text) {
+  const eventKey = expenseId + ':' + kind;
+  if (_ddtzAnnouncedFinanceEvents.has(eventKey)) return;
+  _ddtzAnnouncedFinanceEvents.add(eventKey);
+  showToast(`💵 ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'FINFB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: 'Finance', role: '', module: 'finance_expense', moduleLabel: 'Finance',
+    icon: '💵', action: text, recordId: expenseId, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  window.playVoiceAnnouncement?.(text, false);
+}
+
 window.stopFinanceFirebaseListener = () => {
   if (_financeFirebaseUnsubscribe) {
     _financeFirebaseUnsubscribe();
     _financeFirebaseUnsubscribe = null;
+    _financeFirebaseSeeded = false;
     console.log('[FB-DEBUG] Listener removed (finance_expenses)'); // TEMP DEBUG LOG
   }
 };
@@ -12899,12 +13168,14 @@ async function syncCoachSettlementsFromSheet() {
 
 // ----- Firebase realtime listener (Super Admin only, same pattern as Finance) -----
 let _csFirebaseUnsubscribe = null;
+let _csFirebaseSeeded = false; // was missing entirely — without it, every existing settlement would be announced on first login
 window.initCoachSettlementFirebaseListener = () => {
   if (!_csCanAccess()) return;
   if (typeof window.listenCoachSettlements !== 'function') return;
   if (_csFirebaseUnsubscribe) return;
 
   _csFirebaseUnsubscribe = window.listenCoachSettlements((remoteSettlements) => {
+    const isFirstSnapshot = !_csFirebaseSeeded;
     let changed = false;
     remoteSettlements.forEach(remote => {
       if (!remote.settlementId) return;
@@ -12912,18 +13183,51 @@ window.initCoachSettlementFirebaseListener = () => {
       if (idx === -1) {
         window.DB.coachSettlements.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
         changed = true;
+        // KNOWN LIMITATION: no own-action exclusion here — the settlement
+        // record itself carries no updatedBy field (unlike Students/Fees/
+        // Coaches), so a Super Admin using two devices may occasionally
+        // hear their own action announced. Still gated on isFirstSnapshot,
+        // so login never causes a storm — just not fully own-action-aware
+        // yet. Would need an updatedBy field added to the sync payload to
+        // close this properly.
+        if (!isFirstSnapshot) {
+          _announceCoachSettlementEvent(remote.settlementId, 'created', `New settlement generated: ${remote.coachName || remote.coachId} — ${remote.monthLabel || remote.monthValue}`);
+        }
       } else if ((remote.updatedAt || 0) !== (window.DB.coachSettlements[idx]._fbUpdatedAt || 0)) {
         window.DB.coachSettlements[idx] = { ...window.DB.coachSettlements[idx], ...remote, _fbUpdatedAt: remote.updatedAt };
         changed = true;
+        if (!isFirstSnapshot) {
+          _announceCoachSettlementEvent(remote.settlementId, 'updated', `Settlement updated: ${remote.coachName || remote.coachId} — ${remote.status || ''}`);
+        }
       }
     });
+    _csFirebaseSeeded = true;
     if (changed && document.getElementById('page-coachSettlement')?.classList.contains('active')) csRenderSettlement();
   });
   console.log('✓ Firebase realtime listener active for Coach Settlement (Super Admin)');
 };
 window.stopCoachSettlementFirebaseListener = () => {
-  if (_csFirebaseUnsubscribe) { _csFirebaseUnsubscribe(); _csFirebaseUnsubscribe = null; }
+  if (_csFirebaseUnsubscribe) { _csFirebaseUnsubscribe(); _csFirebaseUnsubscribe = null; _csFirebaseSeeded = false; }
 };
+
+const _ddtzAnnouncedCoachSettlementEvents = new Set(); // "settlementId:kind" already announced this session
+function _announceCoachSettlementEvent(settlementId, kind, text) {
+  const eventKey = settlementId + ':' + kind;
+  if (_ddtzAnnouncedCoachSettlementEvents.has(eventKey)) return;
+  _ddtzAnnouncedCoachSettlementEvents.add(eventKey);
+  showToast(`📊 ${text}`);
+  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
+  _rtPlayNotifySound();
+  const notifications = _rtGetNotifications();
+  _rtSaveNotifications([{
+    id: 'CSFB' + eventKey, row: null, timestamp: new Date().toISOString(),
+    user: 'Coach Settlement', role: '', module: 'coach_settlement', moduleLabel: 'Coach Settlement',
+    icon: '📊', action: text, recordId: settlementId, read: false
+  }, ...notifications]);
+  _rtRenderBell();
+  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
+  window.playVoiceAnnouncement?.(text, false);
+}
 
 // ----- UI -----
 window._csCurrentSettlement = null;
@@ -14088,6 +14392,119 @@ window.syncMonthToSheets = () => {
 };
 
 // ===== DASHBOARD =====
+// ============================================================================
+// BIRTHDAY REMINDER FEATURE
+// ----------------------------------------------------------------------------
+// Deliberately builds on data and mechanisms that already exist rather
+// than adding any new sync infrastructure: Students already sync via
+// Firebase/Sheets (unchanged by this feature), and "Birthday History" is
+// tracked via the existing logAudit() pipeline, which is already
+// Sheets-backed (Activity Log) — so this needs zero new Firebase paths
+// and zero new Sheets tabs, matching the explicit "no Sheets changes
+// except DOB, which is already present" constraint.
+//
+// "Stays synchronized across Super Admin/Admin/Manager, no duplicate
+// notifications" is satisfied structurally: every device already reads
+// the same synced Students data, so each independently computes the
+// identical "today's birthdays" list — there's nothing to keep in sync
+// beyond what's already synced. The per-day dedup below is per-DEVICE
+// (persisted to localStorage, not just in-memory), so a page refresh
+// later the same day doesn't re-announce — while a different person
+// logged in on a different device still correctly sees/hears it once,
+// which is the intended behavior (each admin should be told once, not
+// zero times because someone else's device already saw it).
+// ============================================================================
+
+function _calcAgeFromDob(dob) {
+  if (!dob) return null;
+  const birth = new Date(dob), today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return (age >= 0 && age < 100) ? age : null;
+}
+
+function _getTodaysBirthdays() {
+  const todayMD = getToday().slice(5); // "MM-DD" — comparing this substring directly avoids any Date-object timezone ambiguity, since both getToday() and the <input type="date"> dob value are already "YYYY-MM-DD"
+  return (window.DB.students || [])
+    .filter(s => !s.archived && s.status === 'active' && s.dob && s.dob.slice(5) === todayMD)
+    .map(s => ({ ...s, age: _calcAgeFromDob(s.dob) }));
+}
+
+window.renderBirthdayWidget = () => {
+  const panel = document.getElementById('dash-birthday-panel');
+  if (!panel) return;
+  const list = _getTodaysBirthdays();
+  panel.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border-left:4px solid var(--yellow)">
+      <div class="card-title">🎂 Today's Birthdays</div>
+      ${!list.length ? `<div style="color:var(--gray3);font-size:13px">No birthdays today.</div>` : `
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${list.map(s => `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:10px;background:var(--gray);border-radius:10px">
+              <div>
+                <div style="font-weight:700">${_esc(s.name)} <span style="font-weight:400;color:var(--gray3);font-size:12px">(${s.age !== null ? s.age + ' yrs' : 'age unknown'})</span></div>
+                <div style="font-size:12px;color:var(--gray3)">${_esc(s.sport || '')} · Coach: ${_esc(s.coach || '-')} · 📱 ${_esc(s.phone || '-')}</div>
+              </div>
+              <button class="btn btn-whatsapp btn-sm" onclick="sendBirthdayWish('${s.id}')">🎉 Send Birthday Wish</button>
+            </div>`).join('')}
+        </div>`}
+    </div>`;
+};
+
+// Persisted (not just in-memory) so a page refresh later the SAME day
+// doesn't re-announce — this is what "once per day per student, don't
+// repeat continuously" actually requires, since a page reload would
+// otherwise re-run this check from a clean slate.
+function _birthdayAnnouncedKey(studentId) { return `ddtz_bday_announced_${getToday()}_${studentId}`; }
+
+window.checkAndAnnounceBirthdays = () => {
+  const list = _getTodaysBirthdays();
+  list.forEach(s => {
+    const key = _birthdayAnnouncedKey(s.id);
+    if (localStorage.getItem(key)) return; // already announced today, on this device
+    try { localStorage.setItem(key, '1'); } catch(e) {}
+    const text = `🎉 Today is ${s.name}'s Birthday!`;
+    showToast(text);
+    _rtPlayNotifySound();
+    const notifications = _rtGetNotifications();
+    _rtSaveNotifications([{
+      id: 'BDAY' + getToday() + s.id, row: null, timestamp: new Date().toISOString(),
+      user: 'Birthdays', role: '', module: 'birthday', moduleLabel: 'Birthday',
+      icon: '🎂', action: text, recordId: s.id, read: false
+    }, ...notifications]);
+    _rtRenderBell();
+    window.playVoiceAnnouncement?.(`Happy Birthday to ${s.name}!`, false);
+  });
+};
+
+// "Only open WhatsApp. Do not send automatically." — window.open() is
+// called FIRST, synchronously, before any other work — browsers only
+// allow a popup within a short window of the actual click, and every
+// await/async step in between risks it being silently blocked (the same
+// class of bug found and fixed in the public reservation and receipt
+// WhatsApp flows earlier).
+window.sendBirthdayWish = (studentId) => {
+  const s = window.DB.students.find(x => x.id === studentId);
+  if (!s) return;
+  const message = `🎉 Happy Birthday, ${s.name}!\n\nWishing you a wonderful year filled with happiness, good health, success, and many victories.\nMay you continue to grow stronger, achieve your goals, and shine both on and off the field.\n\nHave an amazing day!\n\nBest Wishes,\nDD Turf Zone Family 🏆`;
+  const phone = (s.phone || '').replace(/\D/g, '');
+  const waNumber = phone ? buildWaPhone(phone) : '';
+  if (!phone) showToast('No phone number on file — pick the contact in WhatsApp.', 'info');
+  const win = window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`, '_blank');
+  if (!win) { showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error'); return; }
+
+  // Birthday History (requirement #6) — "for tracking only," so this
+  // deliberately reuses the existing logAudit() pipeline (already
+  // Sheets-backed via the Activity Log) rather than adding a new
+  // collection/Sheets tab. Also kept locally for quick in-app reference.
+  const record = { studentId: s.id, studentName: s.name, date: getToday(), time: new Date().toLocaleTimeString(), sentBy: CURRENT_USER?.name || CURRENT_USER?.email || '' };
+  window.DB.birthdayWishes = window.DB.birthdayWishes || [];
+  window.DB.birthdayWishes.unshift(record);
+  LS.set('birthdayWishes', window.DB.birthdayWishes);
+  logAudit({ type: 'birthday', studentId: s.id, studentName: s.name, sentBy: record.sentBy });
+};
+
 window.renderDashboard = () => {
   const today = getToday();
   const todayBks = window.DB.bookings.filter(b => b.date === today && b.status !== 'cancelled');
@@ -16025,7 +16442,20 @@ function _rtModuleMeta(mod) {
 // awareness baked in) and Phase 2.5 just calls that sooner instead of
 // re-implementing it.
 const RT_MERGE_MAP = {
-  student:    { col: 'students',   idField: 'studentId' },
+  // PHASE (Students/Fees Firebase migration) — 'student' and 'fee'
+  // removed from this map. Both were left here when their Firebase
+  // listeners were added, which meant THREE competing paths were writing
+  // to the same window.DB.students/window.DB.fees arrays at once: this
+  // fast poll-merge (~2.5s), the dedicated 30s syncStudentsFromSheet()/
+  // syncFeesFromSheet() interval, and the new Firebase listener. That's
+  // exactly the race/stale-cache risk 'coach' was already retired from
+  // for the same reason during its own migration (see the comment
+  // preserved below). Firebase is now the single real-time path for
+  // both, using the same id-preservation approach the listener merge
+  // logic already uses. syncStudentsFromSheet()/syncFeesFromSheet()
+  // themselves are NOT deleted — they remain as focus-refresh safety
+  // nets (still called on tab focus and once every 30s), exactly the
+  // same shape as every other migrated module's fallback.
   enquiry:    { col: 'enquiries',  idField: 'enquiryId' },
   attendance: { col: 'attendance', idField: 'attendanceId' },
   // PHASE 4.3.1 — 'coach' removed from this map. Firebase now drives
@@ -16046,8 +16476,11 @@ const RT_MERGE_MAP = {
   // payment shows up via the next syncFeesFromSheet() 30s poll instead of
   // the ~2.5s fast path. An EDIT to an already-existing payment (which
   // does have a ReceiptNo) still merges instantly here, same as everything
-  // else in this map.
-  fee:        { col: 'fees',       idField: 'receiptNo' }
+  // PHASE 3.4b comment retained for history: an EDIT to an existing
+  // payment used to merge instantly via this fast path; a brand-new
+  // payment (no ReceiptNo yet) fell through to the 30s poll instead.
+  // Moot now that 'fee' is Firebase-driven — see the note at the top of
+  // this map.
 };
 
 function _rtMergeRecord(ev) {
@@ -16377,6 +16810,22 @@ function _rtApplyEvents(events) {
     if ((ev.module === 'enrolment_request' || ev.module === 'enrolment_request_update') && _firebaseEnrolmentsSeeded) return;
     if (ev.module === 'coach' && _coachesFirebaseSeeded) return;
     if ((ev.module === 'booking_request' || ev.module === 'booking_request_update') && _bookingRequestsFirebaseSeeded) return;
+    // PHASE 5 FIX — Students, Fees, Due Adjustments, Coach Settlement, and
+    // Finance all gained their own dedicated Firebase-listener announce
+    // functions this session (_announceStudentEvent etc.). Before that,
+    // this generic path was their ONLY notification source, so nothing
+    // needed excluding here. Now that each has its own, an unexcluded
+    // audit event for the same action would fire a SECOND toast+bell+
+    // voice — the exact duplicate-notification/duplicate-voice bug this
+    // phase's verification is checking for. Same fail-safe pattern as
+    // every exclusion above: gated on the seeded flag (proof of actual
+    // delivery), not mere attachment, so a dead listener automatically
+    // falls back to this path instead of going silent.
+    if (ev.module === 'student' && _studentsFirebaseSeeded) return;
+    if (ev.module === 'fee' && _feesFirebaseSeeded) return;
+    if (ev.module === 'due_adjustment' && _dueAdjustmentsFirebaseSeeded) return;
+    if (ev.module === 'coach_settlement' && _csFirebaseSeeded) return;
+    if (ev.module === 'finance_expense' && _financeFirebaseSeeded) return;
     const meta = _rtModuleMeta(ev.module);
     newNotifs.push({
       id: 'N' + ev.row,
@@ -16400,6 +16849,18 @@ function _rtApplyEvents(events) {
     const latest = newNotifs[0];
     const roleLabel = ROLE_LABELS[latest.role] || latest.role;
     showToast(`${latest.icon} ${latest.user}${roleLabel ? ' (' + roleLabel + ')' : ''} — ${latest.action}`);
+    // PHASE 4 — VOICE NOTIFICATIONS. Covers every module still on this
+    // generic poll path (Slot Booking, Attendance, and anything else not
+    // yet given its own Firebase listener) — additive only, no Slot
+    // Booking business logic touched. Reuses the own-device exclusion
+    // already applied above (a device never hears about its own write),
+    // and its own dedup Set keyed by the same ev.row used for the
+    // notification id, so a re-poll of an already-announced event never
+    // speaks twice.
+    if (!_ddtzAnnouncedPollEvents.has(latest.id)) {
+      _ddtzAnnouncedPollEvents.add(latest.id);
+      window.playVoiceAnnouncement?.(`${latest.moduleLabel}: ${latest.action}`, false);
+    }
     _rtPlayNotifySound();
   }
 

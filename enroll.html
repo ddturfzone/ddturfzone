@@ -124,8 +124,9 @@ textarea{resize:vertical;min-height:70px}
 
         <div class="form-row">
           <div class="form-group" id="fld-dob">
-            <label>Date of Birth <span class="opt">(optional)</span></label>
+            <label>Date of Birth <span class="req">*</span></label>
             <input type="date" id="f-dob">
+            <div class="err">Date of Birth is required.</div>
           </div>
           <div class="form-group" id="fld-gender">
             <label>Gender <span class="opt">(optional)</span></label>
@@ -235,12 +236,17 @@ function _showFieldError(fieldId, show) {
 function _validate() {
   let ok = true;
   const studentName = document.getElementById('f-studentName').value.trim();
+  const dob = document.getElementById('f-dob').value;
   const parentName = document.getElementById('f-parentName').value.trim();
   const mobile = document.getElementById('f-mobile').value.replace(/\D/g, '');
   const email = document.getElementById('f-email').value.trim();
   const sport = document.getElementById('f-sport').value;
 
   _showFieldError('studentName', !studentName); if (!studentName) ok = false;
+  // Enrolment Form Validation (requested) — Date of Birth is now
+  // mandatory for new enrolments, same highlight/message/block-submit
+  // mechanism as every other required field on this form.
+  _showFieldError('dob', !dob); if (!dob) ok = false;
   _showFieldError('parentName', !parentName); if (!parentName) ok = false;
 
   // Basic sanity check only — a full number-formatting/WhatsApp-delivery
