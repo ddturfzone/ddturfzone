@@ -929,7 +929,7 @@ tr:hover td{background:#f8fffe}
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Coaches</div>
             <div style="color:var(--gray3);font-size:13px">Manage coaching staff</div>
           </div>
-          <button class="btn btn-primary" data-requires-action="manageCoaches" onclick="openModal('coach-modal')">+ Add Coach</button>
+          <button class="btn btn-primary" data-requires-action="manageCoaches" onclick="document.getElementById('co-audit-info').innerHTML='';openModal('coach-modal')">+ Add Coach</button>
         </div>
         <!-- PHASE 3.1 — Coaches now has a real Sheets-backed CRUD endpoint,
              cross-device sync, and optimistic conflict detection, same as
@@ -2482,6 +2482,7 @@ tr:hover td{background:#f8fffe}
       <input type="checkbox" id="blk-series-apply" style="width:16px;height:16px">
       Apply time / reason / notes changes to the entire series
     </label>
+    <div id="blk-audit-info"></div>
     <div class="modal-footer" style="flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="closeModal('block-slot-modal')">Cancel</button>
       <button class="btn btn-danger" id="blk-delete-btn" style="display:none" onclick="deleteBlockSlot(false)">Delete</button>
@@ -2645,6 +2646,8 @@ tr:hover td{background:#f8fffe}
       </div>
     </details>
 
+    <div id="st-audit-info"></div>
+
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('student-modal')">Cancel</button>
       <button class="btn btn-primary" id="student-modal-save-btn" onclick="saveStudent()">💾 Save Student</button>
@@ -2760,6 +2763,7 @@ tr:hover td{background:#f8fffe}
       </div>
       <div class="form-group full"><label>Notes</label><textarea id="fee-notes" rows="2" placeholder="Any notes..."></textarea></div>
     </div>
+    <div id="fee-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('fee-modal')">Cancel</button>
       <button class="btn btn-whatsapp" data-requires-action="manageFees" onclick="saveFeeAndWhatsApp()">💬 Save & WhatsApp</button>
@@ -2840,6 +2844,7 @@ tr:hover td{background:#f8fffe}
       <div style="font-size:12px;font-weight:700;color:var(--gray3);margin-bottom:4px">Prior corrections this period:</div>
       <div id="due-adj-history"></div>
     </div>
+    <div id="due-adj-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('due-adjustment-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveDueAdjustment()">💾 Save Correction</button>
@@ -2874,6 +2879,7 @@ tr:hover td{background:#f8fffe}
       <div class="form-group"><label>Preferred Batch</label><input type="text" id="enr-batch" placeholder="e.g. Morning A"></div>
       <div class="form-group full"><label>Medical Notes (Optional)</label><textarea id="enr-medical" rows="2"></textarea></div>
     </div>
+    <div id="enr-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('enrolment-modal')">Close</button>
       <button class="btn btn-primary" id="enrolment-save-btn" data-requires-action="manageEnrolments" onclick="saveEnrolmentEdit()">💾 Save Changes</button>
@@ -2920,6 +2926,7 @@ tr:hover td{background:#f8fffe}
            spec section 2's default; used by csRevShareFor. -->
       <div class="form-group"><label>Revenue Share % (Coach Settlement)</label><input type="number" id="co-revshare" min="0" max="100" placeholder="50"></div>
     </div>
+    <div id="co-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('coach-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveCoach()">💾 Save Coach</button>
@@ -2943,6 +2950,7 @@ tr:hover td{background:#f8fffe}
       </div>
       <div class="form-group" style="grid-column:1/-1"><label>Remarks</label><input type="text" id="cs-payment-remarks" placeholder="Optional note"></div>
     </div>
+    <div id="cs-payment-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('cs-payment-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="csRecordPaymentUI()">💾 Record Payment</button>
@@ -3086,6 +3094,7 @@ tr:hover td{background:#f8fffe}
         </select>
       </div>
     </div>
+    <div id="fin-exp-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('finance-expense-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveFinanceExpense()">💾 Save Expense</button>
@@ -6653,13 +6662,25 @@ async function _postToGoogleSheetOriginal(payload) {
   if (!SHEET_URL) return { ok: false, skipped: true };
   if (window.DDTZ_SHEET_TOKEN) payload = { ...payload, token: window.DDTZ_SHEET_TOKEN };
 
+  // FIX: without a timeout, a stalled request (slow mobile data, Apps
+  // Script cold-start, a dropped connection) leaves this fetch's promise
+  // pending forever — it never resolves AND never rejects. Since nothing
+  // throws, the catch block below never runs, so the Save button stays
+  // stuck on "Saving…" indefinitely and the record never gets confirmed
+  // either way. AbortController forces the request to fail cleanly after
+  // 20s so the catch block always eventually runs.
+  const _timeoutCtrl = new AbortController();
+  const _timeoutId = setTimeout(() => _timeoutCtrl.abort(), 20000);
+
   try {
     const res = await fetch(SHEET_URL, {
       method: 'POST',
       redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: _timeoutCtrl.signal
     });
+    clearTimeout(_timeoutId);
 
     let result = null;
     try { result = await res.json(); } catch (e) { /* empty/non-JSON body — fall through to HTTP status check */ }
@@ -6698,12 +6719,18 @@ async function _postToGoogleSheetOriginal(payload) {
     _recordSyncError(errMsg);
     return { ok: false, error: errMsg, retry: true };
   } catch (err) {
-    // Network failure, blocked request, or an unreachable/misconfigured URL
+    clearTimeout(_timeoutId);
+    // Network failure, blocked request, unreachable/misconfigured URL, or
+    // our own 20s timeout firing (err.name === 'AbortError') because the
+    // request stalled instead of failing outright.
+    const isTimeout = err && err.name === 'AbortError';
     console.error('Google Sheet sync error:', err);
-    showToast('⚠️ Could not reach Google Sheets — check the Apps Script URL in Settings and your internet connection. The booking itself was still saved.', 'error');
+    showToast(isTimeout
+      ? '⚠️ Google Sheets took too long to respond (timed out after 20s). The booking itself was still saved — it will keep retrying in the background.'
+      : '⚠️ Could not reach Google Sheets — check the Apps Script URL in Settings and your internet connection. The booking itself was still saved.', 'error');
     _lastAppsScriptReachable = false;
-    _recordSyncError(String(err));
-    return { ok: false, error: String(err), retry: true };
+    _recordSyncError(isTimeout ? 'Timed out after 20s' : String(err));
+    return { ok: false, error: isTimeout ? 'Timed out after 20s' : String(err), retry: true };
   }
 }
 
@@ -8520,6 +8547,7 @@ window.openBlockSlotModal = () => {
   document.getElementById('blk-range-hint').style.display = '';
   document.querySelectorAll('.blk-weekday-cb').forEach(cb => cb.checked = false);
   document.getElementById('blk-weekday-wrap').style.display = '';
+  document.getElementById('blk-audit-info').innerHTML = '';
   syncTimeDisplays();
   openModal('block-slot-modal');
 };
@@ -8555,6 +8583,7 @@ window.editBlockSlot = (id) => {
   document.getElementById('blk-series-apply').checked = false;
   document.getElementById('blk-delete-btn').style.display = 'inline-flex';
   document.getElementById('blk-delete-series-btn').style.display = isSeries ? 'inline-flex' : 'none';
+  document.getElementById('blk-audit-info').innerHTML = renderAuditInfoBlock(bl);
 
   syncTimeDisplays();
   openModal('block-slot-modal');
@@ -8809,7 +8838,7 @@ window.openBookingDetailModal = (id) => {
   document.getElementById('bkd-payment-history').innerHTML = `
     <div style="font-weight:800;font-size:13px;color:var(--dark);margin:16px 0 8px;display:flex;align-items:center;gap:6px">💳 Payment History</div>
     <div style="background:var(--gray);border-radius:10px;padding:4px 12px">${historyHtml}</div>
-  `;
+  ` + renderAuditInfoBlock(b);
   document.getElementById('bkd-add-payment-btn').style.display = (b.pending > 0) ? 'flex' : 'none';
   document.getElementById('bkd-delete-btn').style.display = can('deleteBooking') ? 'flex' : 'none';
 
@@ -9292,6 +9321,7 @@ function resetStudentForm(){
   document.getElementById('st-photo-preview').style.display='none';
   document.getElementById('st-photo-placeholder').style.display='';
   document.getElementById('student-modal-title').textContent='🎓 Add Student';
+  document.getElementById('st-audit-info').innerHTML = '';
   const defaultSport = document.getElementById('st-sport').value || 'football';
   _rebuildStudentBatchUiForSport(defaultSport);
   _rebuildStudentCoachSelect(defaultSport, undefined);
@@ -9401,6 +9431,7 @@ window.editStudent = (id, _readOnlyReset) => {
   else { preview.style.display='none'; document.getElementById('st-photo-placeholder').style.display=''; }
   document.getElementById('st-id-display').textContent = s.studentId || s.id;
   document.getElementById('student-modal-title').textContent='✏️ Edit Student';
+  document.getElementById('st-audit-info').innerHTML = renderAuditInfoBlock(s);
   openModal('student-modal');
 };
 
@@ -10162,6 +10193,7 @@ window.resetFeeForm = () => {
   document.getElementById('fee-receipt-no').value = '';
   document.getElementById('fee-receipt-display').value = '';
   document.getElementById('fee-modal-title').textContent = '💰 Record Fee Payment';
+  document.getElementById('fee-audit-info').innerHTML = '';
   document.getElementById('fee-student-search').value = '';
   document.getElementById('fee-paid').value = '';
   document.getElementById('fee-notes').value = '';
@@ -10186,6 +10218,7 @@ window.editFee = (id) => {
   document.getElementById('fee-receipt-no').value = f.receiptNo || '';
   document.getElementById('fee-receipt-display').value = f.receiptNo || '(pending sync)';
   document.getElementById('fee-modal-title').textContent = `✏️ Edit Payment${f.receiptNo?' — '+f.receiptNo:''}`;
+  document.getElementById('fee-audit-info').innerHTML = renderAuditInfoBlock(f);
   populateFeeStudentSelect();
   const matchId = window.DB.students.find(s=>(s.studentId||s.id)===f.studentId)?.id || '';
   document.getElementById('fee-student-select').value = matchId;
@@ -11672,6 +11705,7 @@ function _fillEnrolmentForm(r) {
   document.getElementById('enr-sport').value = r.sport || 'football';
   document.getElementById('enr-batch').value = r.batch || '';
   document.getElementById('enr-medical').value = r.medicalNotes || '';
+  document.getElementById('enr-audit-info').innerHTML = renderAuditInfoBlock(r);
 }
 
 function _setEnrolmentFormReadOnly(readonly) {
@@ -12113,7 +12147,7 @@ window.openCoachForEdit = (id) => {
   });
 };
 
-window.editCoach=(id)=>{const c=window.DB.coaches.find(x=>x.id===id);if(!c)return;document.getElementById('co-id').value=c.id;document.getElementById('co-name').value=c.name;document.getElementById('co-phone').value=c.phone;document.getElementById('co-sport').value=c.sport;document.getElementById('co-salary').value=c.salary||'';document.getElementById('co-joined').value=c.joined||'';document.getElementById('co-status').value=c.status;document.getElementById('co-revshare').value=c.revenueSharePercent||'';document.getElementById('coach-modal-title').textContent='✏️ Edit Coach';openModal('coach-modal');};
+window.editCoach=(id)=>{const c=window.DB.coaches.find(x=>x.id===id);if(!c)return;document.getElementById('co-id').value=c.id;document.getElementById('co-name').value=c.name;document.getElementById('co-phone').value=c.phone;document.getElementById('co-sport').value=c.sport;document.getElementById('co-salary').value=c.salary||'';document.getElementById('co-joined').value=c.joined||'';document.getElementById('co-status').value=c.status;document.getElementById('co-revshare').value=c.revenueSharePercent||'';document.getElementById('coach-modal-title').textContent='✏️ Edit Coach';document.getElementById('co-audit-info').innerHTML=renderAuditInfoBlock(c);openModal('coach-modal');};
 
 // ===== ENQUIRIES =====
 window.saveEnquiry = async () => {
@@ -12602,8 +12636,10 @@ window.openFinanceExpenseModal = (id) => {
     document.getElementById('fin-exp-frequency').value = e.frequency || 'monthly';
     document.getElementById('fin-exp-nextdue').value = e.nextDueDate || '';
     document.getElementById('fin-exp-reminder').value = String(e.reminderBeforeDays || 3);
+    document.getElementById('fin-exp-audit-info').innerHTML = renderAuditInfoBlock(e);
   } else {
     document.getElementById('finance-expense-modal-title').textContent = '💰 Add Expense';
+    document.getElementById('fin-exp-audit-info').innerHTML = '';
     document.getElementById('fin-exp-id').value = '';
     document.getElementById('fin-exp-date').value = getToday();
     document.getElementById('fin-exp-group').value = 'owner';
@@ -13543,6 +13579,7 @@ window.csOpenPaymentModal = (settlementId) => {
     `${rec.coachName} — ${rec.monthLabel} ${rec.year} — Coach Share ₹${rec.totals.coachShareAmount.toLocaleString('en-IN')} — Balance owed ₹${balance.toLocaleString('en-IN')}`;
   document.getElementById('cs-payment-amount').value = '';
   document.getElementById('cs-payment-remarks').value = '';
+  document.getElementById('cs-payment-audit-info').innerHTML = renderAuditInfoBlock(rec);
   openModal('cs-payment-modal');
 };
 
