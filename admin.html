@@ -12163,6 +12163,13 @@ window.saveEnquiry = async () => {
   if(!name||!phone){showToast('Fill required fields','error');return;}
   const data={name,phone,sport:document.getElementById('enq-sport').value,source:document.getElementById('enq-source').value,status:document.getElementById('enq-status').value,date:document.getElementById('enq-date').value||getToday(),notes:document.getElementById('enq-notes').value};
   const existId=document.getElementById('enq-id').value;
+  // VERIFICATION FIX — same gap as Café Sales: Enquiries was the other
+  // collection that never called _stampAudit(), so it never got
+  // Created/Updated By+At like every other module. existingRecord is the
+  // pre-edit record (undefined for a brand-new enquiry), matching the
+  // exact pattern _stampAudit() already uses everywhere else.
+  const existingRecord = existId ? window.DB.enquiries.find(x=>x.id===existId) : null;
+  _stampAudit(data, existingRecord);
   const id=await saveDoc('enquiries',data,existId||null);
   if(!existId){data.id=id;window.DB.enquiries.unshift(data);}
   else{const idx=window.DB.enquiries.findIndex(x=>x.id===existId);if(idx>=0)window.DB.enquiries[idx]={...data,id:existId};}
@@ -15107,6 +15114,14 @@ window.saveCafeSale = async () => {
     method: document.getElementById('cafe-sale-method').value,
     date: getToday()
   };
+  // VERIFICATION FIX — every other module (Bookings, Blocked Slots,
+  // Students, Attendance, Fees, Due Adjustments, Booking Requests,
+  // Coaches, Finance Expenses, Coach Settlement) stamps Created/Updated
+  // By+At via _stampAudit() before saving; Café Sales was the one
+  // collection that skipped it, so it never got the Audit Information
+  // block other records show. This is a brand-new record every time
+  // (Café Sales has no edit flow), so existingRecord is always null.
+  _stampAudit(data, null);
   const id = await saveDoc('cafeSales', data, null);
   data.id = id;
   window.DB.cafeSales.unshift(data);
