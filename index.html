@@ -1287,102 +1287,14 @@
     el.textContent = `${s.icon} ${detail || s.text}`;
   }
 
-  // STABILITY PHASE — PRIORITY 1. Real-time Firebase feed (see Stage 2 in
-  // firebase.js) replaces the pure-polling design below as the PRIMARY
-  // source: a booking made in Admin now reaches this page the instant
-  // Firebase delivers the update, instead of waiting up to 30s. The
-  // original Apps Script polling path is kept as an automatic FALLBACK —
-  // used only while Firebase hasn't connected yet, or if its listener
-  // ever reports an error — so a Firebase outage degrades to the old
-  // "effectively live" 30s behavior rather than breaking availability
-  // entirely.
-  let _liveAvailabilityData = null;   // { bookings: [...], blocks: [...] } once the first Firebase snapshot arrives
-  let _liveAvailabilityFailed = false; // true once the Firebase listener has reported an error — triggers the polling fallback
-  let _liveAvailabilityUnsub = null;
-
-  function _slotsForDateFromLiveData(dateStr){
-    if (!_liveAvailabilityData) return null;
-    const slots = [];
-    (_liveAvailabilityData.bookings || []).forEach(b => {
-      if (b.date !== dateStr || b.status === 'cancelled') return;
-      slots.push({ start: b.start, end: b.end, status: 'booked' });
-    });
-    (_liveAvailabilityData.blocks || []).forEach(bl => {
-      const from = bl.fromDate || bl.blockedDate, to = bl.toDate || bl.blockedDate;
-      if (!from || !to || dateStr < from || dateStr > to) return;
-      slots.push({ start: bl.start, end: bl.end, status: 'blocked', reason: bl.reason });
-    });
-    return slots;
-  }
-
-  // STABILITY PHASE — ROOT CAUSE FIX. This page loads firebase.js (see the
-  // <script defer src="firebase.js"> tag above) but, unlike admin.html and
-  // enroll.html, never actually called window.initializeFirebase() anywhere.
-  // firebase.js defines that function but does not invoke it on its own —
-  // every other page that uses Firebase calls it explicitly once its own
-  // script runs. Without this call, realtimeDb inside firebase.js's closure
-  // stays null forever on this page, so every listenLiveAvailability() call
-  // immediately hits its `if (!realtimeDb)` guard and reports "Firebase not
-  // initialized" — which is exactly the "Could not reach live availability"
-  // / "isn't connected right now" state that was showing in production, on
-  // every load and every retry, regardless of the polling fallback's state.
-  // Same call, same pattern already used by enroll.html for its own public,
-  // no-login page.
-  document.addEventListener('DOMContentLoaded', () => {
-    if (typeof window.initializeFirebase === 'function') {
-      window.initializeFirebase().then((result) => {
-        if (result.success) {
-          console.log('✓ Firebase initialized for index.html (Public Live Availability)');
-        } else {
-          console.warn('⚠ Firebase initialization failed for index.html:', result.error);
-        }
-      });
-    } else {
-      console.warn('⚠ window.initializeFirebase not found — firebase.js may not have loaded yet or failed to load');
-    }
-  });
-
-  function initLiveAvailabilityFirebase(){
-    if (_liveAvailabilityUnsub || typeof window.listenLiveAvailability !== 'function') return;
-    _liveAvailabilityUnsub = window.listenLiveAvailability(
-      (data) => {
-        _liveAvailabilityData = data;
-        _liveAvailabilityFailed = false;
-        renderAvailabilityGrid(); // instant re-render on every booking/block change — no waiting for the next poll
-      },
-      (err) => {
-        console.error('[SYNC] Live availability Firebase error — falling back to polling:', err);
-        _liveAvailabilityFailed = true;
-        _liveAvailabilityData = null;
-        // A Firebase 'cancel' event (e.g. permission-denied) tears the
-        // subscription down permanently — clearing this lets the retry
-        // timer below re-attempt it instead of staying stuck on polling
-        // forever for what might be a transient/fixable cause.
-        _liveAvailabilityUnsub = null;
-      }
-    );
-  }
-  // firebase.js's scripts are loaded `defer`, so the SDK may not be ready
-  // on the very first attempt. Retrying on a timer (instead of once) is
-  // what makes this self-healing: it also re-attaches automatically after
-  // a permission-error cancel (see errorHandler above) or if Firebase
-  // itself wasn't reachable yet at page load on a slow connection —
-  // exactly the "reconnect automatically, resume listeners" requirement,
-  // achieved without needing index.html to duplicate admin.html's
-  // connection-indicator/watchdog machinery. Cheap no-op once subscribed.
-  setTimeout(initLiveAvailabilityFirebase, 800);
-  setInterval(initLiveAvailabilityFirebase, 5000);
-
-  // Returns `null` (not an empty array) when there is no live data source
-  // available at all, which the grid renders as a distinct "unknown"
-  // state rather than quietly claiming everything's free. cache:'no-store'
-  // + a timestamp param on the polling fallback defeats both the
-  // browser's HTTP cache and any intermediate proxy cache.
+  // Always goes through the Apps Script backend now — no same-device
+  // localStorage fallback. Returns `null` (not an empty array) when there
+  // is no live data source available, which the grid renders as a
+  // distinct "unknown" state rather than quietly claiming everything's
+  // free. cache:'no-store' + a timestamp param defeats both the browser's
+  // HTTP cache and any intermediate proxy cache, so a booking made in the
+  // admin panel a moment ago shows up on next fetch instead of a stale one.
   async function fetchLiveSlotStatus(dateStr){
-    if (_liveAvailabilityData && !_liveAvailabilityFailed) {
-      _setSyncStatus('live');
-      return _slotsForDateFromLiveData(dateStr);
-    }
     const sheetUrl = getLiveSheetUrl();
     if (!sheetUrl) { _setSyncStatus('unconfigured'); return null; }
     try {
@@ -1403,47 +1315,11 @@
     });
   }
 
-  // STABILITY PHASE (final) — tracks what's currently on screen so a
-  // Firebase update can patch just the slots that actually changed
-  // instead of tearing down and rebuilding the whole grid every time.
-  // Keyed by dateKey (date + period tab) because switching either of
-  // those genuinely needs a full rebuild — only a same-view update from
-  // the live listener takes the lightweight patch path.
-  let _lastRenderedDateKey = null;
-  let _lastRenderedSlotDescriptions = null; // { [time]: {cls, title} } for the view described by _lastRenderedDateKey
-
-  // CODE QUALITY — this function has several independent triggers (a
-  // Firebase snapshot, the 30s fallback interval, tab focus,
-  // visibilitychange, plus direct calls from date/period pickers) and is
-  // itself async (awaits fetchLiveSlotStatus). Without a guard, two of
-  // those firing close together could run overlapping renders and race
-  // on _lastRenderedDateKey/_lastRenderedSlotDescriptions. A trailing
-  // flag (not a dropped call) means a trigger that arrives mid-render
-  // still gets its own follow-up render once the in-flight one finishes,
-  // so a real change is never silently missed.
-  let _availRenderInFlight = false;
-  let _availRenderQueued = false;
   async function renderAvailabilityGrid(){
-    if (_availRenderInFlight) { _availRenderQueued = true; return; }
-    _availRenderInFlight = true;
-    try {
-      await _renderAvailabilityGridImpl();
-    } finally {
-      _availRenderInFlight = false;
-      if (_availRenderQueued) { _availRenderQueued = false; renderAvailabilityGrid(); }
-    }
-  }
-
-  async function _renderAvailabilityGridImpl(){
     const grid = document.getElementById('avail-grid');
     if (!grid || !_availSelectedDate) return;
     document.querySelectorAll('.avail-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === _activeAvailPeriod));
-    const dateKey = `${_availSelectedDate}|${_activeAvailPeriod}`;
-    const isFreshView = dateKey !== _lastRenderedDateKey; // date picked or period tab switched — nothing to patch against yet
-    if (isFreshView) {
-      grid.innerHTML = `<div class="avail-loading">Loading ${_availSelectedDate}'s availability…</div>`;
-      _lastRenderedSlotDescriptions = null;
-    }
+    grid.innerHTML = `<div class="avail-loading">Loading ${_availSelectedDate}'s availability…</div>`;
     _setSyncStatus('loading');
     [_availSlotsCache, _availSlotsCacheNextDay] = await Promise.all([
       fetchLiveSlotStatus(_availSelectedDate),
@@ -1459,8 +1335,6 @@
       document.getElementById('avail-banner').innerHTML = `<div class="avail-sync-banner">Live availability isn't connected right now. Please WhatsApp us directly to confirm a slot.</div>`;
       const describeUnknown = () => ({ cls: 'avail-unknown', title: 'Availability unknown' });
       grid.innerHTML = _buildListRows(visibleIndices, describeUnknown);
-      _lastRenderedDateKey = null; // force a full rebuild once real data comes back, since these rows have no timestamps to diff against
-      _lastRenderedSlotDescriptions = null;
       updateReservationMenu();
       return;
     }
@@ -1476,67 +1350,27 @@
       }
       return { cls: 'avail-open', title: 'Available' };
     };
-
-    // Same date/period as what's already on screen and we have a prior
-    // snapshot to diff against — patch only the rows whose class/title
-    // actually changed, leaving every untouched row's DOM node (and any
-    // CSS transition state, scroll position, etc.) exactly as it was.
-    if (!isFreshView && _lastRenderedSlotDescriptions) {
-      let needsFullRebuild = false;
-      for (const rawIdx of visibleIndices) {
-        const time = AVAIL_SLOT_TIMES[rawIdx];
-        const { cls, title } = describeSlot(rawIdx);
-        const prev = _lastRenderedSlotDescriptions[time];
-        if (prev && prev.cls === cls && prev.title === title) continue; // unchanged — skip entirely
-        const row = grid.querySelector(`[data-avail-time="${CSS.escape(time)}"]`);
-        if (!row) { needsFullRebuild = true; break; } // DOM doesn't match what we expect — fall back to a full rebuild
-        row.className = `avail-list-item ${cls}`;
-        row.title = title;
-        const statusEl = row.querySelector('.avail-list-status');
-        if (statusEl) statusEl.textContent = title;
-        _lastRenderedSlotDescriptions[time] = { cls, title };
-      }
-      if (!needsFullRebuild) {
-        _setSyncStatus('live');
-        updateReservationMenu();
-        return;
-      }
-    }
-
     grid.innerHTML = _buildListRows(visibleIndices, describeSlot);
-    _lastRenderedSlotDescriptions = {};
-    visibleIndices.forEach((rawIdx) => {
-      _lastRenderedSlotDescriptions[AVAIL_SLOT_TIMES[rawIdx]] = describeSlot(rawIdx);
-    });
-    _lastRenderedDateKey = dateKey;
     updateReservationMenu();
   }
 
   // Simple vertical list of each half-hour slot with its time and status
   // spelled out in text — the booked/blocked display is read-only, so
   // this is just a clean, easy-to-scan list, no timeline/grid layout.
-  // data-avail-time is what lets renderAvailabilityGrid patch a single
-  // row later instead of rebuilding this whole list on every update.
   function _buildListRows(visibleIndices, describe){
     return visibleIndices.map((rawIdx, i) => {
       const { cls, title } = describe(rawIdx);
       const time = AVAIL_SLOT_TIMES[rawIdx];
-      return `<div class="avail-list-item ${cls}" data-avail-time="${time}" title="${title}" style="animation-delay:${i * 20}ms">
+      return `<div class="avail-list-item ${cls}" title="${title}" style="animation-delay:${i * 20}ms">
         <span class="avail-list-time">${time}</span><span class="avail-list-status">${title}</span>
       </div>`;
     }).join('');
   }
 
-
-  // Auto-refresh: the Firebase listener above (initLiveAvailabilityFirebase)
-  // is now what makes this genuinely real-time — it re-renders the instant
-  // a booking/block changes, with no polling involved. This interval is
-  // kept only as a SAFETY NET for the (rare) case Firebase never connects
-  // or its listener silently stops: while Firebase is live, each tick just
-  // re-reads the same in-memory cache (no network call); it only actually
-  // hits Apps Script when _liveAvailabilityData is unavailable/failed.
-  // Also refreshes instantly whenever the tab regains focus.
-  setInterval(() => renderAvailabilityGrid(), 30000);
+  // Auto-refresh: refreshes on an interval, and instantly whenever the
+  // tab regains focus (the moment someone flips back from the admin
+  // panel to check the site) — the closest a static page gets to "live."
+  setInterval(() => renderAvailabilityGrid(), 30000); // 30s per spec — keeps availability effectively live without a manual refresh
   document.addEventListener('visibilitychange', () => { if (!document.hidden) renderAvailabilityGrid(); });
   window.addEventListener('focus', () => renderAvailabilityGrid());
 
