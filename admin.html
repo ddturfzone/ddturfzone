@@ -4494,6 +4494,7 @@ async function syncBookingsAndBlocksFromSheet() {
       renderDashboard();
       console.log('[FB-DEBUG] Bookings re-rendered after Sheet sync (create/status/delete change detected)'); // TEMP DEBUG LOG
     }
+    _reconcilePublicAvailability(data.bookings || [], data.blockedSlots || []); // STABILITY PHASE P1
   } catch (e) {
     // Network hiccup — local data (and the offline sync queue) is
     // unaffected; the next periodic call or focus event will retry.
@@ -7171,6 +7172,108 @@ window.sendBookingWhatsApp = (b) => {
 // the server side, since that just reads the raw request body regardless of
 // the declared content-type). Dropping `no-cors` means we can now actually
 // read the response and surface real errors to the admin.
+// STABILITY PHASE — PRIORITY 1. Mirrors a CONFIRMED booking/blocked_slot
+// write into the public, privacy-minimal 'live_availability' Firebase node
+// (see Stage 2 in firebase.js) so index.html updates instantly instead of
+// waiting on its 30s poll. Only ever called after Code.gs has already
+// accepted the write (see the single call site in
+// _postToGoogleSheetOriginal), so it can never publish something the
+// server actually rejected — e.g. a conflicting slot. Deliberately strips
+// name/phone/every payment field before it ever reaches Firebase; only
+// date/start/end/status/sport(/reason) go out. Best-effort: if Firebase
+// publish fails, index.html's existing polling fallback still keeps
+// availability correct, just not instant — never blocks or fails the
+// actual Sheets-authoritative save.
+function _publishPublicAvailability(payload, result) {
+  if (typeof window.publishAvailabilityRecord !== 'function') return; // firebase.js not loaded/ready — polling fallback covers it
+  try {
+    if (payload.type === 'booking') {
+      const id = (result && result.bookingId) || payload.bookingId; // prefer the server-confirmed final id over a provisional local one
+      if (!id) return;
+      if (payload.status === 'cancelled') {
+        window.publishAvailabilityRecord('bookings', id, null);
+      } else {
+        window.publishAvailabilityRecord('bookings', id, {
+          date: payload.date, start: payload.start, end: payload.end,
+          sport: payload.sport || '', status: payload.status || 'confirmed'
+        });
+      }
+    } else if (payload.type === 'blocked_slot') {
+      const id = payload.blockId;
+      if (!id) return;
+      if (payload.action === 'delete') {
+        window.publishAvailabilityRecord('blocks', id, null);
+      } else {
+        window.publishAvailabilityRecord('blocks', id, {
+          fromDate: payload.fromDate || payload.blockedDate, toDate: payload.toDate || payload.blockedDate,
+          blockedDate: payload.blockedDate, start: payload.startTime, end: payload.endTime,
+          reason: payload.reason || ''
+        });
+      }
+    }
+  } catch (err) {
+    console.error('✗ [SYNC] _publishPublicAvailability error:', err); // best-effort — never surfaces to the admin as a save failure
+  }
+}
+
+// STABILITY PHASE — PRIORITY 1. Runs every fullSync cycle (the existing
+// 30s Sheets pull, see syncBookingsAndBlocksFromSheet) against Code.gs's
+// `bookings`/`blockedSlots` — the actual Sheets-authoritative data — and
+// makes the public 'live_availability' Firebase node match it exactly.
+// This is what seeds bookings/blocks that already existed before this
+// feature shipped (an empty Firebase node otherwise means the public site
+// would wrongly show pre-existing bookings as open), and self-heals any
+// individual publish that failed silently (e.g. a network blip at the
+// moment of the original save) — belt-and-suspenders on top of the
+// instant per-write publish in _publishPublicAvailability, not a
+// replacement for it. Keeps an in-memory "already published this session"
+// set so an unchanged dataset costs zero additional Firebase writes on
+// the next 30s cycle — only genuine adds/removes/status changes write.
+let _publishedAvailabilityIds = { bookings: new Set(), blocks: new Set() };
+function _reconcilePublicAvailability(bookings, blockedSlots) {
+  if (typeof window.publishAvailabilityRecord !== 'function') return;
+  try {
+    const activeBookingIds = new Set();
+    bookings.forEach((b) => {
+      if (!b.bookingId || b.status === 'cancelled') return;
+      activeBookingIds.add(b.bookingId);
+      if (!_publishedAvailabilityIds.bookings.has(b.bookingId)) {
+        window.publishAvailabilityRecord('bookings', b.bookingId, {
+          date: b.date, start: b.start, end: b.end, sport: b.sport || '', status: b.status || 'confirmed'
+        });
+        _publishedAvailabilityIds.bookings.add(b.bookingId);
+      }
+    });
+    _publishedAvailabilityIds.bookings.forEach((id) => {
+      if (!activeBookingIds.has(id)) { // cancelled/removed since we last published it
+        window.publishAvailabilityRecord('bookings', id, null);
+        _publishedAvailabilityIds.bookings.delete(id);
+      }
+    });
+
+    const activeBlockIds = new Set();
+    blockedSlots.forEach((bl) => {
+      if (!bl.id) return;
+      activeBlockIds.add(bl.id);
+      if (!_publishedAvailabilityIds.blocks.has(bl.id)) {
+        window.publishAvailabilityRecord('blocks', bl.id, {
+          fromDate: bl.date, toDate: bl.date, blockedDate: bl.date,
+          start: bl.start, end: bl.end, reason: bl.reason || ''
+        });
+        _publishedAvailabilityIds.blocks.add(bl.id);
+      }
+    });
+    _publishedAvailabilityIds.blocks.forEach((id) => {
+      if (!activeBlockIds.has(id)) {
+        window.publishAvailabilityRecord('blocks', id, null);
+        _publishedAvailabilityIds.blocks.delete(id);
+      }
+    });
+  } catch (err) {
+    console.error('✗ [SYNC] _reconcilePublicAvailability error:', err); // best-effort — never blocks the fullSync it piggybacks on
+  }
+}
+
 async function _postToGoogleSheetOriginal(payload) {
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
   if (!SHEET_URL) return { ok: false, skipped: true };
@@ -7221,6 +7324,7 @@ async function _postToGoogleSheetOriginal(payload) {
         };
       }
       _markSyncSuccess();
+      _publishPublicAvailability(payload, result); // STABILITY PHASE P1 — mirror to the public realtime feed
       return { ok: true, result, retry: false };
     }
 
@@ -10765,7 +10869,7 @@ window.editFee = (id) => {
   openModal('fee-modal');
 };
 
-window.saveFee = async (sendWA=false) => {
+async function _saveFeeImpl(sendWA=false) {
   if (!can('manageFees')) { denyAccess(); return; }
   const stId=document.getElementById('fee-student-select').value;
   const st=window.DB.students.find(s=>s.id===stId);
@@ -10926,6 +11030,25 @@ window.saveFee = async (sendWA=false) => {
     const msg = encodeURIComponent(lines.join('\n'));
     const phone=st.phone.replace(/\D/g,'');
     window.open(`https://wa.me/${phone.startsWith('91')?phone:'91'+phone}?text=${msg}`,'_blank');
+  }
+};
+
+// CODE QUALITY / STABILITY PHASE P2 — same rapid-double/triple-click
+// problem already fixed elsewhere in this file for booking confirmation
+// (see _dedupeBookingsByBookingId's comment): without this guard, two
+// fast taps on "Save Payment" could both start _saveFeeImpl() before the
+// first tap's local save lands in window.DB.fees, so both calls would
+// pass the same-period duplicate check above and create two payment
+// records for one student/period. This blocks a second call outright
+// while one is still in flight, rather than trying to de-duplicate after
+// the fact.
+window.saveFee = async (sendWA=false) => {
+  if (window._feeSaveInFlight) return;
+  window._feeSaveInFlight = true;
+  try {
+    await _saveFeeImpl(sendWA);
+  } finally {
+    window._feeSaveInFlight = false;
   }
 };
 window.saveFeeAndWhatsApp=()=>saveFee(true);

@@ -1356,6 +1356,95 @@ window.listenBookingRequests = (callback) => {
 console.log('✓ Stage 1 Reservation Requests Realtime Sync Module Loaded');
 
 // ============================================================================
+// STAGE 2 — Public Slot Availability Realtime Sync
+// ----------------------------------------------------------------------------
+// STABILITY PHASE — PRIORITY 1. Unlike every other module in this file,
+// the PUBLIC site (index.html) never had a Firebase listener for confirmed
+// bookings/blocked slots — it only ever polled Code.gs's
+// `action=availability` REST endpoint on a 30s setInterval. That's the
+// actual gap behind "index doesn't always show live availability": a
+// booking made in Admin could take up to 30s (or longer, on a slow Apps
+// Script cold-start) to appear on the public site.
+//
+// This adds the same push-on-write / listen-in-realtime pattern already
+// used above for booking_requests/fees/students, through a NEW,
+// PUBLIC-readable, privacy-minimal node — 'live_availability'. Only
+// date/start/end/status/sport/reason ever get written here — NEVER name,
+// phone, or any payment figure (same principle already applied in
+// apps-script-birthday-backend.gs's getTodaysBirthdayStudents). All actual
+// booking business logic (conflict checks, provisional-ID reconciliation,
+// the Sheets-authoritative write) stays exactly where it already is, in
+// Code.gs / admin.html — this file only mirrors the public-safe subset of
+// the result, and only AFTER Code.gs has confirmed the write.
+// ============================================================================
+
+/**
+ * Called from admin.html's postToGoogleSheet, right after a booking or
+ * blocked-slot write is CONFIRMED by the Sheets-authoritative backend —
+ * never before, so this can never show a slot as booked/blocked that the
+ * server actually rejected (e.g. a conflict). .set() (not .push()), keyed
+ * by the record's own id, so a retried/edited write overwrites the same
+ * node instead of creating a duplicate — same reasoning as every other
+ * *Firebase function in this file. Pass data === null to remove a record
+ * (booking cancelled / block deleted) instead of leaving a stale entry.
+ * Best-effort by design: if this fails, index.html's existing polling
+ * fallback still keeps availability correct, just not instant.
+ */
+window.publishAvailabilityRecord = (kind, id, data) => {
+  if (!realtimeDb || !id) return;
+  try {
+    const ref = realtimeDb.ref('live_availability/' + kind + '/' + id);
+    if (data === null) {
+      ref.remove().catch((err) => console.error('✗ [SYNC] Availability remove failed:', kind, id, err));
+      return;
+    }
+    ref.set({ ...data, _fbUpdatedAt: firebase.database.ServerValue.TIMESTAMP })
+      .catch((err) => console.error('✗ [SYNC] Availability publish failed:', kind, id, err));
+  } catch (err) {
+    console.error('✗ [SYNC] publishAvailabilityRecord error:', err);
+  }
+};
+
+/**
+ * Real-time listener for public availability (PUBLIC — index.html).
+ * Streams bookings and blocks as one merged callback so the caller never
+ * has to coordinate two listeners' first-snapshot timing separately.
+ * Firebase's own socket handles reconnect + resync of missed updates
+ * automatically once .on('value') is attached — no re-subscription logic
+ * needed here, unlike the admin-only listeners above, which additionally
+ * plug into the reconnect watchdog to recover from a subscription that
+ * never got attached in the first place (not applicable here, since this
+ * is the only listener index.html ever runs).
+ * On a permission-denied or connection error, tells the caller so it can
+ * fall back to polling Code.gs directly instead of silently going stale.
+ */
+window.listenLiveAvailability = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('live_availability');
+  const handler = (snapshot) => {
+    const bookings = [];
+    const blocks = [];
+    snapshot.forEach((kindSnap) => {
+      kindSnap.forEach((child) => {
+        const rec = { id: child.key, ...child.val() };
+        if (kindSnap.key === 'bookings') bookings.push(rec);
+        else if (kindSnap.key === 'blocks') blocks.push(rec);
+      });
+    });
+    console.log('[SYNC] Live availability snapshot:', bookings.length, 'booking(s),', blocks.length, 'block(s)');
+    callback({ bookings, blocks });
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Live availability listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+console.log('✓ Stage 2 Public Slot Availability Realtime Sync Module Loaded');
+
+// ============================================================================
 // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.
 // ----------------------------------------------------------------------------
 // Everything below is purely additive instrumentation: it records what
