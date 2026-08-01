@@ -5305,7 +5305,7 @@ window.initFeesFirebaseListener = () => {
       const isOwnAction = remote.updatedBy && remote.updatedBy === me;
 
       if (!local) {
-        const rec = { ...remote, id: remote.receiptNo };
+        const rec = { ...remote, id: remote.receiptNo, _fbUpdatedAt: remote.updatedAt || 0 };
         _lsAddPreservingId('fees', rec);
         window.DB.fees.push(rec);
         changed = true;

@@ -1315,6 +1315,33 @@
     return slots;
   }
 
+  // STABILITY PHASE — ROOT CAUSE FIX. This page loads firebase.js (see the
+  // <script defer src="firebase.js"> tag above) but, unlike admin.html and
+  // enroll.html, never actually called window.initializeFirebase() anywhere.
+  // firebase.js defines that function but does not invoke it on its own —
+  // every other page that uses Firebase calls it explicitly once its own
+  // script runs. Without this call, realtimeDb inside firebase.js's closure
+  // stays null forever on this page, so every listenLiveAvailability() call
+  // immediately hits its `if (!realtimeDb)` guard and reports "Firebase not
+  // initialized" — which is exactly the "Could not reach live availability"
+  // / "isn't connected right now" state that was showing in production, on
+  // every load and every retry, regardless of the polling fallback's state.
+  // Same call, same pattern already used by enroll.html for its own public,
+  // no-login page.
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof window.initializeFirebase === 'function') {
+      window.initializeFirebase().then((result) => {
+        if (result.success) {
+          console.log('✓ Firebase initialized for index.html (Public Live Availability)');
+        } else {
+          console.warn('⚠ Firebase initialization failed for index.html:', result.error);
+        }
+      });
+    } else {
+      console.warn('⚠ window.initializeFirebase not found — firebase.js may not have loaded yet or failed to load');
+    }
+  });
+
   function initLiveAvailabilityFirebase(){
     if (_liveAvailabilityUnsub || typeof window.listenLiveAvailability !== 'function') return;
     _liveAvailabilityUnsub = window.listenLiveAvailability(
