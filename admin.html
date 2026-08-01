@@ -10990,7 +10990,7 @@ async function _saveFeeImpl(sendWA=false) {
   }
   if (syncRes && syncRes.ok) {
     showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
-    _announceFeeEvent(data.id, existingId ? 'updated' : 'added', 'Fee payment received.');
+    _announceFeeEvent(data.id, existId ? 'updated' : 'added', 'Fee payment received.');
   } else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
   else showToast('Payment saved locally. Sync will retry automatically.', 'error');
 
