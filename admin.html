@@ -3798,6 +3798,10 @@ function _enterApp(user) {
   document.getElementById('today-date').textContent =
     new Date().toLocaleDateString('en-IN', {weekday:'short',day:'numeric',month:'short',year:'numeric'});
   applyRolePermissionsToUI();
+  // One-time removal of the stale Import Wizard self-notification left
+  // behind by the bug fixed in _wizRunImport()/_wizRollback() above — see
+  // the long comment on _cleanupStaleImportWizardSelfNotifications().
+  _cleanupStaleImportWizardSelfNotifications();
   window._rtRenderBell?.(); // PHASE 2.5 — show any unread notifications this device already had queued locally
   window.rtPollEvents?.();  // and do one immediate poll rather than waiting for the first 2.5s tick
   
@@ -4045,6 +4049,9 @@ window.logoutUser = doLogout;
           role: cached ? cached.role : localSession.role
         };
         _enterApp(sessionUser);
+        // Same one-time cleanup as the manual-login path, so a restored
+        // session (page refresh) is covered too, not just a fresh login.
+        _cleanupStaleImportWizardSelfNotifications();
         loadAllData().then(() => { renderDashboard(); renderBirthdayWidget(); checkAndAnnounceBirthdays(); });
 
         // Background re-check against the live Sheet — never blocks the UI,
@@ -16246,8 +16253,23 @@ async function _wizRunImport() {
   // Item 6/7 — one Activity Log entry summarizing the whole batch (not one
   // per row — that would flood AuditLog on a 20,000-row import). Reuses
   // the existing audit_log endpoint/schema untouched.
+  // ROOT CAUSE FIX — this payload was missing `device` (and `role`/
+  // `module`/`recordId`), unlike every other audit_log write in the app
+  // (which all go through logAudit() and therefore always stamp
+  // device: _deviceTag()). Because Device came back blank from the
+  // server, _rtApplyEvents()'s "don't notify a device about its own
+  // write" check (`if (ev.device && ev.device === myDevice) return;`)
+  // silently failed to match (empty string is falsy), so the SAME admin
+  // who ran the import would see their own Import Wizard action
+  // re-surface as a toast + unread bell notification a couple seconds
+  // later — worded "Owner — Import Wizard — Module: ..., File: ...csv" —
+  // and, being permanently stored as unread, it would sit at the top of
+  // the Notification Center on every subsequent login until dismissed.
+  // Adding device (+ role/module/recordId, matching logAudit()'s shape)
+  // makes the own-device suppression work correctly going forward.
   postToGoogleSheet({
     type: 'audit_log', timestamp: WIZ.report.timestamp, user: WIZ.report.user,
+    role: CURRENT_USER?.role || '', device: _deviceTag(), module: 'import_log', recordId: batchId,
     action: `Import Wizard — Module: ${mod.label}, Mode: ${WIZ.mode}, Imported: ${imported}, Updated: ${updated}, Skipped: ${skipped}, Errors: ${errors.length}, File: ${WIZ.report.fileName}, Device: ${device}`
   }).catch(() => {});
 
@@ -16395,8 +16417,12 @@ async function _wizRollback(batchId) {
   stored.rolledBack = true;
   try { localStorage.setItem('ddtz_import_batch_' + batchId, JSON.stringify(stored)); } catch (e) {}
   postToGoogleSheet({ type: 'import_mark_rolled_back', importId: batchId }).catch(() => {});
+  // ROOT CAUSE FIX — same missing-device bug as the completion log above:
+  // without device: _deviceTag(), this device would self-notify about its
+  // own Undo action too.
   postToGoogleSheet({
     type: 'audit_log', timestamp: new Date().toISOString(), user: CURRENT_USER?.name || 'Unknown',
+    role: CURRENT_USER?.role || '', device: _deviceTag(), module: 'import_log', recordId: batchId,
     action: `Import Wizard — Undo of ${batchId} (${stored.report.module}): reverted ${undone} record(s)`
   }).catch(() => {});
   const idx = WIZ_HISTORY_CACHE.findIndex(h => h.importId === batchId);
@@ -16580,6 +16606,56 @@ function _rtSaveNotifications(list) {
     .slice(0, RT_NOTIF_MAX_COUNT);
   try { localStorage.setItem(RT_NOTIF_KEY, JSON.stringify(trimmed)); } catch (e) {}
   return trimmed;
+}
+
+// ============================================================================
+// ONE-TIME CLEANUP — stray Import Wizard self-notification
+// ----------------------------------------------------------------------------
+// ROOT CAUSE: _wizRunImport() and _wizRollback() (Undo) used to post their
+// audit_log entry directly via postToGoogleSheet() instead of going through
+// the app's normal logAudit() helper, and that hand-built payload never set
+// `device`. Every other module's audit_log write goes through logAudit(),
+// which always stamps device: _deviceTag() — that's what lets
+// _rtApplyEvents()'s "don't notify a device about its own write" check
+// (`if (ev.device && ev.device === myDevice) return;`) correctly skip the
+// device that performed the action. With Device coming back blank from the
+// server for Import Wizard entries, that check silently failed to match
+// (empty string is falsy), so the SAME admin who ran an import would see
+// their own action bounce back as a toast + unread bell notification a
+// couple seconds later, worded "Owner — Import Wizard — Module: ...,
+// File: ....csv" — and because it landed as UNREAD, it kept sitting at the
+// top of the Notification Center on every later login until dismissed,
+// which is exactly the "notification that appears every time the Admin
+// page loads" behavior being fixed here.
+//
+// The bug itself is fixed at its source above (both postToGoogleSheet
+// calls now include device/role/module/recordId). This function only
+// clears out the ALREADY-STUCK stale entry that the bug produced before
+// the fix, so it disappears immediately rather than waiting up to 30 days
+// for RT_NOTIF_MAX_AGE_MS to age it out. It matches ONLY the exact
+// "Import Wizard — Module: ..." / "Import Wizard — Undo of ..." action
+// text this specific bug generates — nothing else is touched, and this
+// runs once per stored entry (a no-op the next time, once it's gone).
+function _cleanupStaleImportWizardSelfNotifications() {
+  try {
+    const list = _rtGetNotifications();
+    if (!list.length) return;
+    const cleaned = list.filter(n => {
+      const isImportWizardLogEntry = typeof n.action === 'string' &&
+        (n.action.startsWith('Import Wizard — Module:') || n.action.startsWith('Import Wizard — Undo of'));
+      if (isImportWizardLogEntry) {
+        console.log('[NOTIF-CLEANUP] Removing stale self-notification from the pre-fix Import Wizard bug:', n.id);
+        return false;
+      }
+      return true;
+    });
+    if (cleaned.length < list.length) {
+      _rtSaveNotifications(cleaned);
+      console.log('[NOTIF-CLEANUP] Removed', list.length - cleaned.length, 'stale Import Wizard notification(s).');
+    }
+  } catch (e) {
+    console.error('[NOTIF-CLEANUP] Error during cleanup:', e);
+  }
 }
 
 const RT_MODULE_META = {
