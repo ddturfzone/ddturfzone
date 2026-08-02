@@ -13630,7 +13630,17 @@ window.acctSetRange = (preset) => {
     const allDates = [
       ...window.DB.expenses.map(e => e.date),
       ...window.DB.bookings.map(b => b.date),
-      ...window.DB.fees.map(f => f.date)
+      // ROOT-CAUSE FIX — a fee record's date lives in receiptDate; Code.gs's
+      // handleFeesGet (the Sheets read path) never returns a bare `date`
+      // field at all, only receiptDate (see FEES_HEADERS in Code.gs). `date`
+      // only ever existed as a same-session-only alias saveFee() set
+      // locally at creation time. Every other consumer of fee dates in this
+      // file (Dues Engine, Fee Collection table, receipts) already reads
+      // `f.receiptDate || f.date` for exactly this reason — Accounts/
+      // Finance were the two places still reading `f.date` alone, so a fee
+      // loaded from Sheets/Firebase after a page refresh had no date this
+      // code could see, and got silently excluded from every range.
+      ...window.DB.fees.map(f => f.receiptDate || f.date)
     ].filter(Boolean).sort();
     from = allDates[0] || toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     to = toLocalDateStr(now);
@@ -13645,7 +13655,12 @@ window.renderAccounts = () => {
   const inRange = (d) => d && d >= from && d <= to;
 
   const rangeExp = window.DB.expenses.filter(e => inRange(e.date));
-  const rangeFees = window.DB.fees.filter(f => inRange(f.date));
+  // ROOT-CAUSE FIX — see the matching comment in acctSetRange('all') above:
+  // a fee's real date lives in receiptDate; Code.gs never returns a bare
+  // `date` field for fees, so this always evaluated to 0 revenue for any
+  // fee that came from Sheets/Firebase rather than this device's own
+  // same-session local save.
+  const rangeFees = window.DB.fees.filter(f => inRange(f.receiptDate || f.date));
   const rangeBookings = window.DB.bookings.filter(b => b.status !== 'cancelled' && inRange(b.date));
   const turfRev = rangeBookings.reduce((s,b) => s + (Number(b.total)||0), 0);
   // DUE MANAGEMENT ROOT CAUSE FIX (Root Cause #2): was `Number(f.paid)`
@@ -13784,8 +13799,12 @@ function _finIncomeCoaching(from, to) {
   // amountReceived) — this had been silently returning 0 for Coaching
   // Income since Phase 4.2. Now uses the same defensive pattern already
   // proven correct elsewhere in this file (e.g. the Dues Engine).
+  // ROOT-CAUSE FIX — same gap as renderAccounts(): a fee's real date lives
+  // in receiptDate (Code.gs's handleFeesGet never returns a bare `date`
+  // field for fees), so this excluded every fee loaded from Sheets/Firebase
+  // rather than created locally this same session.
   return (window.DB.fees || [])
-    .filter(f => f.date >= from && f.date <= to)
+    .filter(f => { const d = f.receiptDate || f.date; return d >= from && d <= to; })
     .reduce((s, f) => s + (Number(f.amountReceived ?? f.paid) || 0), 0);
 }
 function _finIncomeCafe(from, to) {
