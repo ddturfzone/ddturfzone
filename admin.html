@@ -12253,9 +12253,40 @@ async function syncEnrolmentsFromSheet() {
       if (!remote.requestId) return;
       const local = window.DB.enrolments.find(r => r.requestId === remote.requestId);
       if (!local) {
+        // NEW ENROLMENT FROM PUBLIC FORM — MUST SYNC TO FIREBASE IMMEDIATELY
+        // This fixes the bug where public form submissions only appeared after logout/login.
+        // When a new enrolment is detected from Google Sheets (public form submission),
+        // immediately write it to Firebase so the real-time listener fires and admin
+        // devices get instant notifications (bell, voice, activity log).
         _lsAddPreservingId('enrolments', { ...remote, id: remote.requestId });
         window.DB.enrolments.unshift({ ...remote, id: remote.requestId });
         changed = true;
+        
+        // PHASE 4.1 FIX — Push to Firebase for real-time sync
+        if (typeof window.submitPendingEnrolmentFirebase === 'function' && window.realtimeDb) {
+          const firebaseEnrolment = {
+            requestId: remote.requestId,
+            studentName: remote.studentName || '',
+            dob: remote.dob || '',
+            gender: remote.gender || '',
+            parentName: remote.parentName || '',
+            mobile: remote.mobile || '',
+            email: remote.email || '',
+            address: remote.address || '',
+            school: remote.school || '',
+            sport: remote.sport || '',
+            batch: remote.batch || '',
+            medicalNotes: remote.medicalNotes || '',
+            status: 'pending',
+            createdAt: remote.createdAt || new Date().toISOString(),
+            syncStatus: 'synced',
+            syncAttempts: 0
+          };
+          window.submitPendingEnrolmentFirebase(firebaseEnrolment).catch(err => {
+            console.warn('Could not sync enrolment to Firebase:', err);
+            // Local DB already has the record, Firebase write failure does not rollback
+          });
+        }
       } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
         const merged = { ...local, ...remote, id: local.id };
         LS.update('enrolments', local.id, merged);
