@@ -1910,6 +1910,19 @@ tr:hover td{background:#f8fffe}
           <div style="font-size:12px;color:var(--gray3);margin-top:8px">Manual on-demand Excel backups are available from Bookings and Reports. Browsers can't write files to disk automatically for security reasons — this reminder is the closest safe equivalent to "automatic" backups.</div>
         </div>
 
+        <div class="card mb-16" style="margin-bottom:16px;border:1px solid var(--red,#dc2626)" data-requires-action="resetCoachingModule">
+          <div class="card-title" style="color:var(--red,#dc2626)">☠️ Danger Zone — Coaching Module Reset</div>
+          <div style="font-size:12px;color:var(--gray3);margin-bottom:10px">
+            Permanently deletes ALL Students, Attendance, Fee Collection, Due Adjustments, and Coach Settlement data —
+            from Google Sheets, Firebase, AND this device's local cache — in one controlled operation. A full backup
+            (downloaded as a JSON file) is created automatically before anything is deleted.
+            <br><br>
+            <strong>Not touched:</strong> Slot Bookings, Booking Requests, Café, Finance Expenses, Coaches (the roster
+            itself — only generated settlement documents are cleared), Users, Settings.
+          </div>
+          <button class="btn btn-danger btn-sm" data-requires-action="resetCoachingModule" onclick="openResetCoachingModal()">☠️ Reset Coaching Module</button>
+        </div>
+
         <div class="card">
           <div class="card-title">🔐 Role Permissions Reference</div>
           <div class="table-wrap">
@@ -2775,6 +2788,36 @@ tr:hover td{background:#f8fffe}
     <div class="modal-title">⚠️ Student Already Exists</div>
     <div id="duplicate-student-body" style="font-size:14px;line-height:1.5;margin-bottom:14px"></div>
     <div class="modal-footer" id="duplicate-student-footer"></div>
+  </div>
+</div>
+
+<!-- Coaching Module Reset confirmation (Super Admin only) — Reset button
+     starts disabled and only enables once the typed confirmation input
+     exactly matches "RESET COACHING", same typed-confirmation principle
+     as the Permanent Delete Student modal just below. -->
+<div class="modal-overlay" id="reset-coaching-modal">
+  <div class="modal">
+    <div class="modal-title" style="color:var(--red, #dc2626)">☠️ Reset Coaching Module</div>
+    <div style="font-size:14px;line-height:1.6;margin-bottom:10px">
+      This permanently deletes <strong>all</strong> Students, Attendance, Fee Collection, Due Adjustments, and Coach
+      Settlement data — from Google Sheets, Firebase, and this device's local cache. Slot Bookings, Booking Requests,
+      Café, Finance, Coaches, Users, and Settings are not touched.
+      <br><br>
+      A full JSON backup of everything downloads automatically before deletion starts.
+      <br><br>
+      <span style="color:var(--red,#dc2626);font-weight:600">This cannot be undone.</span>
+    </div>
+    <div class="form-group">
+      <label>Type <strong>RESET COACHING</strong> to confirm</label>
+      <input type="text" id="reset-coaching-confirm-text" placeholder="RESET COACHING" autocomplete="off"
+        oninput="_updateResetCoachingButtonState()">
+    </div>
+    <div id="reset-coaching-progress" style="font-size:13px;color:var(--gray3);margin-top:8px;white-space:pre-line"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="reset-coaching-cancel-btn" onclick="closeModal('reset-coaching-modal')">Cancel</button>
+      <button class="btn btn-danger" id="reset-coaching-confirm-btn" disabled
+        onclick="_confirmResetCoachingModule()">☠️ Reset Coaching Module</button>
+    </div>
   </div>
 </div>
 
@@ -3761,6 +3804,12 @@ const ACTION_PERMISSIONS = {
   // has its own explicit permission entry, same one-entry-per-action
   // convention as every other row in this table.
   permanentDeleteStudent: [ROLES.SUPER_ADMIN],
+  // Coaching Module Reset — wipes Students/Attendance/Fees/DueAdjustments/
+  // CoachSettlements (Sheets + Firebase + local) in one controlled,
+  // backed-up operation. Broadest-blast-radius action in the whole app,
+  // so Super-Admin-only, same reasoning as every other irreversible action
+  // above — plus a server-side re-verification, same as permanent_delete.
+  resetCoachingModule:  [ROLES.SUPER_ADMIN],
   // CAFÉ BILLING — Managers/Staff may create and edit bills (page access
   // to 'cafe' already governs that); only Super Admin may delete one.
   deleteCafeBill:       [ROLES.SUPER_ADMIN],
@@ -7535,6 +7584,149 @@ window.downloadCSVBackup = () => {
   _triggerDownload(new Blob([csv], { type: 'text/csv' }), `backup-bookings-${_fileTimestamp()}.csv`);
   showToast('✅ CSV backup (bookings) downloaded.');
 };
+// ============================================================================
+// COACHING MODULE RESET — one controlled, in-app operation (no browser
+// console, no manual Apps Script run, no manual localStorage edits).
+// Order matters and is deliberate:
+//   1. Full JSON backup, downloaded to disk (via the existing createBackup/
+//      _triggerDownload machinery above — not a new backup mechanism).
+//   2. Google Sheets FIRST (via handleAdminResetCoaching in Code.gs, which
+//      independently re-verifies Super Admin against the live Users sheet —
+//      see that function's own comment). If this fails, nothing else runs —
+//      Firebase and local stay untouched, so a failed reset never leaves
+//      Sheets/Firebase/local in three different states.
+//   3. Firebase (resetCoachingFirebaseData in firebase.js) — removing these
+//      nodes is also what makes any OTHER currently-open device (e.g. a
+//      Manager's session) see the empty coaching module live, through its
+//      own already-running listenStudents/listenFees/etc. listeners.
+//   4. Local cache (LS + window.DB + notifications) on THIS device.
+//   5. Re-render every affected page so this device's UI updates without
+//      needing a manual reload.
+//   6. Verify: re-fetch from Sheets and Firebase and confirm both are
+//      genuinely empty, not just assumed to be.
+// ============================================================================
+function _updateResetCoachingButtonState() {
+  const typed = (document.getElementById('reset-coaching-confirm-text').value || '').trim();
+  document.getElementById('reset-coaching-confirm-btn').disabled = (typed !== 'RESET COACHING');
+}
+window.openResetCoachingModal = () => {
+  if (!can('resetCoachingModule')) { denyAccess(); return; }
+  document.getElementById('reset-coaching-confirm-text').value = '';
+  document.getElementById('reset-coaching-progress').textContent = '';
+  document.getElementById('reset-coaching-confirm-btn').disabled = true;
+  openModal('reset-coaching-modal');
+};
+
+const COACHING_RESET_COLLECTIONS = ['students', 'fees', 'attendance', 'dueAdjustments', 'coachSettlements'];
+const COACHING_RESET_NOTIF_MODULES = ['student', 'fee', 'coach_settlement'];
+
+window._confirmResetCoachingModule = async () => {
+  if (!can('resetCoachingModule')) { denyAccess(); return; }
+  const typed = (document.getElementById('reset-coaching-confirm-text').value || '').trim();
+  if (typed !== 'RESET COACHING') return; // defense in depth — button should already be disabled otherwise
+
+  const progressEl = document.getElementById('reset-coaching-progress');
+  const confirmBtn = document.getElementById('reset-coaching-confirm-btn');
+  const cancelBtn = document.getElementById('reset-coaching-cancel-btn');
+  const log = (line) => { progressEl.textContent += (progressEl.textContent ? '\n' : '') + line; };
+  confirmBtn.disabled = true;
+  cancelBtn.disabled = true;
+
+  // ----- Step 1: backup first -----
+  log('⏳ Creating full backup…');
+  const backup = createBackup('manual', 'pre_coaching_reset');
+  if (!backup) {
+    log('❌ Backup failed — reset aborted. Nothing was deleted.');
+    cancelBtn.disabled = false;
+    showToast('Backup failed — Coaching Reset aborted for safety.', 'error');
+    return;
+  }
+  _triggerDownload(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), `backup-before-coaching-reset-${_fileTimestamp()}.json`);
+  log(`✅ Backup downloaded (${backup.recordCount} records across all modules).`);
+
+  // ----- Step 2: Google Sheets (server re-verifies Super Admin independently) -----
+  log('⏳ Clearing Google Sheets (Students/Attendance/Fees/DueAdjustments/CoachSettlements)…');
+  const sheetsRes = await postToGoogleSheet({ type: 'admin_reset_coaching', requestedByEmail: CURRENT_USER?.email || '' });
+  if (!sheetsRes || !sheetsRes.ok) {
+    log('❌ Google Sheets reset failed: ' + (sheetsRes?.result?.error || sheetsRes?.error || 'unknown error') + '. Stopped here — Firebase and local data were NOT touched.');
+    cancelBtn.disabled = false;
+    showToast('Coaching Reset stopped — Sheets step failed. Nothing else was deleted.', 'error');
+    return;
+  }
+  log('✅ Google Sheets cleared: ' + (sheetsRes.result?.cleared || []).join(', '));
+
+  // ----- Step 3: Firebase -----
+  log('⏳ Clearing Firebase (students/fees/due_adjustments/coach_settlements)…');
+  const fbRes = await window.resetCoachingFirebaseData?.();
+  if (!fbRes || !fbRes.success) {
+    log('⚠️ Firebase reset failed (' + (fbRes?.error || 'Firebase not initialized') + ') — Sheets is already cleared. Local cache will still be cleared below; retry the Firebase step later once connectivity is restored.');
+  } else {
+    log('✅ Firebase coaching nodes cleared.');
+  }
+
+  // ----- Step 4: local cache (this device) -----
+  // This is the one deliberate, explicitly-authorized exception to the
+  // "never call LS.set(col, []) directly" hard rule stated where LS is
+  // defined above — that rule exists to stop ACCIDENTAL/silent data loss
+  // in normal code paths (loadAllData, etc.); this function is the
+  // opposite of that: a named, confirmed-by-typing, Super-Admin-only
+  // action whose entire purpose is to clear these five collections, only
+  // ever reached after Sheets has already confirmed the same clear.
+  log('⏳ Clearing local cache…');
+  COACHING_RESET_COLLECTIONS.forEach(col => LS.set(col, []));
+  localStorage.removeItem('ddtz_fees_locally_deleted');
+  const remainingNotifs = _rtGetNotifications().filter(n => !COACHING_RESET_NOTIF_MODULES.includes(n.module));
+  _rtSaveNotifications(remainingNotifs);
+  window.DB.students = [];
+  window.DB.fees = [];
+  window.DB.attendance = [];
+  window.DB.dueAdjustments = [];
+  window.DB.coachSettlements = _csCanAccess() ? [] : window.DB.coachSettlements;
+  log('✅ Local cache cleared.');
+
+  // ----- Step 5: re-render every affected view on this device -----
+  if (typeof renderStudents === 'function') renderStudents();
+  if (typeof renderFees === 'function') renderFees();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof renderFinance === 'function' && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
+  if (typeof populateFeeStudentSelect === 'function') populateFeeStudentSelect();
+  _refreshDuesIfActive?.();
+  _refreshCoachSettlementIfActive?.();
+  window._rtRenderBell?.();
+  log('✅ This device\'s views refreshed.');
+
+  // ----- Step 6: verify -----
+  log('⏳ Verifying…');
+  const verifyChecks = [];
+  try {
+    const studentsCheck = await fetch(`${window.DDTZ_SHEET_URL}?action=students&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json());
+    verifyChecks.push(`Sheets Students: ${(studentsCheck?.students || []).length === 0 ? '✅ empty' : '⚠️ ' + studentsCheck.students.length + ' rows remain'}`);
+    const feesCheck = await fetch(`${window.DDTZ_SHEET_URL}?action=fees&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json());
+    verifyChecks.push(`Sheets Fees: ${(feesCheck?.fees || []).length === 0 ? '✅ empty' : '⚠️ ' + feesCheck.fees.length + ' rows remain'}`);
+  } catch (e) {
+    verifyChecks.push('⚠️ Could not verify Sheets (network error) — check manually.');
+  }
+  if (fbRes && fbRes.success && realtimeDbCheckable()) {
+    try {
+      const db = window.getFirebaseService().db;
+      const [sSnap, fSnap] = await Promise.all([db.ref('students').once('value'), db.ref('fees').once('value')]);
+      verifyChecks.push(`Firebase students: ${!sSnap.exists() ? '✅ empty' : '⚠️ still has data'}`);
+      verifyChecks.push(`Firebase fees: ${!fSnap.exists() ? '✅ empty' : '⚠️ still has data'}`);
+    } catch (e) {
+      verifyChecks.push('⚠️ Could not verify Firebase (network error) — check manually.');
+    }
+  }
+  verifyChecks.forEach(log);
+  log('');
+  log('Any OTHER device (Manager or Super Admin) with this app open will see the same empty Coaching module the moment its Firebase listeners receive this deletion — no manual action needed on that device. A fresh page load on any device will also load empty from Sheets/Firebase directly.');
+
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = 'Close';
+  showToast('Coaching module reset complete ✅', 'info');
+};
+function realtimeDbCheckable() { return typeof window.getFirebaseService === 'function' && !!window.getFirebaseService().db; }
+
 window.downloadStoredBackup = (id) => {
   const b = _loadStoredBackup(id);
   if (!b) { showToast('That backup is no longer available.', 'error'); return; }

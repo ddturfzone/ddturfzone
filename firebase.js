@@ -1190,6 +1190,33 @@ window.listenDueAdjustments = (callback) => {
 
 console.log('✓ Phase 6 Due Adjustments Realtime Sync Module Loaded');
 
+/**
+ * Coaching Module Reset — removes every child under each of the five
+ * coaching-only Firebase nodes in one batch (students, fees,
+ * due_adjustments, coach_settlements — attendance has no Firebase node,
+ * Sheets/localStorage only). Deliberately does NOT touch coaches,
+ * finance_expenses, booking_requests, pending_enrolments, or any other
+ * node. Every currently-connected device's own listenStudents/listenFees/
+ * listenDueAdjustments/listenCoachSettlements callback fires naturally
+ * once these are removed — that's what makes the reset show up live on a
+ * Manager's already-open session too, with no separate push needed.
+ */
+window.resetCoachingFirebaseData = async () => {
+  if (!realtimeDb) return { success: false, error: 'Firebase not initialized' };
+  try {
+    await Promise.all([
+      realtimeDb.ref('students').remove(),
+      realtimeDb.ref('fees').remove(),
+      realtimeDb.ref('due_adjustments').remove(),
+      realtimeDb.ref('coach_settlements').remove()
+    ]);
+    return { success: true };
+  } catch (error) {
+    console.error('✗ Coaching Firebase reset failed:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // ============================================================================
 // PHASE 5 — COACH SETTLEMENT REALTIME SYNC (Super Admin only, same
 // convention as Finance above — page/action gates live in admin.html,
