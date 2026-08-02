@@ -805,6 +805,17 @@ window.drainRetryQueue = async () => {
         const result = await window.submitBookingRequestFirebase(item.data);
         if (!result.success) throw new Error(result.error || 'retry failed');
         console.log('✓ Retry succeeded for', item.firebaseKey || item.data?.requestId);
+      } else if (item.operation === 'booking_request_update' && typeof window.syncBookingRequestFirebase === 'function') {
+        // ROOT-CAUSE FIX (Pending Reservation sync) — third producer,
+        // for admin.html's confirm/reject/edit/delete status broadcast
+        // (see the comment inside syncBookingRequestFirebase above for
+        // why this one has no other fallback path). Without this
+        // branch, a queued item would sit here forever: it'd fall into
+        // the "unknown operation type" bucket below and just get kept,
+        // never actually retried.
+        const result = await window.syncBookingRequestFirebase(item.data);
+        if (!result.success) throw new Error(result.error || 'retry failed');
+        console.log('✓ Retry succeeded for', item.firebaseKey || item.data?.requestId);
       } else {
         // Unknown operation type — keep it queued rather than silently drop it.
         stillFailed.push(item);
@@ -1282,7 +1293,31 @@ window.submitBookingRequestFirebase = async (payload) => {
  */
 window.syncBookingRequestFirebase = async (record) => {
   return new Promise((resolve) => {
-    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    // ROOT-CAUSE FIX (Pending Reservation sync) — this write is the ONLY
+    // channel that tells other admin devices a request was
+    // confirmed/rejected/edited/deleted (Code.gs's pendingRequests GET
+    // endpoint deliberately returns PENDING rows only, so it can never
+    // carry a status change — see handlePendingRequests). Previously,
+    // if this write failed (realtimeDb not ready yet, a dropped
+    // connection, a backgrounded tab, etc.) it just resolved
+    // {success:false} and the caller (confirmBookingRequest/
+    // rejectBookingRequest in admin.html) never checked that result —
+    // so the failure was silent and PERMANENT: the confirming device
+    // updated its own local state regardless (optimistic UI), while
+    // every other device kept showing the request as PENDING forever,
+    // with nothing left to ever re-deliver the status change. That
+    // mismatch is exactly the reported bug (Manager sees it gone,
+    // Super Admin still sees it pending).
+    //
+    // Fix: queue a failed write onto the SAME offline retry queue
+    // 'booking_request_submit' already uses (queueForRetry/
+    // drainRetryQueue below), so it auto-retries on reconnect instead
+    // of vanishing. Purely additive — the write itself is unchanged.
+    if (!realtimeDb) {
+      window.queueForRetry?.(record.requestId || record.id, 'booking_request_update', record);
+      resolve({ success: false, error: 'Firebase not initialized' });
+      return;
+    }
     const requestId = record.requestId || record.id;
     if (!requestId) { resolve({ success: false, error: 'Missing requestId' }); return; }
     realtimeDb.ref('booking_requests/' + requestId).set({
@@ -1292,6 +1327,9 @@ window.syncBookingRequestFirebase = async (record) => {
     }).then(() => resolve({ success: true }))
       .catch((error) => {
         console.error('✗ Booking request Firebase sync failed:', error);
+        // ROOT-CAUSE FIX — see comment above: queue for retry instead of
+        // dropping this status broadcast on the floor.
+        window.queueForRetry?.(requestId, 'booking_request_update', record);
         resolve({ success: false, error: error.message });
       });
   });

@@ -5519,6 +5519,14 @@ function _announceDueAdjustmentEvent(adjustmentId, text) {
 // ============================================================================
 window.initBookingRequestsFirebaseListener = () => {
   if (typeof window.listenBookingRequests !== 'function') return;
+  // ROOT-CAUSE FIX (Pending Reservation sync) — a confirm/reject/edit/
+  // delete's Firebase status broadcast (syncBookingRequestFirebase) can
+  // fail silently (see its comment in firebase.js) and previously had no
+  // way back except the browser's 'online' event. This listener already
+  // (re)starts on login, reconnect, and tab-focus (see the watchdog
+  // below), so piggybacking the drain here gives queued retries those
+  // same extra chances with zero new triggers/listeners added.
+  window.drainRetryQueue?.();
   if (_bookingRequestsFirebaseUnsubscribe) { return; } // already subscribed this session
 
   _bookingRequestsFirebaseUnsubscribe = window.listenBookingRequests((remoteRequests) => {
