@@ -14441,21 +14441,37 @@ function csStudentFeeForMonth(student, monthLabel, year) {
   const yearStr = String(year);
   const monthIdx = MONTH_NAMES.indexOf(monthLabel);
 
+  // ROOT-CAUSE FIX (Coach Settlement stale "Pending") — this used to
+  // require `f.feeType === 'monthly'` as a strict equality, so any fee
+  // record without an explicit feeType (legacy records saved before the
+  // field existed, and every record created through the Import Wizard,
+  // which never writes feeType at all — see _wizPersistRecord) was
+  // silently excluded here, even though Fee Collection shows it "Paid"
+  // and Due Management correctly drops the student from the Due list.
+  // Every OTHER consumer of fee records already treats a missing feeType
+  // as 'monthly' — the Firebase/Sheets merge (`fee.feeType || 'monthly'`)
+  // and the Due Engine's own period matcher (`(f.feeType || 'monthly')
+  // === structure`). Coach Settlement was the one place still doing a
+  // stricter, parallel check — exactly the "different payment
+  // calculation" / "ignoring Paid records" failure mode described. Now
+  // uses the identical default-aware comparison so it reads the exact
+  // same set of records Fee Collection and Due Management already agree
+  // on — no second definition of "which records belong to this period."
   let matches;
   if (structure === 'quarterly') {
     // Same quarter mapping the Due Engine uses (_dueQuarterOf).
     const quarter = monthIdx >= 0 ? _dueQuarterOf(monthIdx) : null;
     matches = (window.DB.fees || []).filter(f =>
-      f.studentId === sid && f.feeType === 'quarterly' &&
+      f.studentId === sid && (f.feeType || 'monthly') === 'quarterly' &&
       f.quarter === quarter && String(f.year) === yearStr
     );
   } else if (structure === 'yearly') {
     matches = (window.DB.fees || []).filter(f =>
-      f.studentId === sid && f.feeType === 'yearly' && String(f.year) === yearStr
+      f.studentId === sid && (f.feeType || 'monthly') === 'yearly' && String(f.year) === yearStr
     );
   } else {
     matches = (window.DB.fees || []).filter(f =>
-      f.studentId === sid && f.feeType === 'monthly' &&
+      f.studentId === sid && (f.feeType || 'monthly') === 'monthly' &&
       f.month === monthLabel && String(f.year) === yearStr
     );
   }
@@ -14470,7 +14486,31 @@ function csStudentFeeForMonth(student, monthLabel, year) {
   // therefore also wrong for quarterly/yearly students here).
   const monthlyFee = _dueAmountForStudent(student);
   const pending = Math.max(0, monthlyFee - collected);
-  return { monthlyFee, collected, pending };
+
+  // Payment status/date — NEVER computed as a separate, independent
+  // judgment call. When there is exactly one matching record (the normal
+  // case — DD Turf Zone doesn't support installments, one record per
+  // period), its own `status` field and date are read directly, since
+  // that's the literal field Fee Collection already displays via
+  // statusBadge(f.status). Falling back to deriving from collected vs.
+  // monthlyFee only when there's no single record to read (zero or
+  // multiple matches), using the exact same thresholds saveFee() itself
+  // uses to set that field (paid<=0 → pending, paid<amount → partial,
+  // else paid) — same rule, not a new one.
+  let paymentStatus, paymentDate;
+  if (matches.length === 1) {
+    const only = matches[0];
+    paymentStatus = only.status === 'paid' ? 'Paid' : only.status === 'partial' ? 'Partial' : 'Pending';
+    paymentDate = only.receiptDate || only.date || '';
+  } else {
+    paymentStatus = pending <= 0 && monthlyFee > 0 ? 'Paid' : collected > 0 ? 'Partial' : 'Pending';
+    paymentDate = matches.length ? (matches[matches.length - 1].receiptDate || matches[matches.length - 1].date || '') : '';
+  }
+  // Guardrail for the explicit spec requirement: a fully-paid student must
+  // never be shown as "Pending", regardless of which branch set the label.
+  if (pending <= 0 && monthlyFee > 0) paymentStatus = 'Paid';
+
+  return { monthlyFee, collected, pending, paymentStatus, paymentDate };
 }
 
 /** Attendance for one student in one month — reads directly from the real Attendance module's own records (window.DB.attendance), same source and same matching convention as _computeAttendanceStats: attendance rows are always keyed by the student's internal id (see saveOneAttendance's rec.studentId=s.id), never by the business-facing student.studentId, so matching must use student.id here too. Schedule-aware where scheduleDays exists, falls back to marked-days-only otherwise. */
@@ -14515,6 +14555,11 @@ function csComputeSettlement(coachId, monthValue) {
 
   const students = csStudentsForCoach(coach.name);
   const revenueShare = csRevShareFor(coach);
+  // Billing Period label for the per-student detail view — same label
+  // format Fee Collection/Due Management already use per fee structure
+  // (_feeDueMonthLabel), just anchored to the settlement's own selected
+  // month/year rather than a fee record's fields.
+  const billingPeriod = _feeDueMonthLabel('monthly', monthLabel, null, String(year));
 
   let totalCollected = 0, totalPending = 0;
   const studentRows = students.map(s => {
@@ -14522,12 +14567,23 @@ function csComputeSettlement(coachId, monthValue) {
     const att = csStudentAttendanceForMonth(s, fromDate, toDate);
     totalCollected += fee.collected;
     totalPending += fee.pending;
+    const structure = s.feeStructure || 'monthly';
+    const period = structure === 'monthly' ? billingPeriod
+      : structure === 'quarterly' ? `${_dueQuarterOf(MONTH_NAMES.indexOf(monthLabel))} ${year}`
+      : `Annual ${year}`;
     return {
       studentId: s.studentId || s.id, name: s.name, batch: s.batch || '',
       monthlyFee: fee.monthlyFee, collected: fee.collected, pending: fee.pending,
+      paymentStatus: fee.paymentStatus, paymentDate: fee.paymentDate, billingPeriod: period,
       attendance: att
     };
   });
+  // Coach-level Paid/Pending Students counts — a straight tally of the
+  // per-student paymentStatus already computed above (Partial counts
+  // toward "Pending" for this binary summary count, same as it does for
+  // totalPending), never a second independent check against the fees data.
+  const paidStudents = studentRows.filter(r => r.paymentStatus === 'Paid').length;
+  const pendingStudents = studentRows.length - paidStudents;
 
   const attendedRows = studentRows.filter(r => r.attendance.scheduled > 0);
   const avgAttendance = attendedRows.length ? Math.round(attendedRows.reduce((a,r)=>a+r.attendance.percent,0) / attendedRows.length) : 0;
@@ -14554,7 +14610,8 @@ function csComputeSettlement(coachId, monthValue) {
     revenueSharePercent: revenueShare,
     students: studentRows,
     totals: {
-      totalStudents: students.length, totalCollected, totalPending, netCollected,
+      totalStudents: students.length, paidStudents, pendingStudents,
+      totalCollected, totalPending, netCollected,
       coachShareAmount, ddShareAmount,
       totalScheduled, totalAttended, totalMissed, overallAttendancePercent,
       avgAttendance, above90, between75and90, below75
@@ -14801,8 +14858,10 @@ window.csRenderSettlement = () => {
         </div>
       </div>
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-val">${s.totals.totalStudents}</div><div class="stat-label">Students</div></div>
-        <div class="stat-card"><div class="stat-val">₹${s.totals.totalCollected.toLocaleString('en-IN')}</div><div class="stat-label">Fees Collected</div></div>
+        <div class="stat-card"><div class="stat-val">${s.totals.totalStudents}</div><div class="stat-label">Total Students</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:#166534">${s.totals.paidStudents}</div><div class="stat-label">Paid Students</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:#991b1b">${s.totals.pendingStudents}</div><div class="stat-label">Pending Students</div></div>
+        <div class="stat-card"><div class="stat-val">₹${s.totals.totalCollected.toLocaleString('en-IN')}</div><div class="stat-label">Total Collected</div></div>
         <div class="stat-card"><div class="stat-val">₹${s.totals.totalPending.toLocaleString('en-IN')}</div><div class="stat-label">Pending Fees</div></div>
         <div class="stat-card"><div class="stat-val">${s.totals.avgAttendance}%</div><div class="stat-label">Avg Attendance</div></div>
         <div class="stat-card"><div class="stat-val">₹${s.totals.coachShareAmount.toLocaleString('en-IN')}</div><div class="stat-label">Coach Share (${s.revenueSharePercent}%)</div></div>
@@ -14814,18 +14873,26 @@ window.csRenderSettlement = () => {
 
       <div class="table-wrap mt-16" style="margin-top:14px">
         <table>
-          <thead><tr><th>Student</th><th>Batch</th><th>Monthly Fee</th><th>Collected</th><th>Pending</th><th>Attendance</th></tr></thead>
+          <thead><tr><th>Student</th><th>Batch</th><th>Billing Period</th><th>Fee Amount</th><th>Amount Received</th><th>Pending</th><th>Payment Status</th><th>Payment Date</th><th>Attendance</th></tr></thead>
           <tbody>
             ${s.students.length ? s.students.map(r => {
               const belowThreshold = r.attendance.scheduled > 0 && r.attendance.percent < 75;
+              // Spec: a fully-paid student must always read "Paid" and
+              // never "Pending" — r.paymentStatus already guarantees this
+              // (see csStudentFeeForMonth's guardrail), so the badge just
+              // renders whatever it says, no separate check here.
+              const statusCls = r.paymentStatus === 'Paid' ? 'badge-green' : r.paymentStatus === 'Partial' ? 'badge-yellow' : 'badge-gray';
               return `<tr${belowThreshold ? ' style="background:#fee2e2"' : ''}>
               <td>${_esc(r.name)}${belowThreshold ? ' <span class="badge badge-red" style="font-size:9px;vertical-align:middle">⚠️ Below 75%</span>' : ''}${_deletedStudentBadge(r.studentId)}</td><td>${_esc(r.batch)}</td>
+              <td>${_esc(r.billingPeriod)}</td>
               <td>₹${r.monthlyFee.toLocaleString('en-IN')}</td>
               <td>₹${r.collected.toLocaleString('en-IN')}</td>
               <td>${r.pending > 0 ? `₹${r.pending.toLocaleString('en-IN')}` : '—'}</td>
+              <td><span class="badge ${statusCls}">${r.paymentStatus}</span></td>
+              <td>${r.paymentDate ? formatDate(r.paymentDate.slice(0,10)) : '—'}</td>
               <td style="${belowThreshold ? 'color:var(--red);font-weight:700' : ''}">${r.attendance.scheduled ? `${r.attendance.percent}% (${r.attendance.attended}/${r.attendance.scheduled})` : '—'}</td>
             </tr>`;
-            }).join('') : '<tr><td colspan="6">No students assigned to this coach.</td></tr>'}
+            }).join('') : '<tr><td colspan="9">No students assigned to this coach.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -14958,12 +15025,15 @@ function _csSettlementDocHTML(s, existing) {
 
   const studentRows = (s.students || []).map(r => {
     const below = r.attendance.scheduled > 0 && r.attendance.percent < 75;
+    // Same paymentStatus computed once in csComputeSettlement — a fully
+    // paid student always reads "Paid" here too, never "Pending".
     return `<tr${below ? ' class="cs-row-low"' : ''}>
       <td>${_esc(r.name)}${below ? ' ⚠️' : ''}</td>
       <td>${_esc(r.batch || '-')}</td>
       <td>₹${(r.monthlyFee||0).toLocaleString('en-IN')}</td>
       <td>₹${(r.collected||0).toLocaleString('en-IN')}</td>
       <td>${r.pending > 0 ? `₹${r.pending.toLocaleString('en-IN')}` : '—'}</td>
+      <td>${_esc(r.paymentStatus || '-')}</td>
       <td class="${below ? 'cs-low-pct' : ''}">${r.attendance.scheduled ? `${r.attendance.percent}% (${r.attendance.attended}/${r.attendance.scheduled})` : '—'}</td>
     </tr>`;
   }).join('');
@@ -15005,9 +15075,9 @@ function _csSettlementDocHTML(s, existing) {
       <div class="cs-row"><span>Students Below 75%</span><b style="color:#991b1b">${t.below75}</b></div>
     </div>
 
-    <div class="cs-section-label">Student List (${t.totalStudents})</div>
+    <div class="cs-section-label">Student List (${t.totalStudents} — Paid ${t.paidStudents ?? '—'} / Pending ${t.pendingStudents ?? '—'})</div>
     <table class="cs-table">
-      <thead><tr><th>Student</th><th>Batch</th><th>Monthly Fee</th><th>Collected</th><th>Pending</th><th>Attendance</th></tr></thead>
+      <thead><tr><th>Student</th><th>Batch</th><th>Monthly Fee</th><th>Collected</th><th>Pending</th><th>Status</th><th>Attendance</th></tr></thead>
       <tbody>${studentRows || `<tr><td colspan="6" style="text-align:center;color:#94a3b8">No students assigned</td></tr>`}</tbody>
     </table>
     <div class="cs-legend"><span class="cs-legend-swatch"></span> Row highlighted = attendance below 75%</div>
@@ -15116,7 +15186,39 @@ window.csDownloadPDF = async () => {
 window.csShareWhatsApp = () => {
   const s = window._csCurrentSettlement;
   if (!s) return;
-  const msg = `*DD Turf Zone*\nMonthly Coach Settlement\n\n*Coach:* ${s.coach.name}\n*Sport:* ${s.coach.sport}\n*Settlement Month:* ${s.monthLabel} ${s.year}\n\n*Students:* ${s.totals.totalStudents}\n*Total Fees Collected:* ₹${s.totals.totalCollected.toLocaleString('en-IN')}\n*Pending Fees:* ₹${s.totals.totalPending.toLocaleString('en-IN')}\n*Average Attendance:* ${s.totals.avgAttendance}%\n\n*Coach Share (${s.revenueSharePercent}%):* ₹${s.totals.coachShareAmount.toLocaleString('en-IN')}\n*DD Turf Zone Share:* ₹${s.totals.ddShareAmount.toLocaleString('en-IN')}\n\n*Status:* ${s.status || 'Pending'}\n\nRegards,\nDD Turf Zone`;
+  const existing = window.DB.coachSettlements.find(x => x.coachId === s.coach.id && x.monthValue === s.monthValue);
+  const settlementStatus = (existing && existing.status) || 'Not Generated';
+
+  // Student-wise summary — reuses the exact same per-student rows the
+  // on-screen table renders (r.paymentStatus), so it can never disagree
+  // with what's shown on screen. One line per student, clean and compact.
+  const studentLines = (s.students || []).length
+    ? s.students.map(r => `${r.name} — ₹${r.collected.toLocaleString('en-IN')} (${r.paymentStatus})`).join('\n')
+    : 'No students assigned to this coach.';
+
+  const lines = [
+    '*DD Turf Zone*',
+    'Coach Settlement Summary',
+    '',
+    `*Coach:* ${s.coach.name}`,
+    `*Sport:* ${s.coach.sport}`,
+    `*Settlement Period:* ${s.monthLabel} ${s.year}`,
+    '',
+    `*Paid Students:* ${s.totals.paidStudents}`,
+    `*Pending Students:* ${s.totals.pendingStudents}`,
+    `*Total Collection:* ₹${s.totals.totalCollected.toLocaleString('en-IN')}`,
+    `*Pending Fees:* ₹${s.totals.totalPending.toLocaleString('en-IN')}`,
+    '',
+    `*Coach Share (${s.revenueSharePercent}%):* ₹${s.totals.coachShareAmount.toLocaleString('en-IN')}`,
+    `*Settlement Status:* ${settlementStatus}`,
+    '',
+    '*Student-wise Summary*',
+    studentLines,
+    '',
+    'Regards,',
+    'DD Turf Zone'
+  ];
+  const msg = lines.join('\n');
   window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   logAudit({ type: 'coach_settlement', action: 'whatsapp_shared', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement shared via WhatsApp — ${s.coach.name} (${s.monthLabel} ${s.year})` });
 };
