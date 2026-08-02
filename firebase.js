@@ -1218,6 +1218,20 @@ window.syncCoachSettlementFirebase = async (record) => {
 };
 
 /**
+ * Remove a coach settlement record from Firebase (mirrors deleteFinanceExpenseFirebase).
+ * Used when a Super Admin deletes a generated settlement so it can be
+ * regenerated with current fee data.
+ */
+window.deleteCoachSettlementFirebase = async (settlementId) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    realtimeDb.ref('coach_settlements/' + settlementId).remove()
+      .then(() => resolve({ success: true }))
+      .catch((error) => resolve({ success: false, error: error.message }));
+  });
+};
+
+/**
  * Real-time listener for coach settlements. admin.html only calls this
  * when _finCanAccess() (Super Admin) is true, same hard gate as Finance.
  */

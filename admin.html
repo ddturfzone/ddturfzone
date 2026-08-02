@@ -5416,6 +5416,13 @@ window.initFeesFirebaseListener = () => {
       // until that device's own next unrelated re-render.
       renderDashboard();
       renderAccounts();
+      // ROOT-CAUSE FIX — the comment above already claimed this listener
+      // covered "Finance," but only renderAccounts() (the older, separate
+      // page-accounts dashboard) was ever actually called here. The real
+      // Finance page (page-finance / renderFinance / _finIncomeCoaching)
+      // was never refreshed, so Coaching Income there stayed stale on
+      // every OTHER device until that page was manually reopened.
+      if (document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
       // PRODUCTION AUDIT FIX — Coach Settlement is also a consumer of
       // Fee data (csStudentFeeForMonth) and had the exact same gap as
       // Dashboard/Finance had before the BUGFIX above — never refreshed
@@ -8649,6 +8656,10 @@ async function syncFeesFromSheet() {
       _refreshDuesIfActive();
       renderDashboard();
       renderAccounts();
+      // ROOT-CAUSE FIX — same gap as the comment above already claimed to
+      // fix: renderFinance() (the separate page-finance dashboard) was
+      // never actually called here, only renderAccounts() was.
+      if (typeof renderFinance === 'function' && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
     }
   } catch (e) {
     // Network hiccup — local data (and the offline sync queue) is unaffected.
@@ -11288,6 +11299,12 @@ window.saveFee = async (sendWA=false) => {
   if(!existId){window.DB.fees.unshift(data);}
   else{const idx=window.DB.fees.findIndex(x=>x.id===existId);if(idx>=0)window.DB.fees[idx]=data;}
   renderFees(); renderDashboard(); renderAccounts();
+  // BUGFIX (Fee Collection / Finance sync): renderFinance() (the separate
+  // Super Admin Finance page, _finIncomeCoaching) also reads window.DB.fees
+  // directly but was never refreshed here — only renderAccounts() was. So
+  // Coaching Income on the Finance page stayed stale after Add/Edit Fee
+  // until the page was manually left and re-entered.
+  if (typeof renderFinance === 'function' && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
   // BUGFIX (Fee Collection / Dues sync): every other fee mutation path
   // (deleteFee, and all three Firebase listeners — Students/Fees/
   // DueAdjustments) already calls _refreshDuesIfActive() so the Dues page
@@ -11555,6 +11572,8 @@ window.deleteFee = async (id) => {
   // was manually reopened. Add/Edit (saveFee) already refreshed it —
   // Delete was the one op that didn't.
   renderAccounts();
+  // Same Finance gap as saveFee() above — deleteFee() never refreshed it either.
+  if (typeof renderFinance === 'function' && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
   _refreshDuesIfActive();
   _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — same-device gap; see helper
   showToast('Fee record deleted');
@@ -14644,6 +14663,39 @@ window.csRecordPayment = async (settlementId, { amountPaid, method, remarks }) =
   return { success: true, record: rec };
 };
 
+/**
+ * Delete a generated settlement, reverting the coach+month back to a live
+ * preview (csRenderSettlement recomputes from csComputeSettlement once no
+ * `existing` record is found). Needed because csGenerateSettlement snapshots
+ * totals permanently — any fee collected after generation was otherwise
+ * never reflected in Coach Settlement, with no way to force a refresh.
+ * Any recorded payment history against the settlement is lost with it, so
+ * this is confirmed explicitly rather than silently allowed.
+ */
+window.csDeleteSettlement = async (settlementId) => {
+  if (!_csCanAccess() || !can('manageCoachSettlement')) { denyAccess(); return; }
+  const rec = (window.DB.coachSettlements || []).find(s => s.settlementId === settlementId);
+  if (!rec) return;
+  const hasPayments = (rec.paymentHistory || []).length > 0;
+  const warning = hasPayments
+    ? ` This settlement has ${rec.paymentHistory.length} recorded payment(s) — deleting it will also delete that payment history.`
+    : '';
+  if (!confirm(`Delete this generated settlement for ${rec.coachName} (${rec.monthLabel} ${rec.year})? It will go back to a live preview computed from current fee data.${warning}`)) return;
+
+  LS.delete('coachSettlements', rec.id);
+  window.DB.coachSettlements = window.DB.coachSettlements.filter(s => s.settlementId !== settlementId);
+  logAudit({ type: 'coach_settlement', action: 'deleted', recordId: settlementId,
+    summary: `Settlement Deleted — ${rec.coachName} (${rec.monthLabel} ${rec.year})` });
+
+  window.deleteCoachSettlementFirebase?.(settlementId);
+  queuedSync({ type: 'coach_settlement', action: 'delete', settlementId });
+
+  csRenderSettlement();
+  csRenderSettlementHistory();
+  showToast('Settlement deleted — now showing a live preview from current fee data');
+  _announceSettlementEvent(settlementId, 'deleted', { text: 'Settlement deleted', voice: 'Coach settlement has been deleted.' });
+};
+
 /** Firebase-first (same fail-soft convention as Coaches/Finance), then a non-blocking Sheets push with nested fields JSON-stringified — same convention as SiteConfig. */
 async function _csSyncFirebaseAndSheets(record) {
   const fbResult = await window.syncCoachSettlementFirebase?.(record);
@@ -14674,8 +14726,10 @@ async function syncCoachSettlementsFromSheet() {
     if (!data || !data.ok) return;
 
     let changed = false;
+    const seenSettlementIds = new Set();
     (data.settlements || []).forEach(remote => {
       if (!remote.settlementId) return;
+      seenSettlementIds.add(remote.settlementId);
       const local = window.DB.coachSettlements.find(r => r.settlementId === remote.settlementId);
       if (!local) {
         const id = LS.add('coachSettlements', remote);
@@ -14688,6 +14742,13 @@ async function syncCoachSettlementsFromSheet() {
         changed = true;
       }
     });
+
+    // Deleted on another device (csDeleteSettlement is a hard delete server-side
+    // via handleGenericUpsert's action:'delete' branch) — this is the fallback
+    // path's own reconciliation, mirroring the Firebase listener's.
+    const before = window.DB.coachSettlements.length;
+    window.DB.coachSettlements = window.DB.coachSettlements.filter(s => !s.settlementId || seenSettlementIds.has(s.settlementId));
+    if (window.DB.coachSettlements.length !== before) { changed = true; LS.set('coachSettlements', window.DB.coachSettlements); }
 
     if (changed && document.getElementById('page-coachSettlement')?.classList.contains('active')) csRenderSettlement();
   } catch (e) {
@@ -14708,8 +14769,10 @@ window.initCoachSettlementFirebaseListener = () => {
   _csFirebaseUnsubscribe = window.listenCoachSettlements((remoteSettlements) => {
     const isFirstSnapshot = !_csFirebaseSeeded;
     let changed = false;
+    const seenSettlementIds = new Set();
     remoteSettlements.forEach(remote => {
       if (!remote.settlementId) return;
+      seenSettlementIds.add(remote.settlementId);
       const idx = window.DB.coachSettlements.findIndex(s => s.settlementId === remote.settlementId);
       if (idx === -1) {
         window.DB.coachSettlements.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
@@ -14732,6 +14795,17 @@ window.initCoachSettlementFirebaseListener = () => {
         }
       }
     });
+
+    // Deleted on another device (see csDeleteSettlement) — same removal
+    // reconciliation the Fees/Students/Bookings listeners already do:
+    // anything locally present but missing from this snapshot is gone for
+    // real, not just filtered out of the view.
+    if (_csFirebaseSeeded) {
+      const before = window.DB.coachSettlements.length;
+      window.DB.coachSettlements = window.DB.coachSettlements.filter(s => !s.settlementId || seenSettlementIds.has(s.settlementId));
+      if (window.DB.coachSettlements.length !== before) { changed = true; LS.set('coachSettlements', window.DB.coachSettlements); }
+    }
+
     _csFirebaseSeeded = true;
     if (changed && document.getElementById('page-coachSettlement')?.classList.contains('active')) csRenderSettlement();
   });
@@ -14815,6 +14889,7 @@ window.csRenderSettlement = () => {
           <button class="btn btn-secondary btn-sm" onclick="csShareWhatsApp()">📱 WhatsApp</button>
           <button class="btn btn-secondary btn-sm" onclick="csSendEmail()">✉️ Email</button>
           ${existing ? `<button class="btn btn-primary btn-sm" data-requires-action="manageCoachSettlement" onclick="csOpenPaymentModal('${existing.settlementId}')">💵 Record Payment</button>` : ''}
+          ${existing ? `<button class="btn btn-danger btn-sm" data-requires-action="manageCoachSettlement" onclick="csDeleteSettlement('${existing.settlementId}')" title="Deletes this generated settlement and reverts to a live preview from current fee data">🗑️ Delete &amp; Recompute</button>` : ''}
         </div>
       </div>
       <div class="stats-grid">
