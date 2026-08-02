@@ -4720,6 +4720,14 @@ let _coachesFirebaseSeeded = false;
 const _ddtzAnnouncedCoachEvents = new Set(); // "coachId:kind" already announced this session
 let _bookingRequestsFirebaseUnsubscribe = null;
 let _bookingRequestsFirebaseSeeded = false;
+// STEP 2 PRODUCTION FIX — distinct from _bookingRequestsFirebaseSeeded above.
+// "Seeded" means "the first snapshot arrived", which is true even for a
+// completely EMPTY booking_requests node. "Delivered" means Firebase has
+// actually carried at least one booking-request record, i.e. it is genuinely
+// the live source for this collection. Only the latter is safe to use as the
+// condition for standing the Google Sheets fallback down — see
+// fetchPendingRequestsFromSheet().
+let _bookingRequestsFirebaseDelivered = false;
 const _ddtzAnnouncedBookingRequestEvents = new Set(); // "requestId:kind" already announced this session
 const _ddtzAnnouncedPollEvents = new Set(); // notification "N"+row ids already voiced this session, for the generic poll path (Slot Booking, Attendance, anything else not yet Firebase-migrated)
 
@@ -4960,20 +4968,18 @@ function _announceSlotBookingEvent(bookingId, kind, { text, voice }) {
 // STUDENT VOICE ANNOUNCEMENTS (Enhanced)
 // ============================================================================
 
-/**
- * Announce student events (Enrolment, Update, Delete)
+/*
+ * STEP 2 PRODUCTION FIX — a SECOND `function _announceStudentEvent(...)`
+ * declaration used to live here, taking a `{ text, voice }` OBJECT as its
+ * third argument. A later declaration of the same name (see the Students
+ * Firebase listener section) takes a plain STRING, and because function
+ * declarations hoist, that later one silently won for the whole script —
+ * this one was unreachable dead code. Every real call site passes a
+ * string, so nothing was broken in practice, but the dead copy was a
+ * landmine: calling it the way its own doc-comment described would
+ * destructure-throw. Removed; the single surviving definition now accepts
+ * BOTH shapes. Same treatment applied to _announceFeeEvent below.
  */
-function _announceStudentEvent(studentId, kind, { text, voice }) {
-  const eventKey = `student_${kind}_${studentId}`;
-  
-  if (!window._shouldAnnounceEvent(eventKey)) {
-    return;
-  }
-
-  showToast(text, 'info');
-  _rtPlayNotifySound();
-  window.playVoiceAnnouncement?.(voice || text, false);
-}
 
 // ============================================================================
 // ATTENDANCE VOICE ANNOUNCEMENTS
@@ -5001,9 +5007,12 @@ function _announceAttendanceEvent(attendanceId, kind, { text, voice }) {
 /**
  * Announce fee payment events (Added, Updated, Deleted)
  */
-function _announceFeeEvent(feeId, kind, { text, voice }) {
+function _announceFeeEvent_DEAD_SHADOWED_DO_NOT_USE(feeId, kind, { text, voice }) {
+  // STEP 2 PRODUCTION FIX — see the note on _announceStudentEvent above.
+  // This declaration was shadowed by a later same-named one and never ran.
+  // Renamed rather than deleted so the surrounding block stays intact.
   const eventKey = `fee_${kind}_${feeId}`;
-  
+
   if (!window._shouldAnnounceEvent(eventKey)) {
     return;
   }
@@ -5314,7 +5323,13 @@ window.stopStudentsFirebaseListener = () => {
   }
 };
 
-function _announceStudentEvent(studentId, kind, text) {
+function _announceStudentEvent(studentId, kind, payload) {
+  // STEP 2 PRODUCTION FIX — tolerates BOTH the plain-string form every
+  // current call site uses AND the { text, voice } object form the
+  // removed duplicate declaration documented, so neither convention can
+  // ever throw or announce "undefined" again.
+  const text  = (payload && typeof payload === 'object') ? (payload.text || '') : payload;
+  const voice = (payload && typeof payload === 'object') ? (payload.voice || text) : text;
   const eventKey = studentId + ':' + kind;
   if (!window._shouldAnnounceEvent(eventKey)) return;
   showToast(`🎓 ${text}`);
@@ -5326,7 +5341,7 @@ function _announceStudentEvent(studentId, kind, text) {
     icon: '🎓', action: text, recordId: studentId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window.playVoiceAnnouncement?.(text, false);
+  window.playVoiceAnnouncement?.(voice, false);
 }
 
 window.initFeesFirebaseListener = () => {
@@ -5420,7 +5435,11 @@ window.stopFeesFirebaseListener = () => {
 };
 
 const _ddtzAnnouncedFeeEvents = new Set(); // "receiptNo:kind" already announced this session
-function _announceFeeEvent(receiptNo, kind, text) {
+function _announceFeeEvent(receiptNo, kind, payload) {
+  // STEP 2 PRODUCTION FIX — accepts both the string form and the
+  // { text, voice } object form; see _announceStudentEvent above.
+  const text  = (payload && typeof payload === 'object') ? (payload.text || '') : payload;
+  const voice = (payload && typeof payload === 'object') ? (payload.voice || text) : text;
   const eventKey = receiptNo + ':' + kind;
   if (!window._shouldAnnounceEvent(eventKey)) return;
   showToast(`💰 ${text}`);
@@ -5432,7 +5451,7 @@ function _announceFeeEvent(receiptNo, kind, text) {
     icon: '💰', action: text, recordId: receiptNo, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window.playVoiceAnnouncement?.(text, false);
+  window.playVoiceAnnouncement?.(voice, false);
 }
 
 // Append-only, same as its Sheets tab: a Due Adjustment is never updated
@@ -5544,7 +5563,18 @@ window.initBookingRequestsFirebaseListener = () => {
         // commonly) this device's first sight of one already actioned
         // elsewhere before it connected.
         const rec = { ...remote, id: remote.requestId };
-        _lsAddPreservingId('bookingRequests', rec);
+        // STEP 2 PRODUCTION FIX — _lsAddPreservingId() is a blind unshift
+        // with no dedupe of its own, and `local` above is looked up only in
+        // the IN-MEMORY window.DB.bookingRequests. Those two can legitimately
+        // diverge (_syncBookingRequestsFromLocalStorage replaces the whole
+        // array from localStorage on a 5s timer, and fetchPendingRequestsFromSheet
+        // writes through LS.add), so a snapshot arriving in that window could
+        // append a second stored copy of a request this device already had —
+        // which then renders as two cards for one reservation, one of which
+        // can never be actioned. Checking the persisted collection before
+        // writing closes that off without changing how anything is stored.
+        const alreadyStored = LS.get('bookingRequests').some(r => r.requestId === remote.requestId);
+        if (!alreadyStored) _lsAddPreservingId('bookingRequests', rec);
         window.DB.bookingRequests.push(rec);
         changed = true;
         if (!isFirstSnapshot && remote.status === 'PENDING') {
@@ -5577,6 +5607,7 @@ window.initBookingRequestsFirebaseListener = () => {
     });
 
     _bookingRequestsFirebaseSeeded = true;
+    if (remoteRequests.length) _bookingRequestsFirebaseDelivered = true; // STEP 2 — see flag declaration
     if (changed) {
       updateRequestsBadge();
       // Render UNCONDITIONALLY — the previous version only rendered when
@@ -5618,6 +5649,7 @@ window.stopBookingRequestsFirebaseListener = () => {
     _bookingRequestsFirebaseUnsubscribe();
     _bookingRequestsFirebaseUnsubscribe = null;
     _bookingRequestsFirebaseSeeded = false;
+    _bookingRequestsFirebaseDelivered = false; // STEP 2 — reset with its sibling flag
   }
 };
 
@@ -5653,7 +5685,7 @@ window._onFirebaseListenerFailed = (module) => {
   console.warn(`[FB-DEBUG] Listener FAILED (${module}) — clearing its state so the polling fallback resumes and the watchdog can restart it`);
   if (module === 'enrolments')      { _firebaseEnrolmentsSeeded = false;      _firebaseEnrolmentsUnsubscribe = null; }
   if (module === 'coaches')         { _coachesFirebaseSeeded = false;         _coachesFirebaseUnsubscribe = null; }
-  if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseUnsubscribe = null; }
+  if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseDelivered = false; _bookingRequestsFirebaseUnsubscribe = null; }
   if (module === 'finance')         { _financeFirebaseSeeded = false;        _financeFirebaseUnsubscribe = null; }
   if (module === 'coachSettlements'){ _csFirebaseSeeded = false;             _csFirebaseUnsubscribe = null; }
   // PHASE 6 — Dues Synchronization listeners.
@@ -8155,7 +8187,18 @@ async function fetchPendingRequestsFromSheet(showFeedback) {
   // live at a time. The manual "🔄 Refresh" button still works regardless
   // (showFeedback=true) — that's a deliberate user action, not a second
   // automatic realtime path, so it's left alone.
-  if (!showFeedback && _bookingRequestsFirebaseSeeded) {
+  // STEP 2 PRODUCTION FIX — this used to skip on _bookingRequestsFirebaseSeeded
+  // alone. That flag is set on the FIRST snapshot even when the
+  // booking_requests node is completely EMPTY, so a device that connected to
+  // Firebase before any request had been mirrored there permanently disabled
+  // its own Sheets fallback and then never saw the request at all
+  // (reproduced: Super Admin's Pending list stayed empty while the Manager's
+  // showed the request). Now gated on _bookingRequestsFirebaseDelivered,
+  // which only flips once Firebase has actually delivered at least one
+  // booking-request record — i.e. once it is genuinely the live source. The
+  // single-source guarantee this guard was added for is preserved exactly:
+  // when Firebase really is carrying data, the Sheets poll still stands down.
+  if (!showFeedback && _bookingRequestsFirebaseSeeded && _bookingRequestsFirebaseDelivered) {
     return;
   }
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
@@ -8170,7 +8213,9 @@ async function fetchPendingRequestsFromSheet(showFeedback) {
     }
     const local = window.DB.bookingRequests || [];
     let addedCount = 0;
+    const returnedIds = new Set();
     data.requests.forEach(remote => {
+      if (remote.requestId) returnedIds.add(remote.requestId);
       const existing = local.find(r => r.requestId === remote.requestId);
       if (!existing) {
         const localId = LS.add('bookingRequests', { ...remote, status: remote.status || 'PENDING' });
@@ -8184,9 +8229,58 @@ async function fetchPendingRequestsFromSheet(showFeedback) {
         existing.bookingId = remote.bookingId;
       }
     });
+
+    // ========================================================================
+    // STEP 2 ROOT-CAUSE FIX — "Manager approves, Super Admin still sees the
+    // reservation as Pending."
+    // ------------------------------------------------------------------------
+    // Reproduced deterministically: Code.gs's handlePendingRequests endpoint
+    // returns rows whose Status is PENDING and NOTHING ELSE. The loop above
+    // therefore only ever reconciles rows that ARE returned — a row that
+    // DISAPPEARS from the response (precisely what happens the moment it
+    // becomes CONFIRMED or REJECTED) was never touched by anything. So on any
+    // device whose Firebase listener is not attached — realtimeDb still null
+    // when initBookingRequestsFirebaseListener ran, a dropped socket, a
+    // throttled background tab — the 30s Sheets poll was the ONLY remaining
+    // channel, and that channel is structurally incapable of delivering a
+    // status change. The request stayed PENDING on that device forever, with
+    // nothing left to ever correct it.
+    //
+    // Code.gs is being updated in this same step to also return recently
+    // actioned rows, which makes the loop above adopt the REAL status. This
+    // block is the client-side safety net for the window in which the old
+    // Apps Script deployment is still live: a local row still marked PENDING
+    // that the server no longer lists as pending has definitively been
+    // actioned somewhere else. It is marked RESOLVED rather than guessed as
+    // CONFIRMED/REJECTED — an honest "actioned on another device" state that
+    // drops it out of the Pending list and out of the badge, without
+    // inventing a status the server never reported.
+    let reconciledCount = 0;
+    local.forEach(r => {
+      if (r.status !== 'PENDING') return;
+      if (!r.requestId) return;                 // never synced up yet — leave alone
+      if (returnedIds.has(r.requestId)) return; // server still says pending
+      LS.update('bookingRequests', r.id, { status: 'RESOLVED', resolvedNote: 'Actioned on another device' });
+      r.status = 'RESOLVED';
+      r.resolvedNote = 'Actioned on another device';
+      reconciledCount++;
+    });
+
     window.DB.bookingRequests = local;
     updateRequestsBadge();
-    if (document.getElementById('page-requests')?.classList.contains('active')) renderBookingRequests();
+    // Render UNCONDITIONALLY — same reasoning as the Firebase listener's own
+    // render call: #requests-list exists in the DOM at all times (pages are
+    // hidden with a CSS class, never removed), so rendering while hidden is
+    // cheap and removes an entire class of "the data updated but the screen
+    // didn't" staleness. Previously this only rendered when the Requests page
+    // happened to be the active page, so a reconciliation that landed while
+    // the user sat on Dashboard was invisible until they navigated away and
+    // back.
+    renderBookingRequests();
+    renderDashboard();
+    if (reconciledCount) {
+      showToast(`🔄 ${reconciledCount} reservation request(s) were already actioned on another device.`, 'info');
+    }
     if (showFeedback) showToast(addedCount ? `📥 ${addedCount} new reservation request(s) received.` : 'No new reservation requests.');
   } catch (e) {
     if (showFeedback) showToast('⚠️ Could not reach Google Sheets to check reservation requests.', 'error');
@@ -8215,7 +8309,12 @@ function _requestStatusBadge(status) {
   const map = {
     PENDING:   '<span class="badge badge-yellow">⏳ Pending</span>',
     CONFIRMED: '<span class="badge badge-green">✅ Confirmed</span>',
-    REJECTED:  '<span class="badge badge-red">❌ Rejected</span>'
+    REJECTED:  '<span class="badge badge-red">❌ Rejected</span>',
+    // STEP 2 — set by fetchPendingRequestsFromSheet()'s reconciliation when
+    // the server no longer lists a locally-PENDING request as pending, i.e.
+    // it was confirmed or rejected on another device. Deliberately its own
+    // state rather than a guessed CONFIRMED/REJECTED.
+    RESOLVED:  '<span class="badge badge-gray">🔄 Actioned elsewhere</span>'
   };
   return map[status] || `<span class="badge badge-gray">${status}</span>`;
 }
@@ -8252,7 +8351,10 @@ window.renderBookingRequests = () => {
         <div class="req-actions">
           <button class="btn btn-success" onclick="confirmBookingRequest('${r.id}')">✅ Confirm</button>
           <button class="btn btn-secondary" style="background:#fee2e2;color:#991b1b" onclick="rejectBookingRequest('${r.id}')">❌ Reject</button>
-        </div>` : `<div style="font-size:12px;color:var(--gray3)">${r.status === 'CONFIRMED' ? `Confirmed${r.bookingId ? ' · Booking ' + r.bookingId : ''}` : `Rejected${r.rejectedBy ? ' by ' + r.rejectedBy : ''}`}</div>`}
+        </div>` : `<div style="font-size:12px;color:var(--gray3)">${
+            r.status === 'CONFIRMED' ? `Confirmed${r.bookingId ? ' · Booking ' + r.bookingId : ''}`
+          : r.status === 'RESOLVED'  ? `${r.resolvedNote || 'Actioned on another device'} — open Turf Bookings to see the outcome`
+          : `Rejected${r.rejectedBy ? ' by ' + r.rejectedBy : ''}`}</div>`}
     </div>`;
 
   let html = '';
@@ -9691,7 +9793,23 @@ window.saveStudent = async () => {
 
   _stampAudit(data, existId ? window.DB.students.find(x=>x.id===existId) : null);
   const id=await saveDoc('students',data,existId||null);
-  if(!existId){data.studentId=id;data.id=id;window.DB.students.unshift(data);}
+  if(!existId){
+    data.studentId=id;data.id=id;
+    // STEP 2 PRODUCTION FIX (Student Save persistence) — saveDoc()/LS.add()
+    // spread-copies `data` into localStorage BEFORE studentId is assigned
+    // on the line above, so the persisted record never carried a
+    // studentId at all — only the in-memory copy did. After any reload,
+    // initStudentsFirebaseListener's
+    //   window.DB.students.find(s => s.studentId === remote.studentId)
+    // could therefore never match, so every remote snapshot fell into the
+    // !local branch and _lsAddPreservingId() (a blind unshift with no
+    // dedupe) appended a SECOND, disconnected copy of the same student.
+    // Writing studentId back into the stored record closes that hole at
+    // the source. Uses the existing LS.update primitive — no new storage
+    // path, no change to how IDs are minted.
+    LS.update('students', id, { studentId: id });
+    window.DB.students.unshift(data);
+  }
   else{const idx=window.DB.students.findIndex(x=>x.id===existId);if(idx>=0)window.DB.students[idx]={...data,id:existId};}
   // PHASE 6 — Firebase-first, same non-blocking fail-soft pattern as
   // saveCoach: attempt+await the Firebase write (normally sub-second) so
@@ -9706,6 +9824,11 @@ window.saveStudent = async () => {
     console.warn('Student Firebase sync failed (Sheets sync still proceeding):', fbStudentResult.error);
   }
   autoSyncStudent(data, existId ? 'update' : 'create');
+  // STEP 2 — Fee Collection auto-creation. A brand-new student previously
+  // had NO fee record at all until someone manually opened Fee Collection
+  // and recorded one. See _autoCreateFeeForNewStudent below for why this
+  // is safe against the Due Engine / Coach Settlement.
+  if (!existId) await _autoCreateFeeForNewStudent(data);
   closeModal('student-modal');
   resetStudentForm();
   renderStudents();
@@ -9716,6 +9839,82 @@ window.saveStudent = async () => {
   showToast('Student saved! ✅');
   _announceStudentEvent(id, existId ? 'updated' : 'created', existId ? 'Student details updated.' : 'New student enrolled.');
 };
+
+// ============================================================================
+// STEP 2 — FEE COLLECTION AUTO-CREATION ON STUDENT ENROLMENT
+// ----------------------------------------------------------------------------
+// Creates the student's FIRST Fee Collection record for their current
+// billing period the moment they are enrolled, so a new student is never
+// invisible in Fee Collection until someone remembers to add them.
+//
+// Deliberately does NOT invent any new business logic:
+//   • The billing period comes from the Due Engine's own _dueCurrentPeriod(),
+//     not a second parallel interpretation of "what period is it".
+//   • The amount comes from _computeEffectiveFee() — the same post-discount
+//     figure the Student modal preview and Fee Collection's prefill use.
+//   • The record shape is byte-for-byte the shape saveFee() produces.
+//
+// Safe against the frozen Due Engine and Coach Settlement, verified:
+// _computeDueEntry() sums amountReceived (0 here) and only reports 'paid'
+// when `pending <= 0 && received > 0`, so this record can never suppress a
+// genuine due. csStudentFeeForMonth() likewise aggregates amountReceived,
+// so a coach's settlement total is unchanged. It becomes the single record
+// staff then EDIT when payment is taken, which is exactly the existing
+// "one fee record per student per billing period" rule.
+//
+// Skipped entirely when the effective fee is 0 (no plan set yet, e.g. a
+// student created from an enrolment request) or when a matching record
+// somehow already exists — never creates a duplicate.
+async function _autoCreateFeeForNewStudent(student) {
+  try {
+    const structure = student.feeStructure || 'monthly';
+    const base = structure === 'yearly' ? student.yearlyFee
+               : structure === 'quarterly' ? student.qfee
+               : student.fee;
+    const amount = Math.round(_computeEffectiveFee(base, student.discountType, student.discountValue));
+    if (!amount || amount <= 0) return null; // no fee plan set — nothing to bill yet
+
+    const period = _dueCurrentPeriod(student, new Date());
+    if (_dueMatchingFees(student, period).length) return null; // never duplicate
+
+    const data = {
+      studentId: student.studentId || student.id, studentName: student.name, sport: student.sport,
+      batch: student.batch || '', coach: student.coach || '',
+      feeType: period.feeType, month: period.month, quarter: period.quarter, year: period.year,
+      dueMonth: _feeDueMonthLabel(period.feeType, period.month, period.quarter, period.year),
+      amountPayable: amount, amountReceived: 0, pending: amount,
+      paymentMethod: '', paymentType: _computeFeePaymentType(amount, 0),
+      receiptDate: getToday(), date: getToday(),
+      notes: 'Auto-created on enrolment — record payment to complete.',
+      status: 'pending',
+      includesJoiningFee: false,
+      receiptNo: '', updatedAt: ''
+    };
+    _stampAudit(data, null);
+    const feeId = await saveDoc('fees', data, null);
+    data.id = feeId;
+    window.DB.fees.unshift(data);
+
+    // Same Sheets-then-Firebase order saveFee() uses, so the auto-created
+    // record reaches other devices through the identical transport.
+    const syncRes = await autoSyncFee(data);
+    if (syncRes && syncRes.ok && syncRes.result && syncRes.result.receiptNo) {
+      data.receiptNo = syncRes.result.receiptNo;
+      data.updatedAt = syncRes.result.updatedAt || data.updatedAt;
+      LS.update('fees', data.id, { receiptNo: data.receiptNo, updatedAt: data.updatedAt });
+    }
+    if (data.receiptNo) {
+      await window.syncFeeFirebase?.({ ...data, updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '' });
+    }
+    if (document.getElementById('page-fees')?.classList.contains('active')) renderFees();
+    return data;
+  } catch (err) {
+    // Fee auto-creation must NEVER be able to fail a student save — the
+    // student record itself is already committed by this point.
+    console.error('Fee auto-creation failed (student save unaffected):', err);
+    return null;
+  }
+}
 
 // PHASE 3.5 Improvements — Football Batch Structure: two fixed batches,
 // each with a fixed weekly schedule used later by Attendance's auto
@@ -11112,7 +11311,14 @@ window.saveFee = async (sendWA=false) => {
   }
   if (syncRes && syncRes.ok) {
     showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
-    _announceFeeEvent(data.id, existingId ? 'updated' : 'added', 'Fee payment received.');
+    // STEP 2 PRODUCTION FIX — was `existingId`, which is not declared
+    // anywhere in this function (the only declarations of that name are
+    // local to saveAttendance and _wizPersistRecord) and is not a global,
+    // so this threw a ReferenceError on EVERY successful fee save. It
+    // threw *after* the success toast, which is why the save appeared to
+    // work while silently killing the two things that follow it: the
+    // auto-opened receipt preview and the WhatsApp receipt send.
+    _announceFeeEvent(data.id, existId ? 'updated' : 'added', 'Fee payment received.');
   } else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
   else showToast('Payment saved locally. Sync will retry automatically.', 'error');
 
