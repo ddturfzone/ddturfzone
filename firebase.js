@@ -66,7 +66,6 @@ let authState = 'pending'; // 'pending' | 'success' | 'failed' | 'skipped'
  * rationale and the exact rule this pairs with.
  */
 window.initializeFirebase = async () => {
-  console.log('[FB-DEBUG] Firebase initialization started'); // TEMP DEBUG LOG — remove after live verification
   try {
     if (firebaseApp) {
       console.warn('Firebase already initialized');
@@ -80,7 +79,6 @@ window.initializeFirebase = async () => {
     // Get Realtime Database reference
     realtimeDb = firebase.database(firebaseApp);
     console.log('✓ Firebase Realtime Database initialized');
-    console.log('[FB-DEBUG] Database connected'); // TEMP DEBUG LOG — remove after live verification
 
     // Setup connection state monitoring
     _setupConnectionMonitoring();
@@ -93,12 +91,10 @@ window.initializeFirebase = async () => {
     // instead of a generic message, matching this file's existing
     // fail-soft pattern everywhere else.
     if (typeof firebase.auth === 'function') {
-      console.log('[FB-DEBUG] Anonymous sign-in started'); // TEMP DEBUG LOG — remove after live verification
       try {
         await firebase.auth().signInAnonymously();
         authState = 'success';
         console.log('✓ Firebase anonymous auth established (admin-side only)');
-        console.log('[FB-DEBUG] Anonymous sign-in successful'); // TEMP DEBUG LOG — remove after live verification
       } catch (authError) {
         authState = 'failed';
         lastFirebaseError = 'Authentication error: ' + authError.message;
@@ -113,7 +109,6 @@ window.initializeFirebase = async () => {
     // fully settled (success or caught failure) — is Firebase genuinely
     // ready for a write/listener to depend on it.
     firebaseFullyReady = true;
-    console.log(`[FB-DEBUG] Firebase initialized — fullyReady=true, authState=${authState}`); // TEMP DEBUG LOG — remove after live verification
 
     return {
       success: true,
@@ -161,12 +156,6 @@ function _setupConnectionMonitoring() {
       lastFirebaseError = null;
       if (window._ddtzDiag) window._ddtzDiag.hasEverConnected = true; // TEMP SYSTEM HEALTH
       console.log('🟢 Firebase connected');
-      // Distinguishing first-connect from reconnect matters for live
-      // testing: during a Wi-Fi-off/on test the tester needs to actually
-      // SEE that the socket came back, not just infer it.
-      console.log(wasDisconnected
-        ? '[FB-DEBUG] Connection restored (reconnected after a drop)'
-        : '[FB-DEBUG] Connection established'); // TEMP DEBUG LOG — remove after live verification
       if (wasDisconnected) {
         // `.info/connected` flipping back to true is the AUTHORITATIVE
         // signal that Firebase itself reconnected — strictly more
@@ -181,7 +170,6 @@ function _setupConnectionMonitoring() {
     } else {
       connectionStatus = 'disconnected';
       console.log('🔴 Firebase disconnected');
-      console.log('[FB-DEBUG] Firebase disconnected'); // TEMP DEBUG LOG — remove after live verification
     }
     _updateConnectionIndicator();
   }, (error) => {
@@ -385,7 +373,6 @@ window.listenPendingEnrolments = (callback) => {
 
   const ref = realtimeDb.ref('pending_enrolments');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (pending_enrolments)'); // TEMP DEBUG LOG — remove after live verification
     const enrolments = [];
     snapshot.forEach((child) => {
       enrolments.push({ firebaseKey: child.key, ...child.val() });
@@ -406,7 +393,6 @@ window.listenPendingEnrolments = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (pending_enrolments)'); // TEMP DEBUG LOG — remove after live verification
 
   return () => ref.off('value', handler); // unsubscribe function
 };
@@ -581,7 +567,6 @@ window.refreshFirebaseConnectionIndicator = () => {
     const previous = connectionStatus;
     connectionStatus = reallyConnected ? 'connected' : 'disconnected';
     if (previous !== connectionStatus) {
-      console.log(`[FB-DEBUG] Indicator re-synced from live state: ${previous} → ${connectionStatus}`); // TEMP DEBUG LOG
     }
     _updateConnectionIndicator();
   }).catch(err => {
@@ -912,7 +897,6 @@ window.listenFinanceExpenses = (callback) => {
   }
   const ref = realtimeDb.ref('finance_expenses');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (finance_expenses)'); // TEMP DEBUG LOG — remove after live verification
     const expenses = [];
     snapshot.forEach((child) => expenses.push({ firebaseKey: child.key, ...child.val() }));
     callback(expenses);
@@ -927,7 +911,6 @@ window.listenFinanceExpenses = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (finance_expenses)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -986,7 +969,6 @@ window.listenCoaches = (callback) => {
   }
   const ref = realtimeDb.ref('coaches');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (coaches)'); // TEMP DEBUG LOG — remove after live verification, same convention as Phase 4.2's emergency fix
     const coaches = [];
     snapshot.forEach((child) => coaches.push({ firebaseKey: child.key, ...child.val() }));
     callback(coaches);
@@ -999,7 +981,6 @@ window.listenCoaches = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (coaches)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1069,7 +1050,6 @@ window.listenStudents = (callback) => {
   }
   const ref = realtimeDb.ref('students');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (students)'); // TEMP DEBUG LOG — remove after live verification
     const students = [];
     snapshot.forEach((child) => students.push({ firebaseKey: child.key, ...child.val() }));
     callback(students);
@@ -1082,7 +1062,6 @@ window.listenStudents = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (students)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1131,7 +1110,6 @@ window.listenFees = (callback) => {
   }
   const ref = realtimeDb.ref('fees');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (fees)'); // TEMP DEBUG LOG — remove after live verification
     const fees = [];
     snapshot.forEach((child) => fees.push({ firebaseKey: child.key, ...child.val() }));
     callback(fees);
@@ -1144,7 +1122,6 @@ window.listenFees = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (fees)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1185,7 +1162,6 @@ window.listenDueAdjustments = (callback) => {
   }
   const ref = realtimeDb.ref('due_adjustments');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (due_adjustments)'); // TEMP DEBUG LOG — remove after live verification
     const adjustments = [];
     snapshot.forEach((child) => adjustments.push({ firebaseKey: child.key, ...child.val() }));
     callback(adjustments);
@@ -1198,7 +1174,6 @@ window.listenDueAdjustments = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (due_adjustments)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1242,7 +1217,6 @@ window.listenCoachSettlements = (callback) => {
   }
   const ref = realtimeDb.ref('coach_settlements');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (coach_settlements)'); // TEMP DEBUG LOG — remove after live verification
     const settlements = [];
     snapshot.forEach((child) => settlements.push({ firebaseKey: child.key, ...child.val() }));
     callback(settlements);
@@ -1255,7 +1229,6 @@ window.listenCoachSettlements = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (coach_settlements)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1336,7 +1309,6 @@ window.listenBookingRequests = (callback) => {
   }
   const ref = realtimeDb.ref('booking_requests');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (booking_requests)'); // TEMP DEBUG LOG — remove after live verification
     const requests = [];
     snapshot.forEach((child) => requests.push({ firebaseKey: child.key, ...child.val() }));
     callback(requests);
@@ -1349,7 +1321,6 @@ window.listenBookingRequests = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (booking_requests)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 

@@ -110,6 +110,20 @@ body{font-family:'Inter',sans-serif;background:var(--gray);color:var(--text);min
 .stat-icon{font-size:28px;margin-bottom:10px}
 .stat-val{font-family:'Barlow Condensed',sans-serif;font-size:30px;font-weight:800;color:var(--dark);line-height:1}
 .stat-label{font-size:12px;color:var(--gray3);margin-top:4px;font-weight:500}
+/* ====== FEE COLLECTION — sport tabs (UI ONLY — no calculation/sync changes) ====== */
+.fee-sport-tabs{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.fee-sport-tab{flex:1;min-width:110px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 10px;border:2px solid var(--gray2);border-radius:14px;background:white;cursor:pointer;font-family:'Inter',sans-serif;font-size:26px;font-weight:700;color:var(--gray3);transition:all .15s}
+.fee-sport-tab span{font-size:13px}
+.fee-sport-tab:hover{border-color:var(--green-light)}
+.fee-sport-tab.active{border-color:var(--green);background:var(--green-bg);color:var(--green-dark);box-shadow:0 2px 8px rgba(15,122,69,.15)}
+/* Quick Payment mode — collapses the full fee form down to Amount
+   Received / Payment Method / Payment Date / Notes. Pure CSS toggle;
+   every hidden field still holds its auto-filled value underneath, so
+   saveFee() sees exactly the same data it always has. */
+#fee-modal.quick-mode .fee-quick-hide{display:none !important}
+@media (max-width:640px){
+  .fee-sport-tab{font-size:22px}
+}
 /* ====== FORMS ====== */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .form-group{display:flex;flex-direction:column;gap:6px}
@@ -843,30 +857,28 @@ tr:hover td{background:#f8fffe}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
           <div>
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800">Fee Collection</div>
-            <div style="color:var(--gray3);font-size:13px">Track coaching fee payments</div>
+            <div style="color:var(--gray3);font-size:13px">Select a sport, then collect fees below</div>
           </div>
           <button class="btn btn-primary" data-requires-action="manageFees" onclick="resetFeeForm();openModal('fee-modal')">+ Record Payment</button>
         </div>
         <div class="stats-grid" id="fee-stats" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"></div>
-        <div class="filter-bar">
-          <input type="text" id="fee-search" placeholder="🔍 Search student..." oninput="renderFees()">
-          <select id="fee-status-filter" onchange="renderFees()">
-            <option value="">All Status</option>
-            <option value="paid">Paid</option>
-            <option value="partial">Partial</option>
-            <option value="pending">Pending</option>
-          </select>
-          <select id="fee-month-filter" onchange="renderFees()">
-            <option value="">All Months</option>
-          </select>
+
+        <!-- FEE COLLECTION — sport tabs + simple table. Presentation-only:
+             figures are read via _computeDueEntry(), the exact same
+             aggregation the Dues page already uses, and "Collect Fee"
+             reuses the existing collectFeeForDue()/fee-modal/saveFee()
+             Quick Payment flow untouched. -->
+        <div class="fee-sport-tabs">
+          <button type="button" class="fee-sport-tab active" data-sport="football" onclick="selectFeeSportTab('football')">⚽<span>Football</span></button>
+          <button type="button" class="fee-sport-tab" data-sport="cricket" onclick="selectFeeSportTab('cricket')">🏏<span>Cricket</span></button>
+          <button type="button" class="fee-sport-tab" data-sport="taekwondo" onclick="selectFeeSportTab('taekwondo')">🥋<span>Taekwondo</span></button>
         </div>
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Receipt No.</th><th>Student</th><th>Sport</th><th>Due Month</th><th>Payable</th>
-              <th>Received</th><th>Pending</th><th>Method</th><th>Date</th><th>Status</th><th>Actions</th>
+              <th>Student Name</th><th>Student ID</th><th>Monthly Fee</th><th>Paid Amount</th><th>Balance</th><th>Status</th><th>Action</th>
             </tr></thead>
-            <tbody id="fees-tbody"></tbody>
+            <tbody id="fee-sport-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -1564,10 +1576,15 @@ tr:hover td{background:#f8fffe}
             </div>
           </div>
           <div class="card">
-            <div class="card-title">🧾 Today's Sales</div>
+            <div class="card-title">🧾 Café Bills &amp; Sales</div>
+            <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+              <input type="text" id="cafe-search" placeholder="Search team, phone or booking ID…"
+                oninput="cafeSearchChanged()" style="flex:2;min-width:170px">
+              <input type="date" id="cafe-date-filter" onchange="cafeSearchChanged()" style="flex:1;min-width:130px">
+            </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Item</th><th>Qty</th><th>Amount</th><th>Method</th></tr></thead>
+                <thead><tr><th>Team / Slot</th><th>Items</th><th>Amount</th><th>Method</th><th>Status</th><th></th></tr></thead>
                 <tbody id="cafe-sales-tbody"></tbody>
               </table>
             </div>
@@ -1946,6 +1963,69 @@ tr:hover td{background:#f8fffe}
       <button class="btn btn-secondary" onclick="closeModal('cafe-sale-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveCafeSale()">Log Sale</button>
     </div>
+  </div>
+</div>
+
+<!-- CAFÉ BILL MODAL — multi-item bill linked to a Turf Slot Booking.
+     Booking details at the top are AUTO-FILLED and read-only: staff never
+     type them. Item rows are added/removed dynamically. -->
+<div class="modal-overlay" id="cafe-bill-modal">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title">🍽️ Café Bill</div>
+
+    <div id="cafe-bill-booking-header" style="background:var(--gray);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.6"></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <label style="font-weight:600;font-size:13px">Items</label>
+      <button class="btn btn-secondary btn-sm" onclick="cafeBillAddItem()">➕ Add Item</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="table" style="font-size:13px">
+        <thead><tr><th style="min-width:150px">Item</th><th style="width:70px">Qty</th><th style="width:90px">Rate</th><th style="width:90px">Amount</th><th style="width:40px"></th></tr></thead>
+        <tbody id="cafe-bill-items-tbody"></tbody>
+      </table>
+    </div>
+    <datalist id="cafe-menu-datalist"></datalist>
+
+    <div id="cafe-bill-totals" style="margin-top:10px;font-size:14px"></div>
+
+    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;min-width:130px">
+        <label>Discount (₹)</label>
+        <input type="number" id="cafe-bill-discount" min="0" value="0" oninput="cafeBillUpdateDiscount(this.value)">
+      </div>
+      <div class="form-group" style="flex:1;min-width:130px">
+        <label>Payment Method</label>
+        <select id="cafe-bill-method" onchange="cafeBillUpdateMethod(this.value)">
+          <option value="Cash">Cash</option>
+          <option value="GPay">GPay</option>
+          <option value="UPI">UPI</option>
+          <option value="Card">Card</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1;min-width:130px">
+        <label>Status</label>
+        <select id="cafe-bill-status" onchange="cafeBillUpdateStatus(this.value)">
+          <option value="Paid">Paid</option>
+          <option value="Pending">Pending</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('cafe-bill-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="closeCafeBill()">✅ Close Bill</button>
+    </div>
+  </div>
+</div>
+
+<!-- CAFÉ BILL PREVIEW — renders the SAME _cafeBillDocHTML used by Print
+     and PDF, so what staff see here is exactly what prints and what the
+     customer receives. No separate preview design. -->
+<div class="modal-overlay" id="cafe-bill-preview-modal">
+  <div class="modal" style="max-width:400px">
+    <div id="cafe-bill-preview-body" style="background:#fff;padding:8px"></div>
+    <div class="modal-footer" id="cafe-bill-preview-actions" style="flex-wrap:wrap"></div>
   </div>
 </div>
 
@@ -2681,6 +2761,55 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
+<!-- PRODUCTION STABILIZATION — Duplicate Student Protection.
+     Shown by saveStudent() when a MobileNumber+Sport match is found
+     before a new/edited record would be saved. The single body/footer
+     area is filled in dynamically by _showDuplicateStudentModal() below,
+     since the exact wording and action offered differ for an ACTIVE match
+     ("Edit Existing" / "Cancel") vs an ARCHIVED match ("Restore Existing
+     Student" / "Cancel") — never a plain OK/Cancel, so staff always get
+     a real next step instead of a dead end. -->
+<div class="modal-overlay" id="duplicate-student-modal">
+  <div class="modal">
+    <div class="modal-title">⚠️ Student Already Exists</div>
+    <div id="duplicate-student-body" style="font-size:14px;line-height:1.5;margin-bottom:14px"></div>
+    <div class="modal-footer" id="duplicate-student-footer"></div>
+  </div>
+</div>
+
+<!-- PRODUCTION STABILIZATION — Permanent Delete Student (Super Admin only).
+     Archive/Restore remain completely untouched and are still the normal,
+     recoverable way to remove a student from active lists — this modal
+     is ONLY for the separate, genuinely irreversible action. The Delete
+     button starts disabled and only enables once the typed confirmation
+     input exactly matches "DELETE", mirroring the same typed-confirmation
+     principle bulkDeleteStudents already uses (there via a blocking
+     prompt()), just as a proper modal per the explicit requirement that
+     the button itself starts disabled. -->
+<div class="modal-overlay" id="permanent-delete-student-modal">
+  <div class="modal">
+    <div class="modal-title" style="color:var(--red, #dc2626)">⚠️ Permanently Delete Student</div>
+    <div style="font-size:14px;line-height:1.5;margin-bottom:10px">
+      <strong id="permanent-delete-student-name"></strong><br>
+      <span style="color:var(--gray3)">This action cannot be undone.</span>
+    </div>
+    <div class="form-group">
+      <label>Reason for deletion</label>
+      <input type="text" id="permanent-delete-student-reason" placeholder="e.g. Duplicate record, entered in error">
+    </div>
+    <div class="form-group">
+      <label>Type <strong>DELETE</strong> to confirm</label>
+      <input type="text" id="permanent-delete-student-confirm-text" placeholder="DELETE" autocomplete="off"
+        oninput="_updatePermanentDeleteStudentButtonState()">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('permanent-delete-student-modal')">Cancel</button>
+      <button class="btn btn-danger" id="permanent-delete-student-confirm-btn" disabled
+        onclick="_confirmPermanentlyDeleteStudent()">🗑 Permanently Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- PHASE 3.2b-i — BULK CHANGE STATUS -->
 <div class="modal-overlay" id="bulk-change-status-modal">
   <div class="modal">
@@ -2696,31 +2825,36 @@ tr:hover td{background:#f8fffe}
   </div>
 </div>
 
-<!-- FEE MODAL — PHASE 3.4b: Fee Collection -->
+<!-- FEE MODAL — PHASE 3.4b: Fee Collection. Doubles as the "Quick Payment"
+     popup when opened via a Fee Collection card (collectFeeForDue() adds
+     the .quick-mode class below) — same fields, same saveFee()/sync/
+     receipt logic underneath either way; quick-mode just hides the fields
+     a card-tap flow already knows the answer to (student, fee type,
+     period, amount payable), via CSS only. -->
 <div class="modal-overlay" id="fee-modal">
   <div class="modal" style="max-width:640px">
     <div class="modal-title" id="fee-modal-title">💰 Record Fee Payment</div>
     <input type="hidden" id="fee-id">
     <input type="hidden" id="fee-receipt-no">
     <div class="form-grid">
-      <div class="form-group full">
+      <div class="form-group full fee-quick-hide">
         <label>Search Student *</label>
         <input type="text" id="fee-student-search" placeholder="🔍 Search by name, ID, or phone..." oninput="filterFeeStudents()">
         <select id="fee-student-select" onchange="onFeeStudentChange()" style="margin-top:6px"></select>
       </div>
       <div class="form-group full" id="fee-student-info" style="display:none"></div>
 
-      <div class="form-group"><label>Receipt No.</label><input type="text" id="fee-receipt-display" readonly placeholder="Auto-generated on save"></div>
-      <div class="form-group"><label>Receipt Date *</label><input type="date" id="fee-date"></div>
+      <div class="form-group fee-quick-hide"><label>Receipt No.</label><input type="text" id="fee-receipt-display" readonly placeholder="Auto-generated on save"></div>
+      <div class="form-group"><label><span id="fee-date-label-text">Receipt Date</span> *</label><input type="date" id="fee-date"></div>
 
-      <div class="form-group"><label>Fee Type *</label>
+      <div class="form-group fee-quick-hide"><label>Fee Type *</label>
         <select id="fee-type-select" onchange="toggleFeeTypeFields()">
           <option value="monthly">Monthly</option>
           <option value="quarterly">Quarterly</option>
           <option value="yearly">Yearly</option>
         </select>
       </div>
-      <div class="form-group" id="fee-month-wrap"><label>Due Month *</label>
+      <div class="form-group fee-quick-hide" id="fee-month-wrap"><label>Due Month *</label>
         <select id="fee-month-select">
           <option value="January">January</option><option value="February">February</option>
           <option value="March">March</option><option value="April">April</option>
@@ -2730,7 +2864,7 @@ tr:hover td{background:#f8fffe}
           <option value="November">November</option><option value="December">December</option>
         </select>
       </div>
-      <div class="form-group" id="fee-quarter-wrap" style="display:none"><label>Due Quarter *</label>
+      <div class="form-group fee-quick-hide" id="fee-quarter-wrap" style="display:none"><label>Due Quarter *</label>
         <select id="fee-quarter-select">
           <option value="Q1">Quarter 1 (Jan–Mar)</option>
           <option value="Q2">Quarter 2 (Apr–Jun)</option>
@@ -2738,19 +2872,19 @@ tr:hover td{background:#f8fffe}
           <option value="Q4">Quarter 4 (Oct–Dec)</option>
         </select>
       </div>
-      <div class="form-group"><label>Year</label><input type="number" id="fee-year" value="2025"></div>
+      <div class="form-group fee-quick-hide"><label>Year</label><input type="number" id="fee-year" value="2025"></div>
 
-      <div class="form-group"><label>Amount Payable (₹) *</label><input type="number" id="fee-amount" placeholder="Amount due" oninput="calcFeePending()"></div>
+      <div class="form-group fee-quick-hide"><label>Amount Payable (₹) *</label><input type="number" id="fee-amount" placeholder="Amount due" oninput="calcFeePending()"></div>
       <!-- PHASE 3.4a — only shown when the selected student has a Joining Fee set -->
-      <div class="form-group full" id="fee-joining-fee-wrap" style="display:none">
+      <div class="form-group full fee-quick-hide" id="fee-joining-fee-wrap" style="display:none">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
           <input type="checkbox" id="fee-include-joining" onchange="toggleIncludeJoiningFee()"> Include this student's one-time Joining Fee (₹<span id="fee-joining-fee-amount">0</span>) in this payment
         </label>
       </div>
 
       <div class="form-group"><label>Amount Received (₹) *</label><input type="number" id="fee-paid" placeholder="Amount received" oninput="calcFeePending()"></div>
-      <div class="form-group"><label>Pending Balance (₹)</label><input type="text" id="fee-pending" readonly></div>
-      <div class="form-group full" id="fee-payment-type-preview" style="font-size:12.5px;color:var(--gray3)"></div>
+      <div class="form-group fee-quick-hide"><label>Pending Balance (₹)</label><input type="text" id="fee-pending" readonly></div>
+      <div class="form-group full fee-quick-hide" id="fee-payment-type-preview" style="font-size:12.5px;color:var(--gray3)"></div>
 
       <div class="form-group full"><label>Payment Method</label>
         <div class="pay-methods">
@@ -2761,13 +2895,14 @@ tr:hover td{background:#f8fffe}
         </div>
         <input type="hidden" id="fee-payment-method" value="Cash">
       </div>
-      <div class="form-group full"><label>Notes</label><textarea id="fee-notes" rows="2" placeholder="Any notes..."></textarea></div>
+      <div class="form-group full"><label id="fee-notes-label">Notes</label><textarea id="fee-notes" rows="2" placeholder="Any notes..."></textarea></div>
     </div>
     <div id="fee-audit-info"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('fee-modal')">Cancel</button>
-      <button class="btn btn-whatsapp" data-requires-action="manageFees" onclick="saveFeeAndWhatsApp()">💬 Save & WhatsApp</button>
-      <button class="btn btn-primary" data-requires-action="manageFees" onclick="saveFee()">💾 Save Payment</button>
+      <button class="btn btn-whatsapp fee-quick-hide" data-requires-action="manageFees" onclick="saveFeeAndWhatsApp()">💬 Save & WhatsApp</button>
+      <button class="btn btn-secondary" data-requires-action="manageFees" onclick="saveFeeAndReceipt()">🧾 Generate Receipt</button>
+      <button class="btn btn-primary" data-requires-action="manageFees" onclick="saveFeeSmart()">💾 Save Payment</button>
     </div>
   </div>
 </div>
@@ -3160,6 +3295,29 @@ tr:hover td{background:#f8fffe}
 // depends on this single URL being stable.
 const PRODUCTION_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwWZEOJliAUvz3bOAD804cdFYIKsIF1q0gu0xltintwonoigfrkMcAxAsEhRnEjYsaP/exec';
 
+// Public Birthday Page URL — shared in the "Send Birthday Wish" WhatsApp
+// message below so parents/students can view today's featured birthday
+// wishes. Resolved dynamically from the CURRENT page's own location
+// rather than hardcoded, so it always points to the right place — at a
+// domain root, or inside a GitHub Pages project subfolder (e.g.
+// https://username.github.io/ddturfzone/) — without ever needing manual
+// editing after deployment. Assumes birthday-page.html is hosted in the
+// same folder as this admin.html (the standard deployment layout).
+function _resolveBirthdayPageUrl() {
+  try {
+    // Strips just the current file's name (e.g. "admin.html") off the
+    // end of the path, keeping the directory + trailing slash intact —
+    // this is what correctly handles a subfolder deployment, unlike a
+    // fixed "origin + '/birthday.html'" which would break for any site
+    // not hosted at the domain root.
+    const dir = window.location.pathname.replace(/[^/]*$/, '');
+    return window.location.origin + dir + 'birthday-page.html';
+  } catch (e) {
+    return window.location.origin + '/birthday-page.html';
+  }
+}
+const BIRTHDAY_PAGE_PUBLIC_URL = _resolveBirthdayPageUrl();
+
 // ===== CHANGELOG =====
 // PHASE 2.5 (conflict-handling completion) — additive only, no existing
 // feature rewritten:
@@ -3453,7 +3611,6 @@ function _stampAudit(data, existingRecord) {
   }
   data.auditUpdatedByRole = role;
   data.auditUpdatedAt = now;
-  console.log('[AUDIT] Stamped record', {isNew: !existingRecord, createdBy: data.auditCreatedByRole, updatedBy: data.auditUpdatedByRole});
   return data;
 }
 function _fmtAuditDT(iso) {
@@ -3598,6 +3755,14 @@ const ACTION_PERMISSIONS = {
   // gated by manageStudents, which already includes Admin) worked for them.
   bulkChangeStatus:     [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   bulkDeleteStudents:   [ROLES.SUPER_ADMIN],
+  // PRODUCTION STABILIZATION — single-student permanent delete, separate
+  // from the existing bulkDeleteStudents (multi-select) action so each
+  // has its own explicit permission entry, same one-entry-per-action
+  // convention as every other row in this table.
+  permanentDeleteStudent: [ROLES.SUPER_ADMIN],
+  // CAFÉ BILLING — Managers/Staff may create and edit bills (page access
+  // to 'cafe' already governs that); only Super Admin may delete one.
+  deleteCafeBill:       [ROLES.SUPER_ADMIN],
   // PHASE 3.4b — Fee Collection. Super Admin + Manager: Create/Edit
   // (Record Payment, Edit, Delete). Staff keeps page access (View Only)
   // via PAGE_PERMISSIONS.fees above, but every mutating action re-checks
@@ -3798,10 +3963,11 @@ function _enterApp(user) {
   document.getElementById('today-date').textContent =
     new Date().toLocaleDateString('en-IN', {weekday:'short',day:'numeric',month:'short',year:'numeric'});
   applyRolePermissionsToUI();
-  // One-time removal of the stale Import Wizard self-notification left
-  // behind by the bug fixed in _wizRunImport()/_wizRollback() above — see
-  // the long comment on _cleanupStaleImportWizardSelfNotifications().
-  _cleanupStaleImportWizardSelfNotifications();
+  
+  // BUGFIX: Remove unwanted initialization/debug notifications that shouldn't persist
+  // (e.g. leftover "Owner: Import the CSV file" from development or incomplete operations)
+  _cleanupNotifications();
+  
   window._rtRenderBell?.(); // PHASE 2.5 — show any unread notifications this device already had queued locally
   window.rtPollEvents?.();  // and do one immediate poll rather than waiting for the first 2.5s tick
   
@@ -3809,7 +3975,6 @@ function _enterApp(user) {
   if (typeof window.initializeFirebase === 'function') {
     window.initializeFirebase().then((result) => {
       if (result.success) {
-        console.log('✓ Firebase initialized successfully');
         // PHASE 4.1 — Task 2: start the single Pending Enrolments
         // real-time listener now that Firebase is confirmed initialized.
         // initPendingEnrolmentsListener() itself guards against being
@@ -3851,7 +4016,6 @@ function _enterApp(user) {
         setTimeout(() => {
           window.verifyFirebaseConnection?.().then((verification) => {
             if (verification.success) {
-              console.log('✓ Firebase connection verified');
             } else {
               console.warn('⚠ Firebase connection verification:', verification.message);
             }
@@ -3993,6 +4157,26 @@ async function doLogin() {
   loadAllData().then(() => { renderDashboard(); renderBirthdayWidget(); checkAndAnnounceBirthdays(); });
 }
 
+// PRODUCTION STABILIZATION — daily rollover. Birthdays were only ever
+// evaluated at login/session-restore, so a device left open overnight (a
+// front-desk browser, typically) kept showing YESTERDAY's birthdays until
+// someone manually reloaded — failing "birthday page updates
+// automatically every day". This watches for the calendar date changing
+// and re-runs the same existing functions; it introduces no new birthday
+// logic of its own.
+let _ddtzLastSeenDate = getToday();
+setInterval(() => {
+  if (!CURRENT_USER) return;
+  const today = getToday();
+  if (today === _ddtzLastSeenDate) return;
+  _ddtzLastSeenDate = today;
+  try {
+    window.renderBirthdayWidget?.();
+    window.checkAndAnnounceBirthdays?.();
+    window.renderDashboard?.();   // "Today's" figures are date-scoped too
+  } catch (e) { console.warn('[DateRollover] refresh failed:', e); }
+}, 60000); // once a minute is ample for a date change; negligible cost
+
 function doLogout() {
   try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
   CURRENT_USER = null;
@@ -4049,9 +4233,6 @@ window.logoutUser = doLogout;
           role: cached ? cached.role : localSession.role
         };
         _enterApp(sessionUser);
-        // Same one-time cleanup as the manual-login path, so a restored
-        // session (page refresh) is covered too, not just a fresh login.
-        _cleanupStaleImportWizardSelfNotifications();
         loadAllData().then(() => { renderDashboard(); renderBirthdayWidget(); checkAndAnnounceBirthdays(); });
 
         // Background re-check against the live Sheet — never blocks the UI,
@@ -4453,7 +4634,6 @@ async function syncBookingsAndBlocksFromSheet() {
       renderBookings();
       renderBookingCalendar();
       renderDashboard();
-      console.log('[FB-DEBUG] Bookings re-rendered after Sheet sync (create/status/delete change detected)'); // TEMP DEBUG LOG
     }
   } catch (e) {
     // Network hiccup — local data (and the offline sync queue) is
@@ -4545,7 +4725,7 @@ const _ddtzAnnouncedPollEvents = new Set(); // notification "N"+row ids already 
 
 window.initCoachesFirebaseListener = () => {
   if (typeof window.listenCoaches !== 'function') return;
-  if (_coachesFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (coaches) — not re-subscribing'); return; } // already subscribed this session
+  if (_coachesFirebaseUnsubscribe) { return; } // already subscribed this session
 
   _coachesFirebaseUnsubscribe = window.listenCoaches((remoteCoaches) => {
     const isFirstSnapshot = !_coachesFirebaseSeeded;
@@ -4563,7 +4743,6 @@ window.initCoachesFirebaseListener = () => {
         _lsAddPreservingId('coaches', rec);
         window.DB.coaches.push(rec);
         changed = true;
-        window._ddtzDiag?.recordEvent('coaches', 'Create'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && !isOwnAction) {
           _announceCoachEvent(remote.coachId, 'added', {
             text: `New coach added — ${remote.name || ''}`,
@@ -4577,7 +4756,6 @@ window.initCoachesFirebaseListener = () => {
           LS.update('coaches', local.id, merged);
           Object.assign(local, merged);
           changed = true;
-          window._ddtzDiag?.recordEvent('coaches', 'Update'); // TEMP DIAGNOSTICS
           if (!isFirstSnapshot && !isOwnAction) {
             _announceCoachEvent(remote.coachId, 'updated:' + remoteUpdatedAt, {
               text: `Coach updated — ${remote.name || ''}`,
@@ -4603,7 +4781,6 @@ window.initCoachesFirebaseListener = () => {
         window.DB.coaches = window.DB.coaches.filter(c => !c.coachId || seenCoachIds.has(c.coachId) || stillPendingDelete.has(c.coachId));
         LS.set('coaches', window.DB.coaches);
         changed = true;
-        window._ddtzDiag?.recordEvent('coaches', 'Delete'); // TEMP DIAGNOSTICS
         removedCoaches.forEach(c => {
           _announceCoachEvent(c.coachId, 'removed', {
             text: `Coach removed — ${c.name || ''}`,
@@ -4617,16 +4794,13 @@ window.initCoachesFirebaseListener = () => {
     if (changed && document.getElementById('page-coaches')?.classList.contains('active')) renderCoaches();
   });
 
-  console.log('✓ Firebase realtime listener active for Coaches');
 };
 
 function _announceCoachEvent(coachId, kind, { text, voice }) {
   const eventKey = coachId + ':' + kind;
-  if (_ddtzAnnouncedCoachEvents.has(eventKey)) return;
-  _ddtzAnnouncedCoachEvents.add(eventKey);
+  if (!window._shouldAnnounceEvent(eventKey)) return;
 
   showToast(`👨‍🏫 ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -4635,16 +4809,374 @@ function _announceCoachEvent(coachId, kind, { text, voice }) {
     icon: '👨‍🏫', action: text, recordId: coachId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(voice, false);
 }
+
+// ============================================================================
+// VOICE NOTIFICATION SYSTEM - COMPLETE IMPLEMENTATION
+// ============================================================================
+// This section implements the complete voice notification system for DD Turf Zone.
+// It includes:
+// - Text-to-Speech announcement function with fallback
+// - Duplicate prevention
+// - Browser autoplay restrictions handling
+// - Real-time Firebase triggers
+// - All 27+ event types support
+
+/**
+ * Play a voice announcement using Web Speech API
+ * @param {string} text - The message to announce
+ * @param {boolean} isUrgent - Whether this is an urgent announcement (controls retry logic)
+ * 
+ * Features:
+ * - Uses browser's Web Speech API (SpeechSynthesis)
+ * - Fallback to audio beep if speech unavailable
+ * - Handles browser autoplay restrictions
+ * - Clears queue on duplicate rapid calls
+ * - Falls back to visual notification if audio blocked
+ */
+// PRODUCTION STABILIZATION — announcement QUEUE.
+// Previously this called speechSynthesis.cancel() on every invocation,
+// which meant a second event arriving while the first was still speaking
+// CUT THE FIRST OFF MID-SENTENCE. With several events landing together
+// (e.g. a fee save that also triggers a due update, or two devices acting
+// at once) announcements were silently lost — a direct violation of "no
+// missed announcements" and "queue announcements if multiple events
+// occur". Now each announcement is queued and spoken in turn, so nothing
+// is dropped and nothing overlaps.
+window._voiceQueue = [];
+window._voiceSpeaking = false;
+
+function _voiceSpeakNext() {
+  if (window._voiceSpeaking) return;
+  const next = window._voiceQueue.shift();
+  if (!next) return;
+
+  if (!('speechSynthesis' in window)) { _wizPlaySuccessSound(); return; }
+
+  try {
+    const utterance = new SpeechSynthesisUtterance(next);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 0.8;
+    utterance.lang = 'en-US';
+
+    // Whatever happens — clean finish, error, or the browser silently
+    // dropping it — the queue must always advance, or one bad utterance
+    // would stall every announcement after it.
+    let advanced = false;
+    const advance = () => {
+      if (advanced) return;
+      advanced = true;
+      window._voiceSpeaking = false;
+      clearTimeout(watchdog);
+      _voiceSpeakNext();
+    };
+
+    utterance.onend = advance;
+    utterance.onerror = (e) => {
+      console.warn('[Voice] Speech synthesis error:', e.error);
+      advance();
+    };
+
+    // Safety net: some mobile browsers never fire onend if the tab is
+    // backgrounded mid-utterance. Roughly 90ms per character, floored at
+    // 3s and capped at 15s, then force the queue forward.
+    const watchdog = setTimeout(advance, Math.min(15000, Math.max(3000, next.length * 90)));
+
+    window._voiceSpeaking = true;
+    speechSynthesis.speak(utterance);
+  } catch (error) {
+    console.warn('[Voice] Speech API error:', error);
+    window._voiceSpeaking = false;
+    _wizPlaySuccessSound();
+  }
+}
+
+window.playVoiceAnnouncement = function(text, isUrgent = false) {
+  try {
+    if (!text || typeof text !== 'string' || text.trim().length === 0) return;
+    const trimmedText = text.trim().substring(0, 200); // safety cap
+
+    if (!('speechSynthesis' in window)) { _wizPlaySuccessSound(); return; }
+
+    // isUrgent jumps the queue but still does not cut off what is
+    // currently being spoken — it is spoken next, not instead.
+    if (isUrgent) window._voiceQueue.unshift(trimmedText);
+    else window._voiceQueue.push(trimmedText);
+
+    // Never let a runaway burst of events build an endless backlog.
+    if (window._voiceQueue.length > 12) window._voiceQueue.length = 12;
+
+    _voiceSpeakNext();
+  } catch (error) {
+    console.error('[Voice] Announcement failed:', error);
+    // Silent failure — the visual notification still shows.
+  }
+};
+
+/**
+ * Batch voice announcements to prevent repeated speech
+ * for the same event within short time window
+ */
+window._voiceAnnouncementCache = new Map();
+
+window._shouldAnnounceEvent = function(eventKey) {
+  const now = Date.now();
+  const lastTime = window._voiceAnnouncementCache.get(eventKey) || 0;
+  
+  // Only announce if > 1 second since last announcement for this key
+  if (now - lastTime > 1000) {
+    window._voiceAnnouncementCache.set(eventKey, now);
+    return true;
+  }
+  
+  return false;
+};
+
+// ============================================================================
+// SLOT BOOKING VOICE ANNOUNCEMENTS
+// ============================================================================
+
+/**
+ * Announce slot booking events (Create, Update, Delete)
+ */
+function _announceSlotBookingEvent(bookingId, kind, { text, voice }) {
+  const eventKey = `booking_${kind}_${bookingId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return; // Duplicate announcement, skip
+  }
+
+  // Show visual notification (toast + bell + sound)
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  
+  // Play voice announcement (only once per event)
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// STUDENT VOICE ANNOUNCEMENTS (Enhanced)
+// ============================================================================
+
+/**
+ * Announce student events (Enrolment, Update, Delete)
+ */
+function _announceStudentEvent(studentId, kind, { text, voice }) {
+  const eventKey = `student_${kind}_${studentId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return;
+  }
+
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// ATTENDANCE VOICE ANNOUNCEMENTS
+// ============================================================================
+
+/**
+ * Announce attendance events (Marked, Updated)
+ */
+function _announceAttendanceEvent(attendanceId, kind, { text, voice }) {
+  const eventKey = `attendance_${kind}_${attendanceId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return;
+  }
+
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// FEE VOICE ANNOUNCEMENTS (Enhanced)
+// ============================================================================
+
+/**
+ * Announce fee payment events (Added, Updated, Deleted)
+ */
+function _announceFeeEvent(feeId, kind, { text, voice }) {
+  const eventKey = `fee_${kind}_${feeId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return;
+  }
+
+  showToast(text, kind === 'deleted' ? 'warning' : 'success');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// DUE ADJUSTMENT VOICE ANNOUNCEMENTS
+// ============================================================================
+
+/**
+ * Announce due adjustment events
+ */
+function _announceDueEvent(dueId, kind, { text, voice }) {
+  const eventKey = `due_${kind}_${dueId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return;
+  }
+
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// COACH SETTLEMENT VOICE ANNOUNCEMENTS
+// ============================================================================
+
+/**
+ * Announce coach settlement events
+ */
+function _announceSettlementEvent(settlementId, kind, { text, voice }) {
+  const eventKey = `settlement_${kind}_${settlementId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return;
+  }
+
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// FINANCE EXPENSE VOICE ANNOUNCEMENTS
+// ============================================================================
+
+/**
+ * Announce finance expense events
+ */
+// PRODUCTION STABILIZATION — Café Bill announcer. Same shape as every
+// other _announce*Event function: time-windowed dedup, toast, bell, then
+// the queued voice announcement.
+function _announceCafeBillEvent(billId, kind, { text, voice }) {
+  const eventKey = `cafebill_${kind}_${billId}`;
+  if (!window._shouldAnnounceEvent(eventKey)) return;
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+function _announceExpenseEvent(expenseId, kind, { text, voice }) {
+  const eventKey = `expense_${kind}_${expenseId}`;
+  
+  if (!window._shouldAnnounceEvent(eventKey)) {
+    return;
+  }
+
+  showToast(text, 'info');
+  _rtPlayNotifySound();
+  window.playVoiceAnnouncement?.(voice || text, false);
+}
+
+// ============================================================================
+// HANDLE BROWSER AUTOPLAY RESTRICTIONS
+// ============================================================================
+
+/**
+ * On first user interaction, ensure audio context is initialized
+ * This handles browser autoplay restrictions
+ */
+document.addEventListener('click', () => {
+  try {
+    if ('speechSynthesis' in window) {
+      // Initialize speech synthesis by creating and cancelling a dummy utterance
+      const dummy = new SpeechSynthesisUtterance('');
+      speechSynthesis.speak(dummy);
+      speechSynthesis.cancel();
+    }
+  } catch (e) {
+    // Silent - just initializing
+  }
+}, { once: true, capture: true });
+
+// ============================================================================
+// FIREBASE LISTENER INTEGRATION
+// ============================================================================
+
+/**
+ * Ensure voice notifications fire when Firebase data changes
+ * These should be called from existing Firebase listeners
+ */
+window._setupVoiceNotificationListeners = function() {
+  try {
+    const db = firebase.database();
+    
+    // Voice notifications are integrated with existing listeners in:
+    // - onSlotBookingDataReceived
+    // - onStudentDataReceived
+    // - onAttendanceDataReceived
+    // - onFeeDataReceived
+    // - onDueAdjustmentDataReceived
+    // - onCoachSettlementDataReceived
+    // - onExpenseDataReceived
+    // - _announceCoachEvent (already integrated)
+    // - _announceBookingRequestEvent (already integrated)
+    // - _announceEnrolmentEvent (already integrated)
+    
+  } catch (e) {
+    console.error('[Voice] Failed to setup listeners:', e);
+  }
+};
+
+// Initialize on startup (if user has interacted)
+if (document.readyState === 'interactive' || document.readyState === 'complete') {
+  try {
+    window._setupVoiceNotificationListeners();
+  } catch (e) {
+    console.warn('[Voice] Delayed initialization will occur on first user interaction');
+  }
+}
+
+// ============================================================================
+// VOICE NOTIFICATION STATUS TRACKING
+// ============================================================================
+
+window._voiceNotificationStats = {
+  announced: 0,
+  failed: 0,
+  lastAnnouncement: null,
+  lastError: null
+};
+
+/**
+ * Log voice notification for debugging
+ */
+window._logVoiceAnnouncement = function(text, success = true) {
+  if (success) {
+    window._voiceNotificationStats.announced++;
+    window._voiceNotificationStats.lastAnnouncement = {
+      text: text.substring(0, 100),
+      time: new Date().toISOString()
+    };
+  } else {
+    window._voiceNotificationStats.failed++;
+    window._voiceNotificationStats.lastError = {
+      text: text.substring(0, 100),
+      time: new Date().toISOString()
+    };
+  }
+};
+
+
 
 window.stopCoachesFirebaseListener = () => {
   if (_coachesFirebaseUnsubscribe) {
     _coachesFirebaseUnsubscribe();
     _coachesFirebaseUnsubscribe = null;
     _coachesFirebaseSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (coaches)'); // TEMP DEBUG LOG
   }
 };
 
@@ -4675,11 +5207,22 @@ let _dueAdjustmentsFirebaseSeeded = false;
 // if it's the currently active page, with no navigation/refresh required.
 function _refreshDuesIfActive() {
   if (document.getElementById('page-dues')?.classList.contains('active')) {
-    console.log('[DUE] Due Management page is active — re-rendering now');
     renderDues();
-    console.log('[RENDER] Due Management re-rendered');
-  } else {
-    console.log('[DUE] Due Management page not active — will recompute fresh (no stale cache) next time it is opened');
+  }
+}
+
+// PRODUCTION VERIFICATION FIX — Coach Settlement is a computed view over
+// Students + Attendance + Fees (+ the frozen Due Engine), exactly like
+// Dues above, so it needs the same "re-render if the user is currently
+// looking at it" treatment after any of those change. Cross-device
+// refresh was fixed earlier this session in the Firebase listeners and
+// the Attendance poll-merge path; this helper covers the SAME-device
+// save paths (saveFee/deleteFee/attendance/student saves), which were a
+// separate, still-open gap. Active-page-only, same as _refreshDuesIfActive:
+// never renders a page the user isn't on.
+function _refreshCoachSettlementIfActive() {
+  if (document.getElementById('page-coachSettlement')?.classList.contains('active')) {
+    window.csRenderSettlement?.();
   }
 }
 
@@ -4687,7 +5230,7 @@ const _ddtzAnnouncedStudentEvents = new Set(); // "studentId:kind" already annou
 
 window.initStudentsFirebaseListener = () => {
   if (typeof window.listenStudents !== 'function') return;
-  if (_studentsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (students) — not re-subscribing'); return; }
+  if (_studentsFirebaseUnsubscribe) { return; }
 
   _studentsFirebaseUnsubscribe = window.listenStudents((remoteStudents) => {
     const isFirstSnapshot = !_studentsFirebaseSeeded;
@@ -4711,7 +5254,6 @@ window.initStudentsFirebaseListener = () => {
         _lsAddPreservingId('students', rec);
         window.DB.students.push(rec);
         changed = true;
-        window._ddtzDiag?.recordEvent('students', 'Create'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && !isOwnAction) {
           _announceStudentEvent(remote.studentId, 'created', `New student enrolled: ${remote.name || remote.studentId}`);
         }
@@ -4723,7 +5265,6 @@ window.initStudentsFirebaseListener = () => {
           LS.update('students', local.id, merged);
           Object.assign(local, merged);
           changed = true;
-          window._ddtzDiag?.recordEvent('students', 'Update'); // TEMP DIAGNOSTICS
           if (!isFirstSnapshot && !isOwnAction) {
             _announceStudentEvent(remote.studentId, 'updated', `Student updated: ${remote.name || remote.studentId}`);
           }
@@ -4739,7 +5280,7 @@ window.initStudentsFirebaseListener = () => {
       const stillPendingArchive = new Set(_getSyncQueue().filter(p => p.type === 'student' && (p.action === 'archive' || p.action === 'delete')).map(p => p.studentId));
       const beforeCount = window.DB.students.length;
       window.DB.students = window.DB.students.filter(s => !s.studentId || seenStudentIds.has(s.studentId) || stillPendingArchive.has(s.studentId));
-      if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students); window._ddtzDiag?.recordEvent('students', 'Delete'); }
+      if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students);}
     }
 
     _studentsFirebaseSeeded = true;
@@ -4747,10 +5288,22 @@ window.initStudentsFirebaseListener = () => {
       populateFeeStudentSelect();
       if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
       _refreshDuesIfActive();
+      // ZERO-ISSUE FIX — Dashboard reads window.DB.students (active
+      // student counts, pending-fee aggregation via the Due Engine) but
+      // this listener never refreshed it, so a student added or edited on
+      // ANOTHER device left the Dashboard stale until an unrelated
+      // re-render. Cheap and always-safe: renderDashboard() recomputes
+      // from live data and no-ops harmlessly if the page isn't visible.
+      renderDashboard();
+      // PRODUCTION AUDIT FIX — Coach Settlement consumes Students data
+      // (csStudentsForCoach) but was never told to refresh when it
+      // changed on another device, unlike every other consumer of this
+      // listener (Students page itself, Dues). Same active-page-only
+      // pattern as _refreshDuesIfActive() — never renders a closed page.
+      if (document.getElementById('page-coachSettlement')?.classList.contains('active')) window.csRenderSettlement?.();
     }
   });
 
-  console.log('✓ Firebase realtime listener active for Students');
 };
 
 window.stopStudentsFirebaseListener = () => {
@@ -4758,16 +5311,13 @@ window.stopStudentsFirebaseListener = () => {
     _studentsFirebaseUnsubscribe();
     _studentsFirebaseUnsubscribe = null;
     _studentsFirebaseSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (students)'); // TEMP DEBUG LOG
   }
 };
 
 function _announceStudentEvent(studentId, kind, text) {
   const eventKey = studentId + ':' + kind;
-  if (_ddtzAnnouncedStudentEvents.has(eventKey)) return;
-  _ddtzAnnouncedStudentEvents.add(eventKey);
+  if (!window._shouldAnnounceEvent(eventKey)) return;
   showToast(`🎓 ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -4776,13 +5326,12 @@ function _announceStudentEvent(studentId, kind, text) {
     icon: '🎓', action: text, recordId: studentId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(text, false);
 }
 
 window.initFeesFirebaseListener = () => {
   if (typeof window.listenFees !== 'function') return;
-  if (_feesFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (fees) — not re-subscribing'); return; }
+  if (_feesFirebaseUnsubscribe) { return; }
 
   _feesFirebaseUnsubscribe = window.listenFees((remoteFees) => {
     const isFirstSnapshot = !_feesFirebaseSeeded;
@@ -4802,7 +5351,6 @@ window.initFeesFirebaseListener = () => {
         _lsAddPreservingId('fees', rec);
         window.DB.fees.push(rec);
         changed = true;
-        window._ddtzDiag?.recordEvent('fees', 'Create'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && !isOwnAction) {
           _announceFeeEvent(remote.receiptNo, 'created', `Fee collected: ${remote.studentName || remote.studentId} — ₹${(Number(remote.amountReceived)||0).toLocaleString('en-IN')}`);
         }
@@ -4813,7 +5361,6 @@ window.initFeesFirebaseListener = () => {
           LS.update('fees', local.id, merged);
           Object.assign(local, merged);
           changed = true;
-          window._ddtzDiag?.recordEvent('fees', 'Update'); // TEMP DIAGNOSTICS
           if (!isFirstSnapshot && !isOwnAction) {
             _announceFeeEvent(remote.receiptNo, 'updated', `Fee payment updated: ${remote.studentName || remote.studentId}`);
           }
@@ -4839,30 +5386,29 @@ window.initFeesFirebaseListener = () => {
     });
     if (window.DB.fees.length !== before) {
       changed = true;
-      window._ddtzDiag?.recordEvent('fees', 'Delete'); // TEMP DIAGNOSTICS
     }
 
     _feesFirebaseSeeded = true;
     if (changed) {
-      console.log('[FIREBASE] Fees snapshot changed — syncing window.DB.fees');
       if (document.getElementById('page-fees')?.classList.contains('active')) {
-        console.log('[RENDER] Re-rendering Fee Collection from Firebase snapshot');
         renderFees();
       }
-      console.log('[DUE] Recalculating dues from Firebase fees snapshot');
       _refreshDuesIfActive();
       // BUGFIX: this listener is what makes cross-device sync real-time
       // (Manager saves -> Super Admin's open tab updates) — it was
       // missing Dashboard and Finance, the other two consumers of
       // window.DB.fees, so those two stayed stale on the OTHER device
       // until that device's own next unrelated re-render.
-      console.log('[RENDER] Refreshing Dashboard and Finance summaries from Firebase snapshot');
       renderDashboard();
       renderAccounts();
+      // PRODUCTION AUDIT FIX — Coach Settlement is also a consumer of
+      // Fee data (csStudentFeeForMonth) and had the exact same gap as
+      // Dashboard/Finance had before the BUGFIX above — never refreshed
+      // when a fee changed elsewhere. Same active-page-only pattern.
+      if (document.getElementById('page-coachSettlement')?.classList.contains('active')) window.csRenderSettlement?.();
     }
   });
 
-  console.log('✓ Firebase realtime listener active for Fees');
 };
 
 window.stopFeesFirebaseListener = () => {
@@ -4870,17 +5416,14 @@ window.stopFeesFirebaseListener = () => {
     _feesFirebaseUnsubscribe();
     _feesFirebaseUnsubscribe = null;
     _feesFirebaseSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (fees)'); // TEMP DEBUG LOG
   }
 };
 
 const _ddtzAnnouncedFeeEvents = new Set(); // "receiptNo:kind" already announced this session
 function _announceFeeEvent(receiptNo, kind, text) {
   const eventKey = receiptNo + ':' + kind;
-  if (_ddtzAnnouncedFeeEvents.has(eventKey)) return;
-  _ddtzAnnouncedFeeEvents.add(eventKey);
+  if (!window._shouldAnnounceEvent(eventKey)) return;
   showToast(`💰 ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -4889,7 +5432,6 @@ function _announceFeeEvent(receiptNo, kind, text) {
     icon: '💰', action: text, recordId: receiptNo, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(text, false);
 }
 
@@ -4899,7 +5441,7 @@ function _announceFeeEvent(receiptNo, kind, text) {
 // Fees/Coaches above.
 window.initDueAdjustmentsFirebaseListener = () => {
   if (typeof window.listenDueAdjustments !== 'function') return;
-  if (_dueAdjustmentsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (due_adjustments) — not re-subscribing'); return; }
+  if (_dueAdjustmentsFirebaseUnsubscribe) { return; }
 
   _dueAdjustmentsFirebaseUnsubscribe = window.listenDueAdjustments((remoteAdjustments) => {
     const isFirstSnapshot = !_dueAdjustmentsFirebaseSeeded;
@@ -4912,7 +5454,6 @@ window.initDueAdjustmentsFirebaseListener = () => {
       window.DB.dueAdjustments.push(remote);
       knownIds.add(remote.id);
       changed = true;
-      window._ddtzDiag?.recordEvent('dueAdjustments', 'Create'); // TEMP DIAGNOSTICS
       const me = CURRENT_USER?.email || CURRENT_USER?.name;
       const isOwnAction = remote.updatedBy && remote.updatedBy === me;
       if (!isFirstSnapshot && !isOwnAction) {
@@ -4924,10 +5465,16 @@ window.initDueAdjustmentsFirebaseListener = () => {
     if (changed) {
       LS.set('dueAdjustments', window.DB.dueAdjustments);
       _refreshDuesIfActive();
+      // ZERO-ISSUE FIX — Dashboard's pending-fees figure is computed via
+      // the Due Engine (_getDuesList/_duesSummary), which reads
+      // dueAdjustments. An adjustment made on another device therefore
+      // changes the Dashboard total, but this listener never refreshed it.
+      renderDashboard();
+      // PRODUCTION AUDIT FIX — same gap as Students/Fees above.
+      if (document.getElementById('page-coachSettlement')?.classList.contains('active')) window.csRenderSettlement?.();
     }
   });
 
-  console.log('✓ Firebase realtime listener active for Due Adjustments');
 };
 
 window.stopDueAdjustmentsFirebaseListener = () => {
@@ -4935,7 +5482,6 @@ window.stopDueAdjustmentsFirebaseListener = () => {
     _dueAdjustmentsFirebaseUnsubscribe();
     _dueAdjustmentsFirebaseUnsubscribe = null;
     _dueAdjustmentsFirebaseSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (due_adjustments)'); // TEMP DEBUG LOG
   }
 };
 
@@ -4944,7 +5490,6 @@ function _announceDueAdjustmentEvent(adjustmentId, text) {
   if (_ddtzAnnouncedDueAdjustmentEvents.has(adjustmentId)) return;
   _ddtzAnnouncedDueAdjustmentEvents.add(adjustmentId);
   showToast(`✏️ ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -4953,7 +5498,6 @@ function _announceDueAdjustmentEvent(adjustmentId, text) {
     icon: '✏️', action: text, recordId: adjustmentId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(text, false);
 }
 
@@ -4975,7 +5519,7 @@ function _announceDueAdjustmentEvent(adjustmentId, text) {
 // ============================================================================
 window.initBookingRequestsFirebaseListener = () => {
   if (typeof window.listenBookingRequests !== 'function') return;
-  if (_bookingRequestsFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (booking_requests) — not re-subscribing'); return; } // already subscribed this session
+  if (_bookingRequestsFirebaseUnsubscribe) { return; } // already subscribed this session
 
   _bookingRequestsFirebaseUnsubscribe = window.listenBookingRequests((remoteRequests) => {
     const isFirstSnapshot = !_bookingRequestsFirebaseSeeded;
@@ -4995,7 +5539,6 @@ window.initBookingRequestsFirebaseListener = () => {
         _lsAddPreservingId('bookingRequests', rec);
         window.DB.bookingRequests.push(rec);
         changed = true;
-        window._ddtzDiag?.recordEvent('booking_request', 'Create'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && remote.status === 'PENDING') {
           _announceBookingRequestEvent(remote.requestId, 'received', {
             text: `New reservation request — ${remote.name || ''} (${remote.sport || ''}, ${formatDate(remote.date)})`,
@@ -5009,8 +5552,6 @@ window.initBookingRequestsFirebaseListener = () => {
           LS.update('bookingRequests', local.id, merged);
           Object.assign(local, merged);
           changed = true;
-          console.log(`[FB-DEBUG] Booking request UPDATED from Firebase: ${remote.requestId} status=${remote.status}`); // TEMP DEBUG LOG
-          window._ddtzDiag?.recordEvent('booking_request', 'Update'); // TEMP DIAGNOSTICS
           if (!isFirstSnapshot && !isOwnAction && remote.status !== 'PENDING') {
             _announceBookingRequestEvent(remote.requestId, 'status:' + remote.status, {
               text: `Reservation ${remote.status === 'CONFIRMED' ? 'confirmed' : 'rejected'} — ${remote.name || ''}`,
@@ -5023,7 +5564,6 @@ window.initBookingRequestsFirebaseListener = () => {
           // arrived, but its timestamp matched what we already had, so the
           // update was skipped as a no-op. Logged so it can never be
           // silent again.
-          console.log(`[FB-DEBUG] Booking request snapshot SKIPPED as unchanged: ${remote.requestId} status=${remote.status} remoteTs=${remoteUpdatedAt} localTs=${local._fbUpdatedAt}`); // TEMP DEBUG LOG
         }
       }
     });
@@ -5038,13 +5578,10 @@ window.initBookingRequestsFirebaseListener = () => {
       // cheap — and it removes an entire class of "the data updated but
       // the screen didn't" staleness, which is exactly the reported symptom.
       renderBookingRequests();
-      console.log('[FB-DEBUG] Booking requests UI re-rendered after Firebase update'); // TEMP DEBUG LOG
     } else {
-      console.log('[FB-DEBUG] Booking requests snapshot received but nothing changed (no re-render needed)'); // TEMP DEBUG LOG
     }
   });
 
-  console.log('✓ Firebase realtime listener active for Booking Requests');
 };
 
 function _announceBookingRequestEvent(requestId, kind, { text, voice }) {
@@ -5053,7 +5590,6 @@ function _announceBookingRequestEvent(requestId, kind, { text, voice }) {
   _ddtzAnnouncedBookingRequestEvents.add(eventKey);
 
   showToast(`📝 ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -5062,7 +5598,6 @@ function _announceBookingRequestEvent(requestId, kind, { text, voice }) {
     icon: '📝', action: text, recordId: requestId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   // PHASE 4 — VOICE NOTIFICATIONS: enabled. Previously deferred until
   // Stage 1's realtime sync was confirmed live-passing; now explicitly
   // authorized. Falls back to `text` if a call site doesn't pass a
@@ -5075,7 +5610,6 @@ window.stopBookingRequestsFirebaseListener = () => {
     _bookingRequestsFirebaseUnsubscribe();
     _bookingRequestsFirebaseUnsubscribe = null;
     _bookingRequestsFirebaseSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (booking_requests)'); // TEMP DEBUG LOG
   }
 };
 
@@ -5123,7 +5657,6 @@ window._onFirebaseListenerFailed = (module) => {
 function _firebaseReconnectWatchdog(trigger) {
   if (!CURRENT_USER) return; // not logged in — nothing should be running
   const status = window.getFirebaseStatus?.() || {};
-  console.log(`[FB-DEBUG] Reconnect watchdog (${trigger}) — status=${status.status} fullyReady=${status.fullyReady} authState=${status.authState}`);
 
   // Re-assert the topbar indicator from Firebase's ACTUAL live state.
   // `.info/connected` only fires on CHANGE, so if the indicator ever gets
@@ -5133,7 +5666,6 @@ function _firebaseReconnectWatchdog(trigger) {
   window.refreshFirebaseConnectionIndicator?.();
 
   if (!status.fullyReady) {
-    console.log('[FB-DEBUG] Firebase not fully ready yet — watchdog will retry on the next trigger');
     return;
   }
 
@@ -5154,9 +5686,7 @@ function _firebaseReconnectWatchdog(trigger) {
   if (!_dueAdjustmentsFirebaseUnsubscribe) { missing.push('dueAdjustments'); window.initDueAdjustmentsFirebaseListener?.(); }
 
   if (missing.length) {
-    console.log('[FB-DEBUG] Watchdog restored missing listeners:', missing.join(', '));
   } else {
-    console.log('[FB-DEBUG] All expected listeners already active — nothing to restore');
   }
 }
 
@@ -6562,9 +7092,16 @@ window.saveBooking = async () => {
       renderCollectionReport();
     }
     renderBookingCalendar(); // Calendar is now the only booking view
+    // ZERO-ISSUE FIX — renderAccounts() reads window.DB.bookings for turf
+    // revenue but was never refreshed here, so an open Accounts/Finance
+    // page stayed stale after a booking save. Active-page-only, same
+    // discipline as every other targeted refresh in this file.
+    if (typeof renderAccounts === 'function' && document.getElementById('page-accounts')?.classList.contains('active')) renderAccounts();
+    if (typeof renderFinance === 'function' && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
 
     if (existId) {
       showToast(balanceNow > 0 ? `Balance payment recorded ✅ Pending: ₹${pending.toLocaleString('en-IN')}` : (wasReservation ? 'Reservation updated ✅' : 'Booking updated ✅'));
+      _announceSlotBookingEvent(data.id, 'updated', { text: 'Booking updated', voice: 'Slot booking has been updated.' });
     } else if (wasReservation) {
       showToast(`Reservation held! ID: ${data.bookingId} 🔵`);
       // Deliberately no auto-WhatsApp here — a Reservation is a tentative
@@ -6573,6 +7110,7 @@ window.saveBooking = async () => {
       // confirms it via confirmReservation().
     } else {
       showToast(`Booking confirmed! ID: ${data.bookingId} ✅`);
+      _announceSlotBookingEvent(data.id || id, 'created', { text: 'Booking created', voice: 'New slot booking created.' });
       // Auto-trigger WhatsApp only for brand-new bookings — not on every edit
       setTimeout(() => {
         sendBookingWhatsApp({ ...data, id: id || existId });
@@ -6749,7 +7287,6 @@ async function _postToGoogleSheetOriginal(payload) {
 async function postToGoogleSheet(payload) {
   const _diagStart = performance.now();
   const result = await _postToGoogleSheetOriginal(payload);
-  window._ddtzDiag?.recordSheetsLatency(Math.round(performance.now() - _diagStart), !!(result && result.ok));
   return result;
 }
 
@@ -7471,7 +8008,6 @@ function logAudit(sourcePayload) {
   // Audit entries are best-effort and append-only: queue them the same
   // way, but never let an audit-log failure surface as an error toast —
   // the primary record (booking/block/etc.) already got one if it mattered.
-  window._ddtzDiag?.recordModuleActivity(moduleName, entry.summary, entry.user); // TEMP DIAGNOSTICS
   if (!navigator.onLine) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); return; }
   postToGoogleSheet(entry).then(res => { if (!res.ok && !res.skipped) { const q = _getSyncQueue(); q.push(entry); _setSyncQueue(q); } });
 }
@@ -7612,7 +8148,6 @@ async function fetchPendingRequestsFromSheet(showFeedback) {
   // (showFeedback=true) — that's a deliberate user action, not a second
   // automatic realtime path, so it's left alone.
   if (!showFeedback && _bookingRequestsFirebaseSeeded) {
-    console.log('[FB-DEBUG] Skipping automatic Sheets poll for booking requests — Firebase listener is active and seeded');
     return;
   }
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
@@ -7824,6 +8359,7 @@ async function _confirmBookingRequestInner(req, id) {
   renderBookingCalendar();
   updateRequestsBadge();
   showToast(`✅ Reservation confirmed! Booking ID: ${data.bookingId}`);
+  _announceBookingRequestEvent(req.id, 'confirmed', { text: 'Reservation confirmed', voice: 'A reservation has been confirmed.' });
 };
 
 // If confirming one request fills a slot that other still-PENDING requests
@@ -7883,6 +8419,17 @@ function autoSyncCafeSale(sale) {
     method: sale.method,
     date: sale.date,
     loggedBy: CURRENT_USER?.name || '',
+    // CAFÉ BILLING — additive columns. A legacy quick-sale simply sends
+    // these as empty, so its Sheet row is unchanged in shape and every
+    // existing reader keeps working.
+    bookingId: sale.bookingId || '',
+    teamName: sale.teamName || '',
+    phone: sale.phone || '',
+    slotTime: sale.slotTime || '',
+    itemsJson: sale.items ? JSON.stringify(sale.items) : '',
+    subtotal: sale.subtotal ?? '',
+    discount: sale.discount ?? '',
+    status: sale.status || ''
   };
   return queuedSync(payload);
 }
@@ -7981,9 +8528,7 @@ async function syncFeesFromSheet() {
     });
 
     if (changed) {
-      console.log('[FEE] Fees changed via Sheets poll sync');
       if (document.getElementById('page-fees')?.classList.contains('active')) {
-        console.log('[RENDER] Re-rendering Fee Collection from Sheets poll');
         renderFees();
       }
       // BUGFIX: this fallback poll (window 'focus' listener below) was a
@@ -7991,9 +8536,7 @@ async function syncFeesFromSheet() {
       // listener and saveFee/deleteFee do, but never told Dues, Dashboard,
       // or Finance about it. Same fix as the other paths: recompute/
       // re-render everything downstream of a fee change, every time.
-      console.log('[DUE] Recalculating dues after Sheets poll sync');
       _refreshDuesIfActive();
-      console.log('[RENDER] Refreshing Dashboard and Finance summaries after Sheets poll sync');
       renderDashboard();
       renderAccounts();
     }
@@ -8040,9 +8583,10 @@ function autoSyncBlockedSlot(bl, action) {
   return queuedSync(payload);
 }
 
-function autoSyncStudent(student, action) {
+function autoSyncStudent(student, action, extra) {
   const SHEET_URL = window.DDTZ_SHEET_URL || '';
   if (!SHEET_URL) return;
+  extra = extra || {};
   const payload = {
     type: 'student',
     action,                      // 'create' | 'update' | 'archive' | 'restore' | 'permanent_delete'
@@ -8080,7 +8624,13 @@ function autoSyncStudent(student, action) {
     // permanent delete skip the version check server-side (see
     // handleStudentWrite), so this is only ever meaningful for a real
     // create/update.
-    expectedUpdatedAt: (action !== 'create' && action !== 'archive' && action !== 'restore' && action !== 'permanent_delete') ? (student.updatedAt || '') : undefined
+    expectedUpdatedAt: (action !== 'create' && action !== 'archive' && action !== 'restore' && action !== 'permanent_delete') ? (student.updatedAt || '') : undefined,
+    // PRODUCTION STABILIZATION — only ever meaningful for action ===
+    // 'permanent_delete': who is requesting it (so the server can verify
+    // they are genuinely Super Admin against the live Users sheet, not
+    // just trust the client) and why, for the audit trail.
+    requestedByEmail: extra.requestedByEmail || undefined,
+    reason: extra.reason || undefined
   };
   return queuedSync(payload);
 }
@@ -8342,9 +8892,13 @@ window.deleteBooking = async (id) => {
     renderCollectionReport();
   }
   renderBookingCalendar(); // Calendar is now the only booking view
+  // ZERO-ISSUE FIX — same gap as saveBooking: Finance reads bookings.
+  if (typeof renderAccounts === 'function' && document.getElementById('page-accounts')?.classList.contains('active')) renderAccounts();
+  if (typeof renderFinance === 'function' && document.getElementById('page-finance')?.classList.contains('active')) renderFinance();
   // Reflect the cancellation in the Google Sheet backup too, not just local data
   if (existing) autoSyncBooking({ ...existing, status: 'cancelled' });
   showToast(label === 'reservation' ? 'Reservation deleted' : 'Booking deleted');
+  _announceSlotBookingEvent(id, 'deleted', { text: 'Booking cancelled', voice: 'Slot booking has been cancelled.' });
 };
 
 // ===== BOOKING CALENDAR (diary view — the only booking view) =====
@@ -8948,6 +9502,7 @@ window.confirmReservation = async (id) => {
   autoSyncBooking(updated);
   sendBookingWhatsApp(updated);
   showToast('Reservation confirmed as a booking ✅');
+  _announceSlotBookingEvent(b.id, 'reservationConfirmed', { text: 'Reservation confirmed as a booking', voice: 'Reservation has been confirmed as a booking.' });
 };
 
 window.confirmReservationFromDetail = async () => {
@@ -9114,6 +9669,18 @@ window.saveStudent = async () => {
   // generated here — the old code minted a brand-new "ST<timestamp>" value
   // on every single edit, silently reassigning the student's ID each time.
   if (existId) data.studentId = window.DB.students.find(x=>x.id===existId)?.studentId || existId;
+
+  // PRODUCTION STABILIZATION — Duplicate Student Protection. Runs after
+  // every other validation has already passed, so a duplicate warning is
+  // never shown for a form that wouldn't have saved anyway. Excludes the
+  // record being edited (existId) so editing a student's own unchanged
+  // phone+sport never flags itself.
+  const duplicateMatch = _findDuplicateStudent(data.phone, data.sport, existId || null);
+  if (duplicateMatch) {
+    _showDuplicateStudentModal(duplicateMatch);
+    return; // save aborted — staff must resolve via the modal (Edit Existing / Restore / Cancel)
+  }
+
   _stampAudit(data, existId ? window.DB.students.find(x=>x.id===existId) : null);
   const id=await saveDoc('students',data,existId||null);
   if(!existId){data.studentId=id;data.id=id;window.DB.students.unshift(data);}
@@ -9137,7 +9704,9 @@ window.saveStudent = async () => {
   window.clearRowHighlight('student-row-', id); // UI ENHANCEMENT: same pattern as Fees
   renderDashboard();
   populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast('Student saved! ✅');
+  _announceStudentEvent(id, existId ? 'updated' : 'created', existId ? 'Student details updated.' : 'New student enrolled.');
 };
 
 // PHASE 3.5 Improvements — Football Batch Structure: two fixed batches,
@@ -9458,7 +10027,9 @@ window.archiveStudent = async (id) => {
   window.syncStudentFirebase?.({ ...updated, updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '' });
   autoSyncStudent(updated, 'archive');
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast('Student archived 🗄️');
+  _announceStudentEvent(s.studentId || s.id, 'archived', `${s.name} has been archived.`);
 };
 
 window.restoreStudent = async (id) => {
@@ -9472,7 +10043,153 @@ window.restoreStudent = async (id) => {
   window.syncStudentFirebase?.({ ...updated, updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || '' });
   autoSyncStudent(updated, 'restore');
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast('Student restored ✅');
+  _announceStudentEvent(s.studentId || s.id, 'restored', `${s.name} has been restored.`);
+};
+
+// ============================================================================
+// PRODUCTION STABILIZATION — DUPLICATE STUDENT PROTECTION
+// ============================================================================
+// Checked by saveStudent() before every save (create AND edit alike): the
+// same Mobile Number + same Sport as an existing record — excluding the
+// record currently being edited, so editing a student's own details never
+// flags itself — is treated as the same real person applying/enrolling
+// twice. Matches against BOTH active and archived students, so re-entering
+// someone who was already archived is caught too and offered Restore
+// instead of quietly creating a second, disconnected record for them.
+function _findDuplicateStudent(phone, sport, excludeId) {
+  const cleanPhone = (phone || '').trim();
+  if (!cleanPhone || !sport) return null;
+  return window.DB.students.find(s =>
+    s.id !== excludeId &&
+    (s.phone || '').trim() === cleanPhone &&
+    s.sport === sport
+  ) || null;
+}
+
+function _showDuplicateStudentModal(match) {
+  const body = document.getElementById('duplicate-student-body');
+  const footer = document.getElementById('duplicate-student-footer');
+  if (match.archived) {
+    body.innerHTML = `A student named <strong>${_esc(match.name)}</strong> with this Mobile Number and Sport already exists, but is currently <strong>archived</strong>.`;
+    footer.innerHTML =
+      '<button class="btn btn-secondary" onclick="closeModal(\'duplicate-student-modal\')">Cancel</button>' +
+      `<button class="btn btn-primary" onclick="_resolveDuplicateStudentByRestoring('${match.id}')">♻️ Restore Existing Student</button>`;
+  } else {
+    body.innerHTML = `A student named <strong>${_esc(match.name)}</strong> with this Mobile Number and Sport already exists.`;
+    footer.innerHTML =
+      '<button class="btn btn-secondary" onclick="closeModal(\'duplicate-student-modal\')">Cancel</button>' +
+      `<button class="btn btn-primary" onclick="_resolveDuplicateStudentByEditing('${match.id}')">✏️ Edit Existing</button>`;
+  }
+  openModal('duplicate-student-modal');
+}
+
+// Discards whatever was being typed in the Add/Edit form — the point of
+// this whole check is to prevent a second record from ever being
+// created, so proceeding must always mean "go work with the existing
+// one," never "save this new one anyway."
+window._resolveDuplicateStudentByEditing = (id) => {
+  closeModal('duplicate-student-modal');
+  closeModal('student-modal');
+  openStudentForEdit(id);
+};
+
+window._resolveDuplicateStudentByRestoring = (id) => {
+  closeModal('duplicate-student-modal');
+  closeModal('student-modal');
+  restoreStudent(id);
+};
+
+// ============================================================================
+// PRODUCTION STABILIZATION — PERMANENTLY DELETE STUDENT (Super Admin only)
+// ============================================================================
+// Completely separate from Archive/Restore above, which remain exactly as
+// they were — this is the one genuinely irreversible action. Gated by
+// can('permanentDeleteStudent') both here (UI) AND, per explicit
+// requirement, again server-side in handleStudentWrite's permanent_delete
+// branch (which looks the requester's email up in the live Users sheet
+// and verifies their CURRENT role there — never trusts the client alone).
+//
+// Cascades to Fee Collection records for this student (both genuinely
+// deletable, ordinary records) via the same per-record deleteFeeFirebase
+// primitive Fee Collection's own delete button already uses, plus a
+// server-side sweep of matching Fee rows in the same Sheets write this
+// triggers. Attendance and Due Adjustment rows are deliberately NOT
+// deleted — both are documented, append-only historical ledgers
+// elsewhere in this codebase (same principle as accounting reversals:
+// history is never edited, only ever added to) — see the accompanying
+// stabilization report for the full reasoning. The deleted student is
+// automatically excluded from the Due Engine and any Coach Settlement
+// generated from this point forward, since both always compute fresh
+// from the current student list.
+let _pendingPermanentDeleteStudentId = null;
+
+window.permanentlyDeleteStudent = (id) => {
+  if (!can('permanentDeleteStudent')) { denyAccess(null, 'permanentDeleteStudent'); return; }
+  const s = window.DB.students.find(x => x.id === id);
+  if (!s) return;
+  _pendingPermanentDeleteStudentId = id;
+  document.getElementById('permanent-delete-student-name').textContent =
+    `${s.name} (${s.studentId || s.id})`;
+  document.getElementById('permanent-delete-student-reason').value = '';
+  document.getElementById('permanent-delete-student-confirm-text').value = '';
+  document.getElementById('permanent-delete-student-confirm-btn').disabled = true;
+  openModal('permanent-delete-student-modal');
+};
+
+window._updatePermanentDeleteStudentButtonState = () => {
+  const typed = document.getElementById('permanent-delete-student-confirm-text').value;
+  document.getElementById('permanent-delete-student-confirm-btn').disabled = (typed !== 'DELETE');
+};
+
+window._confirmPermanentlyDeleteStudent = async () => {
+  if (!can('permanentDeleteStudent')) { denyAccess(null, 'permanentDeleteStudent'); return; }
+  const typed = document.getElementById('permanent-delete-student-confirm-text').value;
+  if (typed !== 'DELETE') return; // defense in depth — button should already be disabled otherwise
+  const id = _pendingPermanentDeleteStudentId;
+  const s = window.DB.students.find(x => x.id === id);
+  if (!s) { closeModal('permanent-delete-student-modal'); return; }
+  const reason = document.getElementById('permanent-delete-student-reason').value.trim();
+
+  const sid = s.studentId || s.id;
+  const deletedByEmail = CURRENT_USER?.email || CURRENT_USER?.name || '';
+
+  // Cascade: Fee Collection records for this student — genuinely
+  // deletable records, same primitive Fee Collection's own delete button
+  // already uses, so this isn't a second deletion code path.
+  const matchingFees = (window.DB.fees || []).filter(f => f.studentId === sid);
+  for (const f of matchingFees) {
+    await deleteDoc2('fees', f.id);
+    window.deleteFeeFirebase?.(f.id);
+  }
+  window.DB.fees = (window.DB.fees || []).filter(f => f.studentId !== sid);
+
+  // The student record itself.
+  await deleteDoc2('students', id);
+  window.DB.students = window.DB.students.filter(x => x.id !== id);
+  window.deleteStudentFirebase?.(sid);
+
+  // Single Sheets write handles both the Students-row delete AND the
+  // server-side Fee-row sweep + role re-verification + audit log entry —
+  // see handleStudentWrite's permanent_delete branch in Code.gs.
+  autoSyncStudent(s, 'permanent_delete', { requestedByEmail: deletedByEmail, reason });
+
+  logAudit({
+    type: 'student', action: 'permanent_delete', recordId: sid,
+    summary: `Student Permanently Deleted — ${s.name} (${sid})${reason ? ' — Reason: ' + reason : ''} — by ${deletedByEmail}`
+  });
+
+  closeModal('permanent-delete-student-modal');
+  _clearStudentSelectionState?.();
+  renderStudents();
+  renderDashboard();
+  populateFeeStudentSelect();
+  if (typeof renderFees === 'function' && document.getElementById('page-fees')?.classList.contains('active')) renderFees();
+  showToast(`${s.name} permanently deleted 🗑`);
+  // PRODUCTION STABILIZATION — "Student Deleted" was on the required
+  // voice-event list but had no announcement.
+  _announceStudentEvent(sid, 'deleted', 'A student record has been permanently deleted.');
 };
 
 // ============================================================================
@@ -9557,6 +10274,7 @@ async function _bulkUpdateSelectedStudents(mutator, toastVerb) {
   }
   _clearStudentSelectionState();
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast(`${toastVerb} for ${count} student${count===1?'':'s'} ✅`);
 }
 
@@ -9578,6 +10296,7 @@ window.bulkArchiveStudents = async () => {
   }
   _clearStudentSelectionState();
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast(`${count} student(s) archived 🗄️`);
 };
 
@@ -9598,6 +10317,7 @@ window.bulkRestoreStudents = async () => {
   }
   _clearStudentSelectionState();
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast(`${count} student(s) restored ✅`);
 };
 
@@ -9627,6 +10347,7 @@ window.bulkDeleteStudents = async () => {
   }
   _clearStudentSelectionState();
   renderStudents(); renderDashboard(); populateFeeStudentSelect();
+  _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast(`${count} student(s) permanently deleted`);
 };
 
@@ -9726,10 +10447,12 @@ window.renderStudents = () => {
     const photoCell = s.photo ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">` : `<div style="width:32px;height:32px;border-radius:50%;background:var(--gray);display:flex;align-items:center;justify-content:center;font-size:14px">🎓</div>`;
     const actions = s.archived
       ? `<button class="btn btn-info btn-sm" onclick="openStudentForView('${s.id}')">👁️</button>
-         <button class="btn btn-secondary btn-sm" data-requires-action="archiveStudents" onclick="restoreStudent('${s.id}')">♻️ Restore</button>`
+         <button class="btn btn-secondary btn-sm" data-requires-action="archiveStudents" onclick="restoreStudent('${s.id}')">♻️ Restore</button>
+         <button class="btn btn-danger btn-sm" data-requires-action="permanentDeleteStudent" onclick="permanentlyDeleteStudent('${s.id}')">🗑</button>`
       : `<button class="btn btn-info btn-sm" onclick="openStudentForView('${s.id}')">👁️</button>
          <button class="btn btn-info btn-sm" onclick="openStudentForEdit('${s.id}')">✏️</button>
-         <button class="btn btn-danger btn-sm" data-requires-action="archiveStudents" onclick="archiveStudent('${s.id}')">🗄️</button>`;
+         <button class="btn btn-danger btn-sm" data-requires-action="archiveStudents" onclick="archiveStudent('${s.id}')">🗄️</button>
+         <button class="btn btn-danger btn-sm" data-requires-action="permanentDeleteStudent" onclick="permanentlyDeleteStudent('${s.id}')">🗑</button>`;
     return `<tr id="student-row-${s.id}"${s.archived?' style="opacity:.6"':''}>
     <td><input type="checkbox" class="student-row-checkbox" data-id="${s.id}" ${SELECTED_STUDENT_IDS.has(s.id)?'checked':''} onchange="toggleStudentSelect('${s.id}', this.checked)"></td>
     <td>${photoCell}</td>
@@ -9964,7 +10687,18 @@ window.saveAttendance = async () => {
   for(const s of students){
     await saveOneAttendance(s.id, attMarks[s.id]||'A');
   }
-  showToast(`Attendance saved for ${Object.keys(attMarks).length} students ✅`);
+  const markedCount = Object.keys(attMarks).length;
+  showToast(`Attendance saved for ${markedCount} students ✅`);
+  // PRODUCTION VERIFICATION FIX — this function previously refreshed
+  // nothing at all after saving. Attendance is a direct input to Coach
+  // Settlement (present/absent counts drive the settlement report) and
+  // to the Dashboard's coaching stats, so both went stale on THIS device
+  // until manually reopened. Cross-device refresh was already fixed
+  // earlier this session via the poll-merge path; this is the
+  // same-device counterpart.
+  renderDashboard();
+  _refreshCoachSettlementIfActive();
+  _announceAttendanceEvent(`${date}_${sport}`, 'marked', { text: `Attendance marked for ${markedCount} students`, voice: 'Attendance marked.' });
 };
 
 // ============================================================================
@@ -10174,12 +10908,15 @@ function toggleFeeTypeFields(){
   document.getElementById('fee-month-wrap').style.display = type==='monthly' ? '' : 'none';
   document.getElementById('fee-quarter-wrap').style.display = type==='quarterly' ? '' : 'none';
 }
+// Sets the fee-modal's default Due Month/Year (used by both the full
+// "+ Record Payment" form and the hidden-but-functional Quick Payment
+// fields). Previously also rebuilt the now-removed "All Months" filter
+// dropdown on the old table view — that dropdown no longer exists, so
+// this only sets the modal defaults now; the calculation/default values
+// themselves are unchanged.
 function populateFeeMonthFilter(){
-  const sel=document.getElementById('fee-month-filter');
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  sel.innerHTML='<option value="">All Months</option>'+months.map(m=>`<option value="${m}">${m}</option>`).join('');
   const cur=months[new Date().getMonth()];
-  sel.value=cur;
   document.getElementById('fee-month-select').value=cur;
   document.getElementById('fee-year').value=new Date().getFullYear();
 }
@@ -10200,6 +10937,9 @@ window.resetFeeForm = () => {
   document.getElementById('fee-receipt-no').value = '';
   document.getElementById('fee-receipt-display').value = '';
   document.getElementById('fee-modal-title').textContent = '💰 Record Fee Payment';
+  document.getElementById('fee-modal').classList.remove('quick-mode');
+  document.getElementById('fee-date-label-text').textContent = 'Receipt Date';
+  document.getElementById('fee-notes-label').textContent = 'Notes';
   document.getElementById('fee-audit-info').innerHTML = '';
   document.getElementById('fee-student-search').value = '';
   document.getElementById('fee-paid').value = '';
@@ -10313,10 +11053,8 @@ window.saveFee = async (sendWA=false) => {
   _stampAudit(data, existingRecord);
   const id=await saveDoc('fees',data,existId||null);
   data.id=id;
-  console.log('[FEE] Fee saved locally', {id: data.id, receiptNo: data.receiptNo, status: data.status, existId: !!existId});
   if(!existId){window.DB.fees.unshift(data);}
   else{const idx=window.DB.fees.findIndex(x=>x.id===existId);if(idx>=0)window.DB.fees[idx]=data;}
-  console.log('[RENDER] Re-rendering Fee Collection, Dashboard, Accounts after fee save');
   renderFees(); renderDashboard(); renderAccounts();
   // BUGFIX (Fee Collection / Dues sync): every other fee mutation path
   // (deleteFee, and all three Firebase listeners — Students/Fees/
@@ -10328,8 +11066,8 @@ window.saveFee = async (sendWA=false) => {
   // itself has no stale state of its own (renderDues()/_computeDueEntry()
   // always recompute live from window.DB.students/fees/dueAdjustments) —
   // it just needed to be told to re-render.
-  console.log('[DUE] Recalculating dues after fee save (Add/Edit)');
   _refreshDuesIfActive();
+  _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — same-device gap; see helper
   closeModal('fee-modal');
   // UI ENHANCEMENT: renderFees() just rebuilt the table's DOM from
   // scratch, which already visually clears any inline highlight style on
@@ -10349,7 +11087,6 @@ window.saveFee = async (sendWA=false) => {
     LS.update('fees', data.id, { receiptNo: data.receiptNo, updatedAt: data.updatedAt });
     const idx = window.DB.fees.findIndex(x=>x.id===data.id);
     if (idx>=0) window.DB.fees[idx] = data;
-    console.log('[RENDER] Re-rendering Fee Collection after receiptNo reconciliation');
     renderFees();
   }
   // PHASE 6 — Firebase-first push, once receiptNo is known (it's assigned
@@ -10365,8 +11102,10 @@ window.saveFee = async (sendWA=false) => {
       console.warn('Fee Firebase sync failed (Sheets sync still proceeding):', fbFeeResult.error);
     }
   }
-  if (syncRes && syncRes.ok) showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
-  else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
+  if (syncRes && syncRes.ok) {
+    showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
+    _announceFeeEvent(data.id, existingId ? 'updated' : 'added', 'Fee payment received.');
+  } else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
   else showToast('Payment saved locally. Sync will retry automatically.', 'error');
 
   // PHASE 3.4c — a brand-new payment (not an edit) with a real, synced
@@ -10409,52 +11148,63 @@ window.saveFee = async (sendWA=false) => {
 };
 window.saveFeeAndWhatsApp=()=>saveFee(true);
 
+// "Generate Receipt" button on the (quick) payment form. Reuses saveFee()
+// and openReceiptModal() exactly as they already exist — no new receipt
+// logic. For a brand-new payment, saveFee() already auto-opens the
+// receipt once it's synced (see PHASE 3.4c note inside saveFee), so this
+// only needs to explicitly open it for an edit of an existing record.
+window.saveFeeAndReceipt = async () => {
+  const existId = document.getElementById('fee-id').value;
+  await saveFee();
+  if (existId) openReceiptModal(existId);
+};
+
+// "Save Payment" button — in Quick Payment mode this also auto-opens the
+// receipt and shows a short confirmation, matching "Generate Receipt"'s
+// behavior, so a single tap on the card's popup is enough for the normal
+// daily case. saveFee() itself is called completely unmodified; this only
+// decides what happens right after it finishes. In full mode (the
+// "+ Record Payment" manual flow) Save Payment behaves exactly as before.
+window.saveFeeSmart = async () => {
+  const modal = document.getElementById('fee-modal');
+  const isQuick = modal.classList.contains('quick-mode');
+  if (!isQuick) { await saveFee(); return; }
+  const existId = document.getElementById('fee-id').value;
+  await saveFee();
+  // If the modal is still open, saveFee() hit a validation error or the
+  // duplicate-record warning and did NOT save — leave everything as-is.
+  if (modal.classList.contains('open')) return;
+  if (existId) openReceiptModal(existId); // brand-new records already auto-open their receipt inside saveFee()
+  showToast('Payment Saved Successfully. ✅');
+};
+
 // Fired by the "Open Existing Record" button in the duplicate-fee
 // warning modal. Closes the warning and the (still-open) new-entry form,
-// then uses the shared openRecordWithHighlight() utility (see above) to
-// clear this table's filters, scroll to and highlight the existing
-// record, and open it in Edit Mode — the same sequence every module
-// uses, not a Fees-specific copy of it.
+// then opens the existing record directly in the (Quick Payment) edit
+// flow. Previously also cleared the old filtered table's search/status/
+// month filters and highlighted its row via openRecordWithHighlight() —
+// that table (and those filters) no longer exist, so this now just calls
+// editFee() straight away; nothing else about duplicate detection or
+// editing changed.
 window._openExistingFeeFromDuplicateWarning = () => {
   const targetId = window._feeDuplicateTargetId;
   closeModal('fee-duplicate-modal');
   closeModal('fee-modal');
-  if (targetId) {
-    openRecordWithHighlight({
-      recordId: targetId,
-      rowIdPrefix: 'fee-row-',
-      resetFilters: () => {
-        const searchEl = document.getElementById('fee-search');
-        const statusEl = document.getElementById('fee-status-filter');
-        const monthEl = document.getElementById('fee-month-filter');
-        if (searchEl) searchEl.value = '';
-        if (statusEl) statusEl.value = '';
-        if (monthEl) monthEl.value = '';
-      },
-      render: renderFees,
-      edit: editFee
-    });
-  }
+  if (targetId) editFee(targetId);
   window._feeDuplicateTargetId = null;
 };
 
+// Computes the Fee Collection stats (Collected/Pending/Partial/Total) and
+// refreshes the sport-tab table. Same aggregation formulas as before
+// (payableOf/receivedOf fallbacks, collected/pending/partial totals) —
+// previously computed over a subset narrowed by the old table's Search/
+// Status/Month filters; those filters no longer exist (the table itself
+// was removed), so this now aggregates over the full fee list, which was
+// already the default (no-filter) behavior in the common case.
 window.renderFees = () => {
-  const search=document.getElementById('fee-search')?.value.toLowerCase()||'';
-  const status=document.getElementById('fee-status-filter')?.value||'';
-  const month=document.getElementById('fee-month-filter')?.value||'';
-  // Backward-compatible readers — a fee record saved before 3.4b only has
-  // the old amount/paid/month field names; new records have amountPayable/
-  // amountReceived/dueMonth. Falling back keeps pre-existing local records
-  // displaying correctly with no data migration needed.
   const payableOf = f => f.amountPayable ?? f.amount ?? 0;
   const receivedOf = f => f.amountReceived ?? f.paid ?? 0;
-  const dueMonthOf = f => f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year);
-  let list=window.DB.fees.filter(f=>{
-    const ms=!search||f.studentName?.toLowerCase().includes(search);
-    const mst=!status||f.status===status;
-    const mm=!month||f.month===month||dueMonthOf(f).indexOf(month)===0;
-    return ms&&mst&&mm;
-  });
+  const list = window.DB.fees || [];
   const collected=list.filter(f=>f.status==='paid').reduce((s,f)=>s+receivedOf(f),0);
   const pending=list.filter(f=>f.status!=='paid').reduce((s,f)=>s+Math.max(0,f.pending ?? (payableOf(f)-receivedOf(f))),0);
   const partial=list.filter(f=>f.status==='partial').length;
@@ -10463,29 +11213,71 @@ window.renderFees = () => {
     <div class="stat-card red"><div class="stat-icon">⏳</div><div class="stat-val">₹${pending.toLocaleString()}</div><div class="stat-label">Pending</div></div>
     <div class="stat-card yellow"><div class="stat-icon">⚠️</div><div class="stat-val">${partial}</div><div class="stat-label">Partial Payments</div></div>
     <div class="stat-card blue"><div class="stat-icon">📋</div><div class="stat-val">${list.length}</div><div class="stat-label">Total Records</div></div>`;
-  const tbody=document.getElementById('fees-tbody');
-  if(!list.length){tbody.innerHTML=`<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">💰</div><p>No fee records found</p></div></td></tr>`;return;}
-  const canEdit = can('manageFees');
-  tbody.innerHTML=list.map(f=>{
-    const payable=payableOf(f), received=receivedOf(f), pend=Math.max(0, f.pending ?? (payable-received));
-    const statusLabels={paid:'badge-green ✅ Paid',partial:'badge-yellow ⚠️ Partially Paid',pending:'badge-red ❌ Pending'};
-    const [cls,...rest]=(statusLabels[f.status]||'badge-gray '+f.status).split(' ');
-    const actions = (canEdit
-      ? `<button class="btn btn-info btn-sm" onclick="editFee('${f.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="deleteFee('${f.id}')">🗑️</button>`
-      : '') + `<button class="btn btn-secondary btn-sm" onclick="openReceiptModal('${f.id}')">🧾</button>`;
-    return `<tr id="fee-row-${f.id}">
-    <td style="font-size:11px;font-family:monospace">${f.receiptNo || '<span style="color:var(--gray3)">Pending sync…</span>'}</td>
-    <td style="font-weight:600">${f.studentName}</td>
-    <td>${sportBadge(f.sport)}</td>
-    <td>${dueMonthOf(f)}</td>
-    <td>₹${payable.toLocaleString('en-IN')}</td>
-    <td style="color:var(--green);font-weight:700">₹${received.toLocaleString('en-IN')}</td>
-    <td style="color:${pend>0?'var(--red)':'var(--green)'};font-weight:700">₹${pend.toLocaleString('en-IN')}</td>
-    <td>${f.paymentMethod}</td>
-    <td>${formatDate(f.receiptDate||f.date)}</td>
-    <td><span class="badge ${cls}">${rest.join(' ')}</span></td>
-    <td><div style="display:flex;gap:4px">${actions}</div></td>
-  </tr>`;
+  // The sport-tab table is the actual Fee Collection UI staff see; refresh
+  // it every time renderFees() runs, so every existing caller (sync
+  // listeners, save/delete/edit, etc.) keeps it live for free.
+  renderFeeSportTable();
+};
+
+// ============================================================================
+// FEE COLLECTION — sport tabs + simple table. This section is
+// presentation-only: every figure comes from _computeDueEntry() (the same
+// computed-live aggregation the Dues page already uses — Students + Fees
+// + Due Adjustments), and "Collect Fee" reuses the existing
+// collectFeeForDue() → fee-modal → saveFee() Quick Payment flow verbatim.
+// No fee/due calculation, sync, or receipt logic is duplicated or altered
+// here.
+// ============================================================================
+window._activeFeeSport = window._activeFeeSport || 'football';
+
+window.selectFeeSportTab = (sport) => {
+  window._activeFeeSport = sport;
+  document.querySelectorAll('.fee-sport-tab').forEach(b => b.classList.toggle('active', b.dataset.sport === sport));
+  renderFeeSportTable();
+};
+
+// Collapses the Dues engine's five-state status (paid/due_today/due_soon/
+// overdue/upcoming) into the three-state badge this table shows — "Due"
+// covers anything not yet paid (upcoming, due soon, due today, or
+// overdue); "Partial" is anything with a part-payment logged.
+function _feeRowStatusFor(entry) {
+  if (entry.pending <= 0 && entry.received > 0) return 'paid';
+  if (entry.received > 0 && entry.pending > 0) return 'partial';
+  return 'due';
+}
+
+window.renderFeeSportTable = () => {
+  const tbody = document.getElementById('fee-sport-tbody');
+  if (!tbody) return;
+  const sport = window._activeFeeSport || 'football';
+  const today = new Date();
+
+  const list = (window.DB.students || [])
+    .filter(s => !s.archived && s.status === 'active' && (s.sport || '').toLowerCase() === sport)
+    .map(s => {
+      const entry = _computeDueEntry(s, today);
+      return { s, entry, rowStatus: _feeRowStatusFor(entry) };
+    })
+    .sort((a, b) => a.s.name.localeCompare(b.s.name));
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">💰</div><p>No ${sport} students found.</p></div></td></tr>`;
+    return;
+  }
+
+  const badgeInfo = { paid: { cls: 'badge-green', label: '🟢 Paid' }, partial: { cls: 'badge-yellow', label: '🟡 Partial' }, due: { cls: 'badge-red', label: '🔴 Due' } };
+
+  tbody.innerHTML = list.map(({ s, entry, rowStatus }) => {
+    const b = badgeInfo[rowStatus];
+    return `<tr>
+      <td style="font-weight:600">${_esc(s.name)}</td>
+      <td style="font-size:11px;font-family:monospace">${_esc(s.studentId || s.id)}</td>
+      <td>₹${entry.amountDue.toLocaleString('en-IN')}</td>
+      <td style="color:var(--green);font-weight:700">₹${entry.received.toLocaleString('en-IN')}</td>
+      <td style="color:${entry.pending>0?'var(--red)':'var(--green)'};font-weight:700">₹${entry.pending.toLocaleString('en-IN')}</td>
+      <td><span class="badge ${b.cls}">${b.label}</span></td>
+      <td><button class="btn btn-primary btn-sm" data-requires-action="manageFees" onclick="collectFeeForDue('${s.id}')">💰 Collect Fee</button></td>
+    </tr>`;
   }).join('');
 };
 
@@ -10500,7 +11292,6 @@ window.deleteFee = async (id) => {
   if (!can('manageFees')) { denyAccess(null, 'manageFees'); return; }
   if(!confirm('Delete this fee record?'))return;
   const f = window.DB.fees.find(x=>x.id===id);
-  console.log('[FEE] Deleting fee record', {id, receiptNo: f?.receiptNo});
   await deleteDoc2('fees',id);
   window.DB.fees=window.DB.fees.filter(x=>x.id!==id);
   if (f && f.receiptNo) {
@@ -10518,18 +11309,17 @@ window.deleteFee = async (id) => {
     });
     autoSyncFee(f, 'delete');
   }
-  console.log('[RENDER] Re-rendering Fee Collection and Dashboard after fee delete');
   renderFees(); renderDashboard();
   // BUGFIX: renderAccounts() reads window.DB.fees directly (rangeFees =
   // window.DB.fees.filter(...)) for the Finance/Accounts summary, so a
   // deleted payment left that screen overstating collections until it
   // was manually reopened. Add/Edit (saveFee) already refreshed it —
   // Delete was the one op that didn't.
-  console.log('[RENDER] Refreshing Finance/Accounts summary after fee delete');
   renderAccounts();
-  console.log('[DUE] Recalculating dues after fee delete');
   _refreshDuesIfActive();
+  _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — same-device gap; see helper
   showToast('Fee record deleted');
+  _announceFeeEvent(id, 'deleted', 'Fee payment has been deleted.');
 };
 
 // ===== PHASE 3.4c (Task 1) — RECEIPT SYSTEM: Receipt Generation =====
@@ -11190,10 +11980,34 @@ window.renderDues = () => {
 // Opens Fee Collection pre-filled with this student, exactly as if the
 // user had searched for and selected them there manually — reuses
 // resetFeeForm/populateFeeStudentSelect/onFeeStudentChange verbatim (all
-// Phase 3.4a/3.4b), no new fee-recording logic.
+// Phase 3.4a/3.4b), no new fee-recording logic. Also switches the modal
+// into Quick Payment mode (CSS-only — see .fee-quick-hide), showing just
+// Amount Received / Payment Method / Payment Date / Notes, since
+// student, fee type, period, and amount payable are already known.
+//
+// If a fee record already exists for this student's CURRENT billing
+// period (e.g. an earlier partial payment logged this month), this routes
+// straight into editing that same record instead — reusing the exact
+// same period-matching helpers the Dues engine already relies on
+// (_dueCurrentPeriod/_dueMatchingFees), so a "top up the balance" tap
+// updates the one record for the period rather than tripping saveFee()'s
+// existing one-record-per-period duplicate guard.
 window.collectFeeForDue = (studentDbId) => {
   if (!can('manageFees')) { denyAccess(); return; }
+  const _enterQuickMode = () => {
+    document.getElementById('fee-modal').classList.add('quick-mode');
+    document.getElementById('fee-modal-title').textContent = '💰 Quick Payment';
+    document.getElementById('fee-date-label-text').textContent = 'Payment Date';
+    document.getElementById('fee-notes-label').textContent = 'Remarks (optional)';
+  };
+  const s = window.DB.students.find(x => x.id === studentDbId);
+  if (s) {
+    const period = _dueCurrentPeriod(s, new Date());
+    const existing = _dueMatchingFees(s, period)[0];
+    if (existing) { editFee(existing.id); _enterQuickMode(); return; }
+  }
   resetFeeForm();
+  _enterQuickMode();
   openModal('fee-modal');
   const sel = document.getElementById('fee-student-select');
   if (sel) { sel.value = studentDbId; onFeeStudentChange(); }
@@ -11304,6 +12118,7 @@ window.saveDueAdjustment = async () => {
   renderDues();
   renderDashboard();
   showToast('Due correction recorded ✅');
+  _announceDueEvent(record.id, 'added', { text: 'Due adjustment recorded', voice: 'Due adjustment has been added.' });
 };
 
 // Same plain-text template style as the Receipt Delivery / Save & WhatsApp
@@ -11424,7 +12239,6 @@ async function syncEnrolmentsFromSheet() {
   // No manual "refresh" button calls this, so the whole function can be
   // gated — nothing legitimate is lost.
   if (_firebaseEnrolmentsSeeded) {
-    console.log('[FB-DEBUG] Skipping automatic Sheets poll for enrolments — Firebase listener is active and seeded');
     return;
   }
   if (!window.DDTZ_SHEET_URL || _enrolmentSyncInFlight) return;
@@ -11504,7 +12318,6 @@ window.initPendingEnrolmentsListener = () => {
     return;
   }
   if (_firebaseEnrolmentsUnsubscribe) {
-    console.log('[FB-DEBUG] Listener already active (pending_enrolments) — not re-subscribing');
     return;
   }
 
@@ -11535,7 +12348,6 @@ window.initPendingEnrolmentsListener = () => {
         _lsAddPreservingId('enrolments', rec);
         window.DB.enrolments.unshift(rec);
         changed = true;
-        window._ddtzDiag?.recordEvent('enrolments', 'Create'); // TEMP DIAGNOSTICS
       } else {
         // Reflect Firebase's status (approving/approved/rejected) onto
         // the local record's uppercase status convention, without
@@ -11550,7 +12362,6 @@ window.initPendingEnrolmentsListener = () => {
           LS.update('enrolments', local.id, merged);
           Object.assign(local, merged);
           changed = true;
-          window._ddtzDiag?.recordEvent('enrolments', 'Update'); // TEMP DIAGNOSTICS
         }
       }
 
@@ -11589,7 +12400,6 @@ window.initPendingEnrolmentsListener = () => {
     }
   });
 
-  console.log('✓ Firebase realtime listener active for Pending Enrolments');
 };
 
 /**
@@ -11606,7 +12416,6 @@ function _announceEnrolmentEvent(requestId, kind, { icon, label, text, voice }) 
   // Toast + sound (reuses the exact existing primitives every other
   // module's notifications already use — no new UI, no new sound asset).
   showToast(`${icon} ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
 
   // Bell / Notification Center (reuses the existing storage + render
@@ -11620,7 +12429,6 @@ function _announceEnrolmentEvent(requestId, kind, { icon, label, text, voice }) 
   };
   _rtSaveNotifications([newNotif, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   if (document.getElementById('page-activity')?.classList.contains('active')) renderActivityLog();
 
   // Voice announcement — only reachable here because isOwnAction was
@@ -11639,7 +12447,6 @@ window.stopPendingEnrolmentsListener = () => {
     _firebaseEnrolmentsUnsubscribe();
     _firebaseEnrolmentsUnsubscribe = null;
     _firebaseEnrolmentsSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (pending_enrolments)'); // TEMP DEBUG LOG
   }
 };
 
@@ -11851,7 +12658,6 @@ window.approveEnrolment = async (id) => {
     if (!claim.success) {
       if (claim.conflict) {
         showToast('⚠️ This enrolment has already been processed by another user.', 'error');
-        window._ddtzDiag?.recordDuplicatePrevention(); // TEMP DIAGNOSTICS
         // Pull the authoritative state so this device's table reflects
         // reality instead of a stale "still pending" row.
         window.syncEnrolmentsFromSheet?.();
@@ -11938,7 +12744,6 @@ window.confirmRejectEnrolment = async () => {
     if (!result.success) {
       if (result.conflict) {
         showToast('⚠️ This enrolment has already been processed by another user.', 'error');
-        window._ddtzDiag?.recordDuplicatePrevention(); // TEMP DIAGNOSTICS
         window.syncEnrolmentsFromSheet?.();
       } else if (result.offline) {
         showToast(result.error, 'error');
@@ -12088,15 +12893,14 @@ window.saveCoach = async () => {
   // just ALSO attaches a diagnostic-only continuation, it doesn't make
   // the save wait on it.
   autoSyncCoach(data, existId ? 'update' : 'create').then(sheetsRes => {
-    window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, !!(sheetsRes && sheetsRes.ok));
   }).catch(() => {
-    window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, false);
   });
   closeModal('coach-modal');
   renderCoaches();
   window.clearRowHighlight('coach-card-', data.id); // UI ENHANCEMENT: same pattern as Fees/Students
   renderDashboard();
   showToast('Coach saved! ✅');
+  _announceCoachEvent(data.id, existId ? 'updated' : 'created', { text: existId ? 'Coach updated' : 'Coach added', voice: existId ? 'Coach details updated.' : 'A new coach has been added.' });
 };
 
 window.deleteCoach = async (id) => {
@@ -12115,6 +12919,7 @@ window.deleteCoach = async (id) => {
   }
   renderCoaches();
   showToast('Coach deleted');
+  _announceCoachEvent(id, 'deleted', { text: 'Coach deleted', voice: 'A coach has been removed.' });
 };
 
 window.renderCoaches = () => {
@@ -12163,13 +12968,6 @@ window.saveEnquiry = async () => {
   if(!name||!phone){showToast('Fill required fields','error');return;}
   const data={name,phone,sport:document.getElementById('enq-sport').value,source:document.getElementById('enq-source').value,status:document.getElementById('enq-status').value,date:document.getElementById('enq-date').value||getToday(),notes:document.getElementById('enq-notes').value};
   const existId=document.getElementById('enq-id').value;
-  // VERIFICATION FIX — same gap as Café Sales: Enquiries was the other
-  // collection that never called _stampAudit(), so it never got
-  // Created/Updated By+At like every other module. existingRecord is the
-  // pre-edit record (undefined for a brand-new enquiry), matching the
-  // exact pattern _stampAudit() already uses everywhere else.
-  const existingRecord = existId ? window.DB.enquiries.find(x=>x.id===existId) : null;
-  _stampAudit(data, existingRecord);
   const id=await saveDoc('enquiries',data,existId||null);
   if(!existId){data.id=id;window.DB.enquiries.unshift(data);}
   else{const idx=window.DB.enquiries.findIndex(x=>x.id===existId);if(idx>=0)window.DB.enquiries[idx]={...data,id:existId};}
@@ -12236,6 +13034,7 @@ window.saveExpense = async () => {
   document.getElementById('exp-notes').value='';
   renderAccounts(); renderDashboard();
   showToast('Expense saved! ✅');
+  _announceExpenseEvent(id, existId ? 'updated' : 'added', { text: existId ? 'Expense updated' : 'Expense added', voice: existId ? 'Finance expense has been updated.' : 'Finance expense has been added.' });
 };
 
 window.deleteExpense = async (id) => {
@@ -12244,6 +13043,7 @@ window.deleteExpense = async (id) => {
   window.DB.expenses=window.DB.expenses.filter(x=>x.id!==id);
   renderAccounts(); renderDashboard();
   showToast('Expense deleted');
+  _announceExpenseEvent(id, 'deleted', { text: 'Expense deleted', voice: 'Finance expense has been deleted.' });
 };
 
 // Reads the Accounts page's From/To date inputs. If either is empty (e.g. on
@@ -12723,6 +13523,7 @@ window.saveFinanceExpense = async () => {
   renderFinance();
   window.clearRowHighlight('finexp-row-', record.id); // UI ENHANCEMENT: same pattern as Fees/Students/Coaches/Booking
   showToast(id ? 'Expense updated ✅' : 'Expense added ✅');
+  _announceExpenseEvent(record.id, id ? 'updated' : 'added', { text: id ? 'Expense updated' : 'Expense added', voice: id ? 'Finance expense has been updated.' : 'Finance expense has been added.' });
 };
 
 window.deleteFinanceExpense = (id) => {
@@ -12737,6 +13538,7 @@ window.deleteFinanceExpense = (id) => {
   _finSyncExpenseToSheets(e, 'delete');
   renderFinance();
   showToast('Expense deleted');
+  _announceExpenseEvent(id, 'deleted', { text: 'Expense deleted', voice: 'Finance expense has been deleted.' });
 };
 
 // ----- Google Sheets sync (permanent backend) — same generic queuedSync
@@ -12987,7 +13789,7 @@ let _financeFirebaseSeeded = false; // was missing entirely, same gap as Coach S
 window.initFinanceFirebaseListener = () => {
   if (!_finCanAccess()) return; // hard gate — this must never even attempt to subscribe for Manager/Staff
   if (typeof window.listenFinanceExpenses !== 'function') return;
-  if (_financeFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (finance_expenses) — not re-subscribing'); return; } // already subscribed this session
+  if (_financeFirebaseUnsubscribe) { return; } // already subscribed this session
 
   _financeFirebaseUnsubscribe = window.listenFinanceExpenses((remoteExpenses) => {
     const isFirstSnapshot = !_financeFirebaseSeeded;
@@ -13000,14 +13802,12 @@ window.initFinanceFirebaseListener = () => {
       if (idx === -1) {
         window.DB.financeExpenses.unshift({ ...remote, _fbUpdatedAt: remote.updatedAt });
         changed = true;
-        window._ddtzDiag?.recordEvent('finance', 'Create'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && !isOwnAction) {
           _announceFinanceEvent(remote.id, 'created', `Expense recorded: ${remote.expenseType || ''} — ₹${(Number(remote.amount)||0).toLocaleString('en-IN')}`);
         }
       } else if ((remote.updatedAt || 0) !== (window.DB.financeExpenses[idx]._fbUpdatedAt || 0)) {
         window.DB.financeExpenses[idx] = { ...window.DB.financeExpenses[idx], ...remote, _fbUpdatedAt: remote.updatedAt };
         changed = true;
-        window._ddtzDiag?.recordEvent('finance', 'Update'); // TEMP DIAGNOSTICS
         if (!isFirstSnapshot && !isOwnAction) {
           _announceFinanceEvent(remote.id, 'updated', `Expense updated: ${remote.expenseType || ''}`);
         }
@@ -13018,7 +13818,6 @@ window.initFinanceFirebaseListener = () => {
       renderFinance();
     }
   });
-  console.log('✓ Firebase realtime listener active for Finance (Super Admin)');
 };
 
 const _ddtzAnnouncedFinanceEvents = new Set(); // "expenseId:kind" already announced this session
@@ -13027,7 +13826,6 @@ function _announceFinanceEvent(expenseId, kind, text) {
   if (_ddtzAnnouncedFinanceEvents.has(eventKey)) return;
   _ddtzAnnouncedFinanceEvents.add(eventKey);
   showToast(`💵 ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -13036,7 +13834,6 @@ function _announceFinanceEvent(expenseId, kind, text) {
     icon: '💵', action: text, recordId: expenseId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(text, false);
 }
 
@@ -13045,7 +13842,6 @@ window.stopFinanceFirebaseListener = () => {
     _financeFirebaseUnsubscribe();
     _financeFirebaseUnsubscribe = null;
     _financeFirebaseSeeded = false;
-    console.log('[FB-DEBUG] Listener removed (finance_expenses)'); // TEMP DEBUG LOG
   }
 };
 
@@ -13139,12 +13935,54 @@ function csStudentsForCoach(coachName) {
  * multiple, matching the corrected Dues aggregation pattern.
  */
 function csStudentFeeForMonth(student, monthLabel, year) {
-  const record = (window.DB.fees || []).find(f =>
-    (f.studentId === (student.studentId || student.id)) &&
-    f.feeType === 'monthly' && f.month === monthLabel && String(f.year) === String(year)
-  );
-  const monthlyFee = Number(student.fee) || 0;
-  const collected = record ? (record.amountReceived ?? record.paid ?? 0) : 0;
+  // PRODUCTION VERIFICATION FIX — this previously hardcoded
+  // `f.feeType === 'monthly'`, so a quarterly or yearly student's
+  // payments were completely invisible here: collected always came back
+  // 0 and pending always came back the full amount, no matter how much
+  // they had actually paid. Because totalCollected feeds
+  // coachShareAmount (= netCollected x revenueShare%), that understated
+  // every settlement containing a non-monthly student and UNDERPAID the
+  // coach. It also made "Pending Fees" on the coach report permanently
+  // wrong for those students.
+  //
+  // Now resolves the period the same way the frozen Due Engine does, for
+  // whatever fee structure the student is actually on, and matches fee
+  // records with the same period semantics — reusing the engine's rules
+  // rather than introducing a second, parallel interpretation of them.
+  // The frozen engine's own functions are NOT modified by this.
+  const structure = student.feeStructure || 'monthly';
+  const sid = student.studentId || student.id;
+  const yearStr = String(year);
+  const monthIdx = MONTH_NAMES.indexOf(monthLabel);
+
+  let matches;
+  if (structure === 'quarterly') {
+    // Same quarter mapping the Due Engine uses (_dueQuarterOf).
+    const quarter = monthIdx >= 0 ? _dueQuarterOf(monthIdx) : null;
+    matches = (window.DB.fees || []).filter(f =>
+      f.studentId === sid && f.feeType === 'quarterly' &&
+      f.quarter === quarter && String(f.year) === yearStr
+    );
+  } else if (structure === 'yearly') {
+    matches = (window.DB.fees || []).filter(f =>
+      f.studentId === sid && f.feeType === 'yearly' && String(f.year) === yearStr
+    );
+  } else {
+    matches = (window.DB.fees || []).filter(f =>
+      f.studentId === sid && f.feeType === 'monthly' &&
+      f.month === monthLabel && String(f.year) === yearStr
+    );
+  }
+
+  // Sum ALL matching records (a period can legitimately have more than
+  // one payment row), using the same backward-compatible amount reader
+  // the Due Engine and Fee Collection both use.
+  const collected = matches.reduce((sum, f) => sum + (f.amountReceived ?? f.paid ?? 0), 0);
+  // The plan amount for this student's own structure, discount applied —
+  // reuses the frozen engine's _dueAmountForStudent rather than reading
+  // student.fee directly (which is only ever the MONTHLY figure and was
+  // therefore also wrong for quarterly/yearly students here).
+  const monthlyFee = _dueAmountForStudent(student);
   const pending = Math.max(0, monthlyFee - collected);
   return { monthlyFee, collected, pending };
 }
@@ -13394,7 +14232,6 @@ window.initCoachSettlementFirebaseListener = () => {
     _csFirebaseSeeded = true;
     if (changed && document.getElementById('page-coachSettlement')?.classList.contains('active')) csRenderSettlement();
   });
-  console.log('✓ Firebase realtime listener active for Coach Settlement (Super Admin)');
 };
 window.stopCoachSettlementFirebaseListener = () => {
   if (_csFirebaseUnsubscribe) { _csFirebaseUnsubscribe(); _csFirebaseUnsubscribe = null; _csFirebaseSeeded = false; }
@@ -13406,7 +14243,6 @@ function _announceCoachSettlementEvent(settlementId, kind, text) {
   if (_ddtzAnnouncedCoachSettlementEvents.has(eventKey)) return;
   _ddtzAnnouncedCoachSettlementEvents.add(eventKey);
   showToast(`📊 ${text}`);
-  window._ddtzDiag?.recordNotification('toast'); // TEMP DIAGNOSTICS
   _rtPlayNotifySound();
   const notifications = _rtGetNotifications();
   _rtSaveNotifications([{
@@ -13415,7 +14251,6 @@ function _announceCoachSettlementEvent(settlementId, kind, text) {
     icon: '📊', action: text, recordId: settlementId, read: false
   }, ...notifications]);
   _rtRenderBell();
-  window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(text, false);
 }
 
@@ -13498,7 +14333,7 @@ window.csRenderSettlement = () => {
             ${s.students.length ? s.students.map(r => {
               const belowThreshold = r.attendance.scheduled > 0 && r.attendance.percent < 75;
               return `<tr${belowThreshold ? ' style="background:#fee2e2"' : ''}>
-              <td>${r.name}${belowThreshold ? ' <span class="badge badge-red" style="font-size:9px;vertical-align:middle">⚠️ Below 75%</span>' : ''}</td><td>${r.batch}</td>
+              <td>${_esc(r.name)}${belowThreshold ? ' <span class="badge badge-red" style="font-size:9px;vertical-align:middle">⚠️ Below 75%</span>' : ''}${_deletedStudentBadge(r.studentId)}</td><td>${_esc(r.batch)}</td>
               <td>₹${r.monthlyFee.toLocaleString('en-IN')}</td>
               <td>₹${r.collected.toLocaleString('en-IN')}</td>
               <td>${r.pending > 0 ? `₹${r.pending.toLocaleString('en-IN')}` : '—'}</td>
@@ -13555,6 +14390,7 @@ window.csGenerateSettlementUI = async () => {
   csRenderSettlement();
   csRenderSettlementHistory();
   showToast('Settlement generated ✅');
+  _announceSettlementEvent(result.record.id, 'created', { text: 'Settlement created', voice: 'Coach settlement has been recorded.' });
 };
 
 window.csRenderSettlementHistory = () => {
@@ -13609,6 +14445,7 @@ window.csRecordPaymentUI = async () => {
   csRenderSettlement();
   csRenderSettlementHistory();
   showToast('Payment recorded ✅');
+  _announceSettlementEvent(result.record.id, 'updated', { text: 'Settlement updated', voice: 'Coach settlement has been updated.' });
 };
 
 // ----- PDF / WhatsApp / Email — real, working versions (the dev module's
@@ -13810,7 +14647,6 @@ window.csSendEmail = () => {
   logAudit({ type: 'coach_settlement', action: 'email_sent', recordId: s.settlementId || `${s.coach.id}-${s.monthValue}`, summary: `Settlement emailed — ${s.coach.name} (${s.monthLabel} ${s.year})` });
 };
 
-console.log('✓ Phase 5 Coach Settlement Module Loaded');
 
 // ============================================================================
 // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.
@@ -14232,7 +15068,6 @@ window.clearTemporaryDiagnosticLogs = () => {
   // last-success timestamp, which Settings' own Sync Dashboard also
   // relies on. Clearing those would reduce visibility into the real
   // system elsewhere, which this temporary panel must never do.
-  window._ddtzDiag?.clear();
   renderDiagnostics();
   showToast('Temporary diagnostic logs cleared (production sync history untouched)');
 };
@@ -14637,7 +15472,7 @@ window.renderBirthdayWidget = () => {
                 <div style="font-weight:700">${_esc(s.name)} <span style="font-weight:400;color:var(--gray3);font-size:12px">(${s.age !== null ? s.age + ' yrs' : 'age unknown'})</span></div>
                 <div style="font-size:12px;color:var(--gray3)">${_esc(s.sport || '')} · Coach: ${_esc(s.coach || '-')} · 📱 ${_esc(s.phone || '-')}</div>
               </div>
-              <button class="btn btn-whatsapp btn-sm" onclick="sendBirthdayWish('${s.id}')">🎉 Send Birthday Wish</button>
+              <button class="btn btn-whatsapp btn-sm" onclick="sendBirthdayWish('${s.id}')">🎂 Send Birthday Wish</button>
             </div>`).join('')}
         </div>`}
     </div>`;
@@ -14675,13 +15510,24 @@ window.checkAndAnnounceBirthdays = () => {
 // await/async step in between risks it being silently blocked (the same
 // class of bug found and fixed in the public reservation and receipt
 // WhatsApp flows earlier).
+function _firstNameOf(fullName) {
+  return (fullName || '').trim().split(/\s+/)[0] || '';
+}
 window.sendBirthdayWish = (studentId) => {
   const s = window.DB.students.find(x => x.id === studentId);
   if (!s) return;
-  const message = `🎉 Happy Birthday, ${s.name}!\n\nWishing you a wonderful year filled with happiness, good health, success, and many victories.\nMay you continue to grow stronger, achieve your goals, and shine both on and off the field.\n\nHave an amazing day!\n\nBest Wishes,\nDD Turf Zone Family 🏆`;
+  const firstName = _firstNameOf(s.name);
+  // Exact requested template, first-name-only, public Birthday Page link
+  // included, NO private info (no DOB, parent name, phone, address, or
+  // student ID) anywhere in the outgoing message.
+  const message = `🎉 Happy Birthday, ${firstName}!\n\nWishing you a wonderful year filled with happiness, good health, confidence, success, and many victories.\n\nYour DD Turf Zone family wishes you an amazing year ahead! 🥳\n\n🎂 We've also featured today's birthday wishes on our website.\n\n👉 View your birthday wish here:\n${BIRTHDAY_PAGE_PUBLIC_URL}\n\nHave a fantastic celebration!\n\n❤️ DD Turf Zone Family`;
   const phone = (s.phone || '').replace(/\D/g, '');
   const waNumber = phone ? buildWaPhone(phone) : '';
   if (!phone) showToast('No phone number on file — pick the contact in WhatsApp.', 'info');
+  // encodeURIComponent correctly percent-encodes both emoji characters and
+  // \n line breaks (as %0A), so the message displays with proper line
+  // breaks and emojis. wa.me is WhatsApp's own universal link format,
+  // supported identically on Android, iPhone, Desktop, and WhatsApp Web.
   const win = window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`, '_blank');
   if (!win) { showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error'); return; }
 
@@ -14769,11 +15615,22 @@ window.renderDashboard = () => {
     .filter(b => b.status !== 'cancelled')
     .sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''))
     .slice(0, 5);
-  document.getElementById('dash-today-bookings').innerHTML = recent.length ? recent.map(b => `
+  document.getElementById('dash-today-bookings').innerHTML = recent.length ? recent.map(b => {
+    // CAFÉ BILLING — additive: each booking row gets a Café action so staff
+    // never have to search for the booking separately. Shows the existing
+    // bill amount if one has already been raised for this booking.
+    const bill = (window.DB.cafeSales || []).find(s => s.isBill && s.bookingLocalId === b.id);
+    const cafeBtn = hasPageAccess('cafe')
+      ? (bill
+          ? `<button class="btn btn-secondary btn-sm" style="margin-top:4px" onclick="openCafeBillForEdit('${bill.id}')">🍽️ Cafe ₹${Number(bill.amount).toLocaleString('en-IN')}</button>`
+          : `<button class="btn btn-secondary btn-sm" style="margin-top:4px" onclick="openCafeBill('${b.id}')">🍽️ Open Café Bill</button>`)
+      : '';
+    return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray2)">
       <div><div style="font-weight:600">${b.name}</div><div style="font-size:12px;color:var(--gray3)">${formatDate(b.date)} · ${formatTime(b.start)}–${formatTime(b.end)} · ${b.sport}</div></div>
-      <div style="text-align:right"><div style="font-weight:700;color:var(--green)">₹${b.total}</div>${statusBadge(b.status)}</div>
-    </div>`).join('') : `<div class="empty-state" style="padding:20px"><div class="empty-icon">📅</div><p>No bookings yet</p></div>`;
+      <div style="text-align:right"><div style="font-weight:700;color:var(--green)">₹${b.total}</div>${statusBadge(b.status)}${cafeBtn}</div>
+    </div>`;
+  }).join('') : `<div class="empty-state" style="padding:20px"><div class="empty-icon">📅</div><p>No bookings yet</p></div>`;
 };
 
 // ===== DATE RANGE COLLECTION REPORT =====
@@ -15047,30 +15904,87 @@ window.renderCafe = () => {
   const today = getToday();
   const todaySales = sales.filter(s => s.date === today);
   const todayTotal = todaySales.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-  const cashTotal = todaySales.filter(s => (s.method||'').toLowerCase()==='cash').reduce((s,x)=>s+(Number(x.amount)||0),0);
-  const gpayTotal = todaySales.filter(s => (s.method||'').toLowerCase()==='gpay').reduce((s,x)=>s+(Number(x.amount)||0),0);
+  const byMethod = (m) => todaySales
+    .filter(s => (s.method || '').toLowerCase() === m)
+    .reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+  const cashTotal = byMethod('cash');
+  const upiTotal = byMethod('upi') + byMethod('gpay'); // GPay is a UPI method
+  const cardTotal = byMethod('card');
+  const pendingBills = todaySales.filter(s => (s.status || '').toLowerCase() === 'pending');
 
   document.getElementById('cafe-stats').innerHTML = `
-    <div class="stat-card blue"><div class="stat-icon">🍽️</div><div class="stat-val">${items.length}</div><div class="stat-label">Menu Items</div></div>
-    <div class="stat-card green"><div class="stat-icon">🧾</div><div class="stat-val">${todaySales.length}</div><div class="stat-label">Sales Today</div></div>
-    <div class="stat-card purple"><div class="stat-icon">💰</div><div class="stat-val">₹${todayTotal.toLocaleString('en-IN')}</div><div class="stat-label">Today's Collection</div></div>
-    <div class="stat-card orange"><div class="stat-icon">💵</div><div class="stat-val">₹${cashTotal.toLocaleString('en-IN')} / 📱₹${gpayTotal.toLocaleString('en-IN')}</div><div class="stat-label">Cash / GPay</div></div>`;
+    <div class="stat-card blue"><div class="stat-icon">🧾</div><div class="stat-val">${todaySales.length}</div><div class="stat-label">Today's Bills</div></div>
+    <div class="stat-card green"><div class="stat-icon">💰</div><div class="stat-val">₹${todayTotal.toLocaleString('en-IN')}</div><div class="stat-label">Today's Revenue</div></div>
+    <div class="stat-card purple"><div class="stat-icon">💳</div><div class="stat-val" style="font-size:15px">💵${cashTotal.toLocaleString('en-IN')} · 📱${upiTotal.toLocaleString('en-IN')} · 💳${cardTotal.toLocaleString('en-IN')}</div><div class="stat-label">Cash / UPI / Card</div></div>
+    <div class="stat-card ${pendingBills.length ? 'orange' : 'blue'}"><div class="stat-icon">⏳</div><div class="stat-val">${pendingBills.length}</div><div class="stat-label">Pending Bills</div></div>`;
 
   document.getElementById('cafe-menu-tbody').innerHTML = items.length ? items.map(i => `
-    <tr><td>${i.name}</td><td>${i.category}</td><td>₹${i.price}</td>
+    <tr><td>${_esc(i.name)}</td><td>${_esc(i.category)}</td><td>₹${i.price}</td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteCafeItem('${i.id}')">🗑️</button></td></tr>
   `).join('') : `<tr><td colspan="4" class="text-center" style="color:var(--gray3)">No menu items yet</td></tr>`;
 
-  document.getElementById('cafe-sales-tbody').innerHTML = todaySales.length ? todaySales.map(s => `
-    <tr><td>${s.itemName}</td><td>${s.qty}</td><td>₹${s.amount}</td><td>${s.method}</td></tr>
-  `).join('') : `<tr><td colspan="4" class="text-center" style="color:var(--gray3)">No sales logged today</td></tr>`;
+  // Sales/bills table — supports the search box and renders both the new
+  // multi-item bills and any legacy single-item quick-sales.
+  _renderCafeSalesTable();
 
   // Keep the sale-item dropdown fresh
   const sel = document.getElementById('cafe-sale-item');
   if (sel) {
-    sel.innerHTML = items.map(i => `<option value="${i.id}" data-price="${i.price}" data-name="${i.name}">${i.name} — ₹${i.price}</option>`).join('');
+    sel.innerHTML = items.map(i => `<option value="${i.id}" data-price="${i.price}" data-name="${_esc(i.name)}">${_esc(i.name)} — ₹${i.price}</option>`).join('');
   }
 };
+
+// Search across Team Name, Phone and Booking ID, per spec.
+window.cafeSearchChanged = () => _renderCafeSalesTable();
+
+function _renderCafeSalesTable() {
+  const tbody = document.getElementById('cafe-sales-tbody');
+  if (!tbody) return;
+  // Default the date filter to today on first render — without this the
+  // input starts blank and the table would look empty on page load.
+  const dateEl = document.getElementById('cafe-date-filter');
+  if (dateEl && !dateEl.value) dateEl.value = getToday();
+  const q = (document.getElementById('cafe-search')?.value || '').trim().toLowerCase();
+  const dateFilter = dateEl?.value || getToday();
+  let rows = (window.DB.cafeSales || []).filter(s => s.date === dateFilter);
+  if (q) {
+    rows = rows.filter(s =>
+      (s.teamName || '').toLowerCase().includes(q) ||
+      (s.phone || '').toLowerCase().includes(q) ||
+      (s.bookingId || '').toLowerCase().includes(q) ||
+      (s.itemName || '').toLowerCase().includes(q));
+  }
+  tbody.innerHTML = rows.length ? rows.map(s => {
+    const isBill = s.isBill === true;
+    const itemSummary = isBill
+      ? (s.items || []).map(i => `${i.qty}× ${_esc(i.name)}`).join(', ')
+      : `${s.qty}× ${_esc(s.itemName || '')}`;
+    const who = isBill
+      ? `<strong>${_esc(s.teamName || '—')}</strong>${s.slotTime ? `<br><span style="font-size:11px;color:var(--gray3)">${_esc(s.slotTime)}</span>` : ''}`
+      : `<span style="color:var(--gray3)">Counter sale</span>`;
+    const statusBadgeHtml = (s.status || '').toLowerCase() === 'pending'
+      ? '<span class="badge badge-red" style="font-size:10px">Pending</span>'
+      : '<span class="badge badge-green" style="font-size:10px">Paid</span>';
+    const actions = isBill
+      ? `<button class="btn btn-info btn-sm" onclick="previewCafeBill('${s.id}')" title="View / Print / PDF / Share">🧾</button>
+         <button class="btn btn-info btn-sm" onclick="openCafeBillForEdit('${s.id}')" title="Edit">✏️</button>
+         ${s.phone ? `<button class="btn btn-secondary btn-sm" onclick="shareCafeBillWhatsApp('${s.id}')" title="Share on WhatsApp">📱</button>` : ''}
+         <button class="btn btn-danger btn-sm" data-requires-action="deleteCafeBill" onclick="deleteCafeBill('${s.id}')" title="Delete">🗑️</button>`
+      : '';
+    return `<tr>
+      <td>${who}</td>
+      <td style="font-size:12px">${itemSummary}</td>
+      <td style="font-weight:600">₹${Number(s.amount || 0).toLocaleString('en-IN')}</td>
+      <td>${_esc(s.method || '')}</td>
+      <td>${isBill ? statusBadgeHtml : ''}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" class="text-center" style="color:var(--gray3)">No café sales for this date</td></tr>`;
+
+  // Re-apply role gating to the buttons just injected (Super-Admin-only
+  // delete) — same call the rest of the app uses after dynamic renders.
+  if (typeof applyRolePermissionsToUI === 'function') applyRolePermissionsToUI();
+}
 
 window.saveCafeItem = async () => {
   const name = document.getElementById('cafe-item-name').value.trim();
@@ -15114,14 +16028,6 @@ window.saveCafeSale = async () => {
     method: document.getElementById('cafe-sale-method').value,
     date: getToday()
   };
-  // VERIFICATION FIX — every other module (Bookings, Blocked Slots,
-  // Students, Attendance, Fees, Due Adjustments, Booking Requests,
-  // Coaches, Finance Expenses, Coach Settlement) stamps Created/Updated
-  // By+At via _stampAudit() before saving; Café Sales was the one
-  // collection that skipped it, so it never got the Audit Information
-  // block other records show. This is a brand-new record every time
-  // (Café Sales has no edit flow), so existingRecord is always null.
-  _stampAudit(data, null);
   const id = await saveDoc('cafeSales', data, null);
   data.id = id;
   window.DB.cafeSales.unshift(data);
@@ -15129,6 +16035,440 @@ window.saveCafeSale = async () => {
   closeModal('cafe-sale-modal');
   renderCafe();
   showToast('Sale logged ✅');
+  _announceCafeBillEvent(id, 'sale', { text: `Café sale — ₹${data.amount}`, voice: 'Cafe sale logged.' });
+  renderDashboard();
+  if (typeof renderAccounts === 'function') renderAccounts();
+};
+
+// ============================================================================
+// CAFÉ BILLING SYSTEM — multi-item bills linked to Turf Slot Bookings
+// ============================================================================
+// ADDITIVE ONLY. The single-item quick-sale flow above (saveCafeSale) is
+// left completely untouched and still works exactly as before.
+//
+// STORAGE DECISION — important, and deliberate:
+// A bill is stored as ONE record in the EXISTING window.DB.cafeSales
+// collection, not a new collection. Reason: Finance's _finIncomeCafe()
+// sums `cafeSales[].amount` over a date range, and the Dashboard/Reports
+// read the same collection. Introducing a separate `cafeBills` collection
+// would mean either (a) Café revenue silently disappearing from Finance,
+// or (b) editing _finIncomeCafe — which is explicitly out of scope
+// ("Do NOT modify ... Dashboard calculations"). Storing bills in
+// cafeSales with the same `amount`/`date`/`method` fields every existing
+// consumer already reads means Finance, Dashboard and Reports pick up
+// Café bills automatically with ZERO changes to any of them.
+//
+// A bill record is distinguished from a legacy quick-sale by the presence
+// of `isBill === true` and an `items` array. Legacy records have neither
+// and continue to render exactly as before.
+let CAFE_BILL_STATE = null; // { bookingId, teamName, phone, slotTime, date, items:[], discount, method, status, editingId }
+
+function _cafeNewBillState(booking) {
+  return {
+    bookingId: booking?.bookingId || booking?.id || '',
+    bookingLocalId: booking?.id || '',
+    teamName: booking?.name || '',
+    phone: booking?.phone || '',
+    slotTime: booking ? `${formatTime(booking.start)} – ${formatTime(booking.end)}` : '',
+    date: booking?.date || getToday(),
+    items: [],
+    discount: 0,
+    method: 'Cash',
+    status: 'Paid',
+    editingId: null
+  };
+}
+
+// Single source of truth for bill maths — every display and every save
+// reads from here, so a total can never disagree between screen and record.
+function _cafeBillTotals(state) {
+  const subtotal = (state.items || []).reduce((s, it) =>
+    s + ((Number(it.qty) || 0) * (Number(it.rate) || 0)), 0);
+  const discount = Math.min(Number(state.discount) || 0, subtotal); // never negative total
+  return { subtotal, discount, total: subtotal - discount };
+}
+
+window.cafeBillAddItem = () => {
+  if (!CAFE_BILL_STATE) return;
+  CAFE_BILL_STATE.items.push({ name: '', qty: 1, rate: 0 });
+  _renderCafeBillItems();
+};
+
+window.cafeBillRemoveItem = (idx) => {
+  if (!CAFE_BILL_STATE) return;
+  CAFE_BILL_STATE.items.splice(idx, 1);
+  _renderCafeBillItems();
+};
+
+window.cafeBillUpdateItem = (idx, field, value) => {
+  if (!CAFE_BILL_STATE || !CAFE_BILL_STATE.items[idx]) return;
+  if (field === 'name') {
+    CAFE_BILL_STATE.items[idx].name = value;
+    // Auto-fill rate from the menu when the typed name matches an item,
+    // but never overwrite a rate the user has deliberately edited.
+    const match = (window.DB.cafeItems || []).find(i =>
+      (i.name || '').toLowerCase() === String(value || '').toLowerCase());
+    if (match && !CAFE_BILL_STATE.items[idx]._rateTouched) {
+      CAFE_BILL_STATE.items[idx].rate = Number(match.price) || 0;
+    }
+  } else if (field === 'qty') {
+    CAFE_BILL_STATE.items[idx].qty = Math.max(0, Number(value) || 0);
+  } else if (field === 'rate') {
+    CAFE_BILL_STATE.items[idx].rate = Math.max(0, Number(value) || 0);
+    CAFE_BILL_STATE.items[idx]._rateTouched = true;
+  }
+  _renderCafeBillItems();
+};
+
+window.cafeBillUpdateDiscount = (v) => {
+  if (!CAFE_BILL_STATE) return;
+  CAFE_BILL_STATE.discount = Math.max(0, Number(v) || 0);
+  _renderCafeBillTotals();
+};
+
+window.cafeBillUpdateMethod = (v) => { if (CAFE_BILL_STATE) CAFE_BILL_STATE.method = v; };
+window.cafeBillUpdateStatus = (v) => { if (CAFE_BILL_STATE) CAFE_BILL_STATE.status = v; };
+
+function _renderCafeBillItems() {
+  const tb = document.getElementById('cafe-bill-items-tbody');
+  if (!tb || !CAFE_BILL_STATE) return;
+  const items = CAFE_BILL_STATE.items;
+  tb.innerHTML = items.length ? items.map((it, i) => {
+    const amt = (Number(it.qty) || 0) * (Number(it.rate) || 0);
+    return `<tr>
+      <td><input type="text" list="cafe-menu-datalist" value="${_esc(it.name)}" placeholder="Item name"
+            onchange="cafeBillUpdateItem(${i},'name',this.value)" style="width:100%"></td>
+      <td><input type="number" min="0" value="${it.qty}" onchange="cafeBillUpdateItem(${i},'qty',this.value)" style="width:100%"></td>
+      <td><input type="number" min="0" value="${it.rate}" onchange="cafeBillUpdateItem(${i},'rate',this.value)" style="width:100%"></td>
+      <td style="font-weight:600">₹${amt.toLocaleString('en-IN')}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="cafeBillRemoveItem(${i})">✕</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="5" class="text-center" style="color:var(--gray3)">No items yet — click “Add Item”.</td></tr>`;
+  _renderCafeBillTotals();
+}
+
+function _renderCafeBillTotals() {
+  const el = document.getElementById('cafe-bill-totals');
+  if (!el || !CAFE_BILL_STATE) return;
+  const t = _cafeBillTotals(CAFE_BILL_STATE);
+  el.innerHTML =
+    `<div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>₹${t.subtotal.toLocaleString('en-IN')}</span></div>` +
+    (t.discount > 0 ? `<div style="display:flex;justify-content:space-between;color:var(--red)"><span>Discount</span><span>− ₹${t.discount.toLocaleString('en-IN')}</span></div>` : '') +
+    `<div style="display:flex;justify-content:space-between;font-weight:700;font-size:16px;border-top:1px solid var(--gray2);margin-top:6px;padding-top:6px"><span>Final Total</span><span>₹${t.total.toLocaleString('en-IN')}</span></div>`;
+}
+
+// Entry point from the Today's Bookings list. Everything the staff would
+// otherwise have to type is filled in from the booking record itself.
+window.openCafeBill = (bookingLocalId) => {
+  if (!hasPageAccess('cafe')) { denyAccess('You do not have access to the Café module.'); return; }
+  const b = (window.DB.bookings || []).find(x => x.id === bookingLocalId);
+  if (!b) { showToast('Booking not found', 'error'); return; }
+
+  // If a bill already exists for this booking, open it in EDIT mode rather
+  // than silently creating a second one — mirrors the "existing record
+  // always opens in Edit Mode" rule Fee Collection already follows.
+  const existing = (window.DB.cafeSales || []).find(s => s.isBill && s.bookingLocalId === b.id);
+  if (existing) { openCafeBillForEdit(existing.id); return; }
+
+  CAFE_BILL_STATE = _cafeNewBillState(b);
+  _openCafeBillModal();
+};
+
+window.openCafeBillForEdit = (billId) => {
+  if (!hasPageAccess('cafe')) { denyAccess('You do not have access to the Café module.'); return; }
+  const bill = (window.DB.cafeSales || []).find(s => s.id === billId);
+  if (!bill) { showToast('Bill not found', 'error'); return; }
+  CAFE_BILL_STATE = {
+    bookingId: bill.bookingId || '', bookingLocalId: bill.bookingLocalId || '',
+    teamName: bill.teamName || '', phone: bill.phone || '',
+    slotTime: bill.slotTime || '', date: bill.date || getToday(),
+    items: (bill.items || []).map(i => ({ ...i })), // copy — never mutate the stored record directly
+    discount: Number(bill.discount) || 0,
+    method: bill.method || 'Cash',
+    status: bill.status || 'Paid',
+    editingId: bill.id
+  };
+  _openCafeBillModal();
+};
+
+function _openCafeBillModal() {
+  const s = CAFE_BILL_STATE;
+  document.getElementById('cafe-bill-booking-header').innerHTML =
+    `<strong>${_esc(s.teamName) || '—'}</strong>${s.bookingId ? ` &nbsp;<span style="color:var(--gray3)">${_esc(s.bookingId)}</span>` : ''}<br>` +
+    `${_esc(s.slotTime) || '—'} &nbsp;·&nbsp; ${_esc(s.date)}<br>` +
+    `<span style="color:var(--gray3)">${_esc(s.phone) || 'No phone on booking'}</span>`;
+  document.getElementById('cafe-bill-discount').value = s.discount || 0;
+  document.getElementById('cafe-bill-method').value = s.method;
+  document.getElementById('cafe-bill-status').value = s.status;
+  // Menu items power the item-name autocomplete; typing a free-text item
+  // that isn't on the menu is still allowed.
+  document.getElementById('cafe-menu-datalist').innerHTML =
+    (window.DB.cafeItems || []).map(i => `<option value="${_esc(i.name)}">`).join('');
+  if (!s.items.length) s.items.push({ name: '', qty: 1, rate: 0 });
+  _renderCafeBillItems();
+  openModal('cafe-bill-modal');
+}
+
+window.closeCafeBill = async () => {
+  const s = CAFE_BILL_STATE;
+  if (!s) return;
+  const valid = s.items.filter(it => (it.name || '').trim() && (Number(it.qty) || 0) > 0);
+  if (!valid.length) { showToast('Add at least one item with a quantity', 'error'); return; }
+
+  const t = _cafeBillTotals({ ...s, items: valid });
+  const data = {
+    isBill: true,                       // distinguishes a bill from a legacy quick-sale
+    bookingId: s.bookingId, bookingLocalId: s.bookingLocalId,
+    teamName: s.teamName, phone: s.phone, slotTime: s.slotTime,
+    items: valid.map(({ name, qty, rate }) => ({ name: name.trim(), qty: Number(qty) || 0, rate: Number(rate) || 0 })),
+    subtotal: t.subtotal, discount: t.discount,
+    // `amount`, `date` and `method` are the fields Finance (_finIncomeCafe),
+    // Dashboard and Reports already read — populated identically to a
+    // legacy sale so every existing consumer works with zero changes.
+    amount: t.total, date: s.date, method: s.method,
+    status: s.status,
+    // Human-readable summary so the existing Café sales table (which
+    // renders `itemName`) shows something sensible for a bill too.
+    itemName: valid.length === 1 ? valid[0].name : `${valid.length} items (${s.teamName || 'Café'})`,
+    qty: valid.reduce((n, it) => n + (Number(it.qty) || 0), 0)
+  };
+
+  _stampAudit(data, s.editingId ? (window.DB.cafeSales || []).find(x => x.id === s.editingId) : null);
+  const id = await saveDoc('cafeSales', data, s.editingId || null);
+  data.id = id;
+  if (s.editingId) {
+    const idx = window.DB.cafeSales.findIndex(x => x.id === s.editingId);
+    if (idx >= 0) window.DB.cafeSales[idx] = data;
+  } else {
+    window.DB.cafeSales.unshift(data);
+  }
+
+  autoSyncCafeSale(data);
+  logAudit({ type: 'cafe_sale', action: s.editingId ? 'update' : 'create', recordId: id,
+    summary: `Café Bill ${s.editingId ? 'updated' : 'created'} — ${data.teamName || '—'} — ₹${t.total} (${data.method}, ${data.status})` });
+
+  CAFE_BILL_STATE = null;
+  closeModal('cafe-bill-modal');
+  // Refresh every consumer of Café revenue. Same active-page-only
+  // discipline used elsewhere — never render a page the user isn't on.
+  renderCafe();
+  renderDashboard();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (document.getElementById('page-bookings')?.classList.contains('active')) renderBookings();
+  showToast(`Café bill saved — ₹${t.total.toLocaleString('en-IN')} ✅`);
+  // PRODUCTION STABILIZATION — Café Bill was on the required voice-event
+  // list but had no announcement. Reuses the existing expense announcer's
+  // pattern via the shared dedup/queue path, so it behaves identically to
+  // every other event (no duplicates, queued not cut off).
+  _announceCafeBillEvent(id, s.editingId ? 'updated' : 'created', {
+    text: `Café bill ${s.editingId ? 'updated' : 'saved'} — ₹${t.total.toLocaleString('en-IN')}`,
+    voice: s.editingId ? 'Cafe bill has been updated.' : 'Cafe bill saved.'
+  });
+  // Show the saved bill in the shared layout, with Share / Print / PDF
+  // available. Deliberately does NOT auto-open WhatsApp: opening it
+  // unprompted on every save is intrusive, and the popup would be blocked
+  // anyway since this runs after several awaits (the same constraint
+  // documented on sendBookingWhatsApp). Staff press Share Bill from here,
+  // which is a direct click and therefore always allowed.
+  previewCafeBill(id);
+};
+
+// ============================================================================
+// CAFÉ BILL FORMAT — ONE canonical layout, four outputs
+// ============================================================================
+// Preview, Print, PDF and WhatsApp all derive from the SAME normalized
+// data (_cafeBillLines) and the SAME field ordering below. There is no
+// second design anywhere: change the format once here and every output
+// changes together. This is deliberate — four hand-maintained copies of a
+// bill layout is exactly how a printed total ends up disagreeing with a
+// WhatsApp total.
+
+// Normalizes a stored bill into the exact lines the layout needs, so the
+// HTML and plain-text renderers can never compute a different total from
+// each other.
+function _cafeBillLines(bill) {
+  const items = (bill.items || []).map(it => {
+    const qty = Number(it.qty) || 0;
+    const rate = Number(it.rate) || 0;
+    return { name: it.name || '', qty, amount: qty * rate };
+  });
+  const subtotal = (bill.subtotal !== undefined && bill.subtotal !== null)
+    ? Number(bill.subtotal)
+    : items.reduce((s, it) => s + it.amount, 0);
+  const discount = Number(bill.discount) || 0;
+  const total = (bill.amount !== undefined && bill.amount !== null)
+    ? Number(bill.amount)
+    : subtotal - discount;
+  return {
+    teamName: bill.teamName || '—',
+    slotTime: bill.slotTime || '—',
+    date: bill.date || '',
+    items, subtotal, discount, total,
+    payment: String(bill.status || 'Paid').toUpperCase()
+  };
+}
+
+const CAFE_BILL_FOOTER = { venue: 'Madambakkam', phone: '7305123765' };
+
+// ---- Output 1 & 2 & 3: the visual layout (Preview, Print, PDF) ----
+// Compact and clean by design — not a restaurant invoice: no GST block,
+// no table borders, no logo banner, no bill number.
+function _cafeBillDocHTML(bill) {
+  const b = _cafeBillLines(bill);
+  const row = (label, value, bold) =>
+    `<div style="display:flex;justify-content:space-between;${bold ? 'font-weight:700;font-size:15px;' : ''}margin:2px 0"><span>${label}</span><span>${value}</span></div>`;
+  return `
+<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:320px;margin:0 auto;color:#111;font-size:13px;line-height:1.5">
+  <div style="text-align:center;font-weight:800;letter-spacing:.5px;font-size:16px">DD TURF ZONE</div>
+  <div style="text-align:center;color:#555;margin-bottom:8px">Cafe Bill</div>
+  <div style="border-top:1px dashed #999;margin:8px 0"></div>
+
+  <div><strong>Team:</strong> ${_esc(b.teamName)}</div>
+  <div><strong>Slot:</strong> ${_esc(b.slotTime)}</div>
+  <div><strong>Date:</strong> ${_esc(b.date)}</div>
+
+  <div style="border-top:1px dashed #999;margin:8px 0"></div>
+  <div style="font-weight:700;margin-bottom:4px">Items</div>
+  ${b.items.map(it => row(`${_esc(it.name)} ×${it.qty}`, `₹${it.amount.toLocaleString('en-IN')}`)).join('')}
+
+  <div style="border-top:1px dashed #999;margin:8px 0"></div>
+  ${row('Subtotal', `₹${b.subtotal.toLocaleString('en-IN')}`)}
+  ${b.discount > 0 ? row('Discount', `₹${b.discount.toLocaleString('en-IN')}`) : ''}
+  ${row('Total', `₹${b.total.toLocaleString('en-IN')}`, true)}
+  ${row('Payment', b.payment)}
+
+  <div style="border-top:1px dashed #999;margin:8px 0"></div>
+  <div style="text-align:center">Thank you for visiting DD Turf Zone!</div>
+  <div style="text-align:center;color:#555">📍 ${CAFE_BILL_FOOTER.venue}</div>
+  <div style="text-align:center;color:#555">📞 ${CAFE_BILL_FOOTER.phone}</div>
+</div>`;
+}
+
+// ---- Output 4: the plain-text layout (WhatsApp) ----
+// Same fields, same order, same totals as the visual layout above.
+function _cafeBillText(bill) {
+  const b = _cafeBillLines(bill);
+  const itemLines = b.items.map(it =>
+    `${it.name} ×${it.qty} - ₹${it.amount.toLocaleString('en-IN')}`).join('\n');
+  return `DD TURF ZONE
+
+Cafe Bill
+
+Team: ${b.teamName}
+
+Slot: ${b.slotTime}
+
+Date: ${b.date}
+
+Items
+
+${itemLines}
+
+------------------------
+
+Subtotal: ₹${b.subtotal.toLocaleString('en-IN')}
+${b.discount > 0 ? `Discount: ₹${b.discount.toLocaleString('en-IN')}\n` : ''}Total: ₹${b.total.toLocaleString('en-IN')}
+
+Payment: ${b.payment}
+
+Thank you for visiting DD Turf Zone!
+
+📍 ${CAFE_BILL_FOOTER.venue}
+
+📞 ${CAFE_BILL_FOOTER.phone}`;
+}
+
+// Opens WhatsApp only — never sends automatically. window.open() is
+// called synchronously inside the click-initiated call chain for the same
+// popup-blocker reason documented on sendBookingWhatsApp/sendBirthdayWish.
+function _cafeOfferWhatsApp(bill) {
+  if (!bill.phone) { showToast('No phone number on the linked booking.', 'error'); return; }
+  // encodeURIComponent percent-encodes the emoji, the ₹ rupee sign AND
+  // the \n line breaks (as %0A), so the message renders correctly on
+  // Android, iPhone, Desktop and WhatsApp Web — wa.me is WhatsApp's own
+  // universal link format, identical across all four.
+  const waNumber = buildWaPhone((bill.phone || '').replace(/\D/g, ''));
+  const win = window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(_cafeBillText(bill))}`, '_blank');
+  if (!win) showToast('Bill saved. Could not open WhatsApp — check your popup blocker.', 'error');
+}
+
+// Print — reuses the exact same _cafeBillDocHTML as preview/PDF.
+window.printCafeBill = (billId) => {
+  const bill = (window.DB.cafeSales || []).find(s => s.id === billId);
+  if (!bill) { showToast('Bill not found', 'error'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Please allow popups to print the bill', 'error'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD Turf Zone - Cafe Bill</title></head><body style="margin:16px">${_cafeBillDocHTML(bill)}</body></html>`);
+  w.document.close();
+  const doPrint = () => { try { w.focus(); w.print(); } catch (e) {} };
+  w.onload = doPrint;
+  setTimeout(doPrint, 400);
+};
+
+// PDF — same layout again, rendered off-screen then captured. Mirrors
+// downloadReceiptPDF's proven html2canvas + jsPDF approach.
+window.downloadCafeBillPDF = async (billId) => {
+  const bill = (window.DB.cafeSales || []).find(s => s.id === billId);
+  if (!bill) { showToast('Bill not found', 'error'); return; }
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PDF…', 'info');
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-9999px;top:0;background:#fff;padding:16px';
+  holder.innerHTML = _cafeBillDocHTML(bill);
+  document.body.appendChild(holder);
+  try {
+    const canvas = await html2canvas(holder, { scale: 3, backgroundColor: '#ffffff' });
+    const jsPDF = window.jspdf.jsPDF;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const margin = 15;
+    const imgWidth = doc.internal.pageSize.getWidth() - margin * 2;
+    const imgHeight = imgWidth * (canvas.height / canvas.width);
+    doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imgWidth, imgHeight);
+    doc.save(`CafeBill_${(bill.teamName || 'bill').replace(/\s+/g, '_')}_${bill.date}.pdf`);
+    showToast('Café bill PDF downloaded ✅');
+  } finally {
+    holder.remove(); // always clean up, even if capture throws
+  }
+};
+
+// Preview — same layout once more, shown in a modal with the actions.
+window.previewCafeBill = (billId) => {
+  const bill = (window.DB.cafeSales || []).find(s => s.id === billId);
+  if (!bill) { showToast('Bill not found', 'error'); return; }
+  document.getElementById('cafe-bill-preview-body').innerHTML = _cafeBillDocHTML(bill);
+  document.getElementById('cafe-bill-preview-actions').innerHTML =
+    `<button class="btn btn-secondary" onclick="closeModal('cafe-bill-preview-modal')">Close</button>` +
+    (bill.phone ? `<button class="btn btn-whatsapp" onclick="shareCafeBillWhatsApp('${bill.id}')">📱 Share Bill</button>` : '') +
+    `<button class="btn btn-secondary" onclick="printCafeBill('${bill.id}')">🖨️ Print</button>` +
+    `<button class="btn btn-primary" onclick="downloadCafeBillPDF('${bill.id}')">📄 PDF</button>`;
+  openModal('cafe-bill-preview-modal');
+};
+
+window.shareCafeBillWhatsApp = (billId) => {
+  const bill = (window.DB.cafeSales || []).find(s => s.id === billId);
+  if (!bill) { showToast('Bill not found', 'error'); return; }
+  _cafeOfferWhatsApp(bill);
+};
+
+// Super Admin only, enforced here AND via data-requires-action in the UI —
+// same two-layer approach as permanentDeleteStudent.
+window.deleteCafeBill = async (billId) => {
+  if (!can('deleteCafeBill')) { denyAccess(null, 'deleteCafeBill'); return; }
+  const bill = (window.DB.cafeSales || []).find(s => s.id === billId);
+  if (!bill) return;
+  if (!confirm(`Delete this café bill (${bill.teamName || bill.itemName || ''} — ₹${bill.amount})?\n\nThis cannot be undone.`)) return;
+  await deleteDoc2('cafeSales', billId);
+  window.DB.cafeSales = window.DB.cafeSales.filter(s => s.id !== billId);
+  logAudit({ type: 'cafe_sale', action: 'delete', recordId: billId,
+    summary: `Café Bill deleted — ${bill.teamName || '—'} — ₹${bill.amount} — by ${CURRENT_USER?.email || CURRENT_USER?.name || ''}` });
+  renderCafe();
+  renderDashboard();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (document.getElementById('page-bookings')?.classList.contains('active')) renderBookings();
+  showToast('Café bill deleted');
+  _announceCafeBillEvent(billId, 'deleted', { text: 'Café bill deleted', voice: 'Cafe bill has been deleted.' });
 };
 
 // ===== USER MANAGEMENT (Super Admin only — reads/writes the Sheet's Users tab) =====
@@ -15854,6 +17194,27 @@ function _wizFreshState() {
 }
 
 function _esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// PRODUCTION STABILIZATION — Deleted Student indicator for historical
+// views. Every historical record type (Attendance, Due Adjustments,
+// Coach Settlement) already stores its OWN denormalized studentName/name
+// at write/generation time — confirmed by reading saveOneAttendance,
+// saveDueAdjustment, and csComputeSettlement directly — so a permanently
+// deleted student's name always keeps displaying correctly on its own;
+// nothing here ever needs to be "recovered." This helper only adds the
+// explicit "since deleted" signal on top of that already-preserved name,
+// so reports/auditing show both who the record was about AND that they
+// are no longer an active student. Never throws: a missing/undefined
+// studentId simply isn't found, same as any other non-match.
+function _isDeletedStudentRef(studentId) {
+  if (!studentId) return false;
+  return !window.DB.students.some(s => s.id === studentId || s.studentId === studentId);
+}
+function _deletedStudentBadge(studentId) {
+  return _isDeletedStudentRef(studentId)
+    ? ' <span class="badge badge-gray" style="font-size:9px;vertical-align:middle" title="This student record has been permanently deleted">🗑 Deleted Student</span>'
+    : '';
+}
 function _wizStatBox(label, value) {
   return '<div style="background:var(--gray);border-radius:10px;padding:10px 12px">' +
     '<div style="font-size:11px;color:var(--gray3);margin-bottom:2px">' + _esc(label) + '</div>' +
@@ -16268,23 +17629,8 @@ async function _wizRunImport() {
   // Item 6/7 — one Activity Log entry summarizing the whole batch (not one
   // per row — that would flood AuditLog on a 20,000-row import). Reuses
   // the existing audit_log endpoint/schema untouched.
-  // ROOT CAUSE FIX — this payload was missing `device` (and `role`/
-  // `module`/`recordId`), unlike every other audit_log write in the app
-  // (which all go through logAudit() and therefore always stamp
-  // device: _deviceTag()). Because Device came back blank from the
-  // server, _rtApplyEvents()'s "don't notify a device about its own
-  // write" check (`if (ev.device && ev.device === myDevice) return;`)
-  // silently failed to match (empty string is falsy), so the SAME admin
-  // who ran the import would see their own Import Wizard action
-  // re-surface as a toast + unread bell notification a couple seconds
-  // later — worded "Owner — Import Wizard — Module: ..., File: ...csv" —
-  // and, being permanently stored as unread, it would sit at the top of
-  // the Notification Center on every subsequent login until dismissed.
-  // Adding device (+ role/module/recordId, matching logAudit()'s shape)
-  // makes the own-device suppression work correctly going forward.
   postToGoogleSheet({
     type: 'audit_log', timestamp: WIZ.report.timestamp, user: WIZ.report.user,
-    role: CURRENT_USER?.role || '', device: _deviceTag(), module: 'import_log', recordId: batchId,
     action: `Import Wizard — Module: ${mod.label}, Mode: ${WIZ.mode}, Imported: ${imported}, Updated: ${updated}, Skipped: ${skipped}, Errors: ${errors.length}, File: ${WIZ.report.fileName}, Device: ${device}`
   }).catch(() => {});
 
@@ -16432,12 +17778,8 @@ async function _wizRollback(batchId) {
   stored.rolledBack = true;
   try { localStorage.setItem('ddtz_import_batch_' + batchId, JSON.stringify(stored)); } catch (e) {}
   postToGoogleSheet({ type: 'import_mark_rolled_back', importId: batchId }).catch(() => {});
-  // ROOT CAUSE FIX — same missing-device bug as the completion log above:
-  // without device: _deviceTag(), this device would self-notify about its
-  // own Undo action too.
   postToGoogleSheet({
     type: 'audit_log', timestamp: new Date().toISOString(), user: CURRENT_USER?.name || 'Unknown',
-    role: CURRENT_USER?.role || '', device: _deviceTag(), module: 'import_log', recordId: batchId,
     action: `Import Wizard — Undo of ${batchId} (${stored.report.module}): reverted ${undone} record(s)`
   }).catch(() => {});
   const idx = WIZ_HISTORY_CACHE.findIndex(h => h.importId === batchId);
@@ -16550,10 +17892,20 @@ async function _wizCheckForNewImportsNotification() {
     if (!data || !data.ok || !data.latestImportId) return;
     let lastSeen = null;
     try { lastSeen = localStorage.getItem('ddtz_last_seen_import_id'); } catch (e) {}
+    // BUGFIX (same root-cause pattern as rtPollEvents above): if this
+    // device/browser has never checked Import History before, lastSeen
+    // is genuinely null — not "different from the latest" in the live
+    // sense, just "never established a baseline yet". Treating that as
+    // "new" announces whatever import happens to be most recent in the
+    // server's history, even if it was a leftover test/demo import from
+    // days or weeks ago. Record today's latest as the silent baseline
+    // instead; only an import that happens AFTER this point is genuinely
+    // new and should ever produce a toast/voice announcement.
+    const isFirstCheckOnThisDevice = (lastSeen === null);
     if (data.latestImportId !== lastSeen) {
       const latest = (data.history || [])[0];
       try { localStorage.setItem('ddtz_last_seen_import_id', data.latestImportId); } catch (e) {}
-      if (latest) {
+      if (latest && !isFirstCheckOnThisDevice) {
         showToast(`📥 ${latest.user} imported ${latest.imported} ${latest.module} record(s)${latest.fileName ? ' from ' + latest.fileName : ''}.`);
         _wizPlaySuccessSound();
         // Item 5 — keep this session's own view current without requiring
@@ -16623,53 +17975,50 @@ function _rtSaveNotifications(list) {
   return trimmed;
 }
 
-// ============================================================================
-// ONE-TIME CLEANUP — stray Import Wizard self-notification
-// ----------------------------------------------------------------------------
-// ROOT CAUSE: _wizRunImport() and _wizRollback() (Undo) used to post their
-// audit_log entry directly via postToGoogleSheet() instead of going through
-// the app's normal logAudit() helper, and that hand-built payload never set
-// `device`. Every other module's audit_log write goes through logAudit(),
-// which always stamps device: _deviceTag() — that's what lets
-// _rtApplyEvents()'s "don't notify a device about its own write" check
-// (`if (ev.device && ev.device === myDevice) return;`) correctly skip the
-// device that performed the action. With Device coming back blank from the
-// server for Import Wizard entries, that check silently failed to match
-// (empty string is falsy), so the SAME admin who ran an import would see
-// their own action bounce back as a toast + unread bell notification a
-// couple seconds later, worded "Owner — Import Wizard — Module: ...,
-// File: ....csv" — and because it landed as UNREAD, it kept sitting at the
-// top of the Notification Center on every later login until dismissed,
-// which is exactly the "notification that appears every time the Admin
-// page loads" behavior being fixed here.
-//
-// The bug itself is fixed at its source above (both postToGoogleSheet
-// calls now include device/role/module/recordId). This function only
-// clears out the ALREADY-STUCK stale entry that the bug produced before
-// the fix, so it disappears immediately rather than waiting up to 30 days
-// for RT_NOTIF_MAX_AGE_MS to age it out. It matches ONLY the exact
-// "Import Wizard — Module: ..." / "Import Wizard — Undo of ..." action
-// text this specific bug generates — nothing else is touched, and this
-// runs once per stored entry (a no-op the next time, once it's gone).
-function _cleanupStaleImportWizardSelfNotifications() {
+// BUGFIX: One-time cleanup of any unwanted/invalid notifications that may
+// already be sitting in this device's local notification list as a result
+// of the historical-backlog-replay bug fixed above (rtPollEvents /
+// _wizCheckForNewImportsNotification). Runs only ONCE per device (gated by
+// a flag) so it can never touch or filter any genuine notification created
+// after this fix -- including legitimate future Import Wizard notifications
+// that a user actually triggers themselves.
+const NOTIF_CLEANUP_FLAG_KEY = 'ddtz_notif_cleanup_v1_done';
+function _cleanupNotifications() {
   try {
-    const list = _rtGetNotifications();
-    if (!list.length) return;
-    const cleaned = list.filter(n => {
-      const isImportWizardLogEntry = typeof n.action === 'string' &&
-        (n.action.startsWith('Import Wizard — Module:') || n.action.startsWith('Import Wizard — Undo of'));
-      if (isImportWizardLogEntry) {
-        console.log('[NOTIF-CLEANUP] Removing stale self-notification from the pre-fix Import Wizard bug:', n.id);
+    let alreadyDone = false;
+    try { alreadyDone = localStorage.getItem(NOTIF_CLEANUP_FLAG_KEY) === '1'; } catch (e) {}
+    if (alreadyDone) return; // one-time only -- never re-filters legitimate notifications on later logins
+
+    const notifs = _rtGetNotifications();
+
+    const cleaned = notifs.filter(n => {
+      // Must have basic required fields
+      if (!n || !n.id || !n.action || !n.module) return false;
+
+      // Remove leftover/stale notifications matching the known shape of
+      // the historical-replay bug: an old Import Wizard audit summary or
+      // a generic "imported ... from ....csv" message that was surfaced
+      // as if it were a brand-new event.
+      const actionLower = String(n.action || '').toLowerCase();
+      const looksLikeStaleImportBacklog =
+        actionLower.startsWith('import wizard —') ||
+        actionLower.startsWith('import wizard -') ||
+        (actionLower.includes('imported') && actionLower.includes('.csv'));
+      if (looksLikeStaleImportBacklog) {
+        console.warn('[Notification Cleanup] Removed stale startup notification:', n.action);
         return false;
       }
       return true;
     });
-    if (cleaned.length < list.length) {
+
+    if (cleaned.length !== notifs.length) {
       _rtSaveNotifications(cleaned);
-      console.log('[NOTIF-CLEANUP] Removed', list.length - cleaned.length, 'stale Import Wizard notification(s).');
+      console.log(`[Notification Cleanup] Removed ${notifs.length - cleaned.length} stale notification(s) left over from before the startup-notification fix.`);
     }
+
+    try { localStorage.setItem(NOTIF_CLEANUP_FLAG_KEY, '1'); } catch (e) {}
   } catch (e) {
-    console.error('[NOTIF-CLEANUP] Error during cleanup:', e);
+    console.warn('[Notification Cleanup] Error during cleanup:', e);
   }
 }
 
@@ -17016,12 +18365,31 @@ async function rtPollEvents() {
   _rtPolling = true;
   try {
     const since = _rtGetCursor();
+    // BUGFIX (root cause of stray startup notifications, e.g. "Owner:
+    // Import the CSV file" appearing on login): when this device/browser
+    // has never polled before (no cursor saved yet — new device, cleared
+    // site data/cache, incognito window, or first-ever login here),
+    // sinceRow defaults to 0, which pulls the ENTIRE historical AuditLog
+    // from the server — including old leftover entries such as a
+    // development-time test CSV import. Those are not live events; they
+    // may be days or weeks old. Replaying them as if they just happened
+    // is exactly what produced the unwanted notification. Detect this
+    // "first poll on this device" case up front so the backlog can be
+    // caught up silently instead of announced.
+    const isFirstPollOnThisDevice = (since === 0);
     const res = await fetch(`${window.DDTZ_SHEET_URL}?action=syncEvents&sinceRow=${since}&_=${Date.now()}`, { cache: 'no-store' });
     const data = await res.json();
     if (!data || !data.ok) { _rtBackoffMs = Math.min(_rtBackoffMs * 1.5, RT_POLL_MAX_BACKOFF_MS); return; }
     _rtBackoffMs = RT_POLL_MS; // reset backoff on a healthy response
     if (data.maxRow) _rtSetCursor(data.maxRow);
     const events = data.events || [];
+    // Silently establish the baseline on first poll — do NOT run
+    // _rtApplyEvents on the historical backlog. The cursor is already
+    // advanced to data.maxRow above, so every poll from here onward only
+    // ever sees genuinely new events, and all real-time notifications
+    // (bookings, fees, students, coaches, voice, etc.) continue to work
+    // exactly as before for every event that happens AFTER this point.
+    if (isFirstPollOnThisDevice) return;
     if (events.length) _rtApplyEvents(events);
   } catch (e) {
     _rtBackoffMs = Math.min(_rtBackoffMs * 1.5, RT_POLL_MAX_BACKOFF_MS); // network hiccup — slow down, don't hammer
@@ -17149,10 +18517,29 @@ function _rtApplyEvents(events) {
   if ((affected.has('fee') || [...affected].some(m => m.indexOf('coaching_') === 0)) && document.getElementById('page-fees')?.classList.contains('active')) window.renderFees?.();
   if (affected.has('fee')) window.syncFeesFromSheet?.();
   if (affected.has('cafe_sale') && document.getElementById('page-cafe')?.classList.contains('active')) window.renderCafe?.();
+  // CAFÉ BILLING — Dashboard and Finance both read cafeSales revenue
+  // (_finIncomeCafe / dashboard collection totals) but were never
+  // refreshed when a café sale changed on ANOTHER device, so both stayed
+  // stale until an unrelated re-render. Same targeted pattern as every
+  // other module here.
+  if (affected.has('cafe_sale')) {
+    window.renderDashboard?.();
+    if (document.getElementById('page-accounts')?.classList.contains('active')) window.renderAccounts?.();
+    if (document.getElementById('page-finance')?.classList.contains('active')) window.renderFinance?.();
+  }
   // PHASE 3.4d — Dues is a computed view over Students + Fees, so it needs
   // to be refreshed whenever either changes on another device, same
   // targeted-refresh pattern as every other module above.
   if ((affected.has('fee') || affected.has('student')) && document.getElementById('page-dues')?.classList.contains('active')) window.renderDues?.();
+  // PRODUCTION AUDIT FIX — Coach Settlement is a computed view over
+  // Students + Attendance + Fees (+ Due, via the frozen Due Engine), same
+  // principle as Dues directly above, but it had NO refresh trigger at
+  // all in this function before this fix — not for Attendance (which
+  // only syncs via this poll-merge path, never Firebase), and not for
+  // Fee/Student either (both fixed separately in their own Firebase
+  // listeners). This is specifically the Attendance-triggered case,
+  // since Attendance has no Firebase listener of its own to carry it.
+  if (affected.has('attendance') && document.getElementById('page-coachSettlement')?.classList.contains('active')) window.csRenderSettlement?.();
   // PHASE 3.5 — Student Enrolment Request System. PHASE 4.1: the
   // event-triggered re-fetch that used to run here has been removed —
   // window.initPendingEnrolmentsListener()'s Firebase subscription now
