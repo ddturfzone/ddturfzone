@@ -14421,94 +14421,54 @@ function csStudentsForCoach(coachName) {
  * multiple, matching the corrected Dues aggregation pattern.
  */
 function csStudentFeeForMonth(student, monthLabel, year) {
-  // PRODUCTION VERIFICATION FIX — this previously hardcoded
-  // `f.feeType === 'monthly'`, so a quarterly or yearly student's
-  // payments were completely invisible here: collected always came back
-  // 0 and pending always came back the full amount, no matter how much
-  // they had actually paid. Because totalCollected feeds
-  // coachShareAmount (= netCollected x revenueShare%), that understated
-  // every settlement containing a non-monthly student and UNDERPAID the
-  // coach. It also made "Pending Fees" on the coach report permanently
-  // wrong for those students.
+  // ROOT-CAUSE FIX (real one) — Coach Settlement was matching fee records
+  // by calendar-month LABEL (f.month === "August"). But Fee Collection's
+  // "Paid" status and Due Management's "removed from Due" are both
+  // determined by the ROLLING BILLING CYCLE engine (_dueCurrentPeriod /
+  // _computeDueEntry), which is intentionally NOT anchored to calendar
+  // month labels — see that engine's own comments: the next due date is
+  // Last Payment Date + 1/3/12 months, not "the 1st of next month". A
+  // student can be genuinely Paid and correctly dropped from the Due
+  // list while the fee record on file doesn't literally say "August" —
+  // e.g. they paid for a cycle that started in July and is still
+  // covering them into August. Matching on the label was therefore a
+  // second, PARALLEL definition of "is this student paid" that could
+  // (and did) disagree with the real one — exactly what the spec
+  // prohibits: "Coach Settlement must NEVER calculate payment status
+  // independently. It must ONLY consume the same shared billing data
+  // already used by Fee Collection and Due Management."
   //
-  // Now resolves the period the same way the frozen Due Engine does, for
-  // whatever fee structure the student is actually on, and matches fee
-  // records with the same period semantics — reusing the engine's rules
-  // rather than introducing a second, parallel interpretation of them.
-  // The frozen engine's own functions are NOT modified by this.
-  const structure = student.feeStructure || 'monthly';
-  const sid = student.studentId || student.id;
-  const yearStr = String(year);
-  const monthIdx = MONTH_NAMES.indexOf(monthLabel);
+  // Fix: stop matching by label entirely. Call _computeDueEntry — the
+  // exact function Due Management's own renderDues() calls — evaluated
+  // "as of" the end of the settlement's selected month (or right now, if
+  // that month is the current/a future one, so an open Coach Settlement
+  // page updates in lockstep with Due Management with no separate logic
+  // in between). Whatever Due Management would show for this student at
+  // that point in time is exactly what Coach Settlement shows too.
+  const now = new Date();
+  const monthIdx = MONTH_NAMES.indexOf(monthLabel); // 0-based
+  const yearNum = Number(year);
+  const isCurrentOrFutureMonth = yearNum > now.getFullYear() ||
+    (yearNum === now.getFullYear() && monthIdx >= now.getMonth());
+  const asOfDate = isCurrentOrFutureMonth
+    ? now // live — matches whatever Due Management shows right now, exactly
+    : new Date(yearNum, monthIdx + 1, 0, 23, 59, 59); // end of that past month
 
-  // ROOT-CAUSE FIX (Coach Settlement stale "Pending") — this used to
-  // require `f.feeType === 'monthly'` as a strict equality, so any fee
-  // record without an explicit feeType (legacy records saved before the
-  // field existed, and every record created through the Import Wizard,
-  // which never writes feeType at all — see _wizPersistRecord) was
-  // silently excluded here, even though Fee Collection shows it "Paid"
-  // and Due Management correctly drops the student from the Due list.
-  // Every OTHER consumer of fee records already treats a missing feeType
-  // as 'monthly' — the Firebase/Sheets merge (`fee.feeType || 'monthly'`)
-  // and the Due Engine's own period matcher (`(f.feeType || 'monthly')
-  // === structure`). Coach Settlement was the one place still doing a
-  // stricter, parallel check — exactly the "different payment
-  // calculation" / "ignoring Paid records" failure mode described. Now
-  // uses the identical default-aware comparison so it reads the exact
-  // same set of records Fee Collection and Due Management already agree
-  // on — no second definition of "which records belong to this period."
-  let matches;
-  if (structure === 'quarterly') {
-    // Same quarter mapping the Due Engine uses (_dueQuarterOf).
-    const quarter = monthIdx >= 0 ? _dueQuarterOf(monthIdx) : null;
-    matches = (window.DB.fees || []).filter(f =>
-      f.studentId === sid && (f.feeType || 'monthly') === 'quarterly' &&
-      f.quarter === quarter && String(f.year) === yearStr
-    );
-  } else if (structure === 'yearly') {
-    matches = (window.DB.fees || []).filter(f =>
-      f.studentId === sid && (f.feeType || 'monthly') === 'yearly' && String(f.year) === yearStr
-    );
-  } else {
-    matches = (window.DB.fees || []).filter(f =>
-      f.studentId === sid && (f.feeType || 'monthly') === 'monthly' &&
-      f.month === monthLabel && String(f.year) === yearStr
-    );
-  }
-
-  // Sum ALL matching records (a period can legitimately have more than
-  // one payment row), using the same backward-compatible amount reader
-  // the Due Engine and Fee Collection both use.
-  const collected = matches.reduce((sum, f) => sum + (f.amountReceived ?? f.paid ?? 0), 0);
-  // The plan amount for this student's own structure, discount applied —
-  // reuses the frozen engine's _dueAmountForStudent rather than reading
-  // student.fee directly (which is only ever the MONTHLY figure and was
-  // therefore also wrong for quarterly/yearly students here).
-  const monthlyFee = _dueAmountForStudent(student);
-  const pending = Math.max(0, monthlyFee - collected);
-
-  // Payment status/date — NEVER computed as a separate, independent
-  // judgment call. When there is exactly one matching record (the normal
-  // case — DD Turf Zone doesn't support installments, one record per
-  // period), its own `status` field and date are read directly, since
-  // that's the literal field Fee Collection already displays via
-  // statusBadge(f.status). Falling back to deriving from collected vs.
-  // monthlyFee only when there's no single record to read (zero or
-  // multiple matches), using the exact same thresholds saveFee() itself
-  // uses to set that field (paid<=0 → pending, paid<amount → partial,
-  // else paid) — same rule, not a new one.
-  let paymentStatus, paymentDate;
-  if (matches.length === 1) {
-    const only = matches[0];
-    paymentStatus = only.status === 'paid' ? 'Paid' : only.status === 'partial' ? 'Partial' : 'Pending';
-    paymentDate = only.receiptDate || only.date || '';
-  } else {
-    paymentStatus = pending <= 0 && monthlyFee > 0 ? 'Paid' : collected > 0 ? 'Partial' : 'Pending';
-    paymentDate = matches.length ? (matches[matches.length - 1].receiptDate || matches[matches.length - 1].date || '') : '';
-  }
-  // Guardrail for the explicit spec requirement: a fully-paid student must
-  // never be shown as "Pending", regardless of which branch set the label.
-  if (pending <= 0 && monthlyFee > 0) paymentStatus = 'Paid';
+  const dueEntry = _computeDueEntry(student, asOfDate);
+  const monthlyFee = dueEntry.amountDue;
+  const collected = dueEntry.received;
+  const pending = dueEntry.pending;
+  // Coach Settlement only distinguishes Paid / Partial / Pending (no
+  // overdue/due-soon distinctions, which are Due Management's own
+  // concern) — collapsed from the same dueEntry, not re-derived. A
+  // zero-fee plan (nothing owed) is always Paid, same as pending<=0.
+  const paymentStatus = (monthlyFee <= 0 || dueEntry.status === 'paid') ? 'Paid' : (collected > 0 ? 'Partial' : 'Pending');
+  // Payment date — the date of whichever real record the engine actually
+  // used: the closing payment if the cycle is fully covered, otherwise
+  // the open (partial) record's date, if any.
+  const period = dueEntry.period || {};
+  const dateRecord = period.lastPaidRecord || period.openRecord;
+  const paymentDate = dateRecord ? (dateRecord.receiptDate || dateRecord.date || '') : '';
 
   return { monthlyFee, collected, pending, paymentStatus, paymentDate };
 }
