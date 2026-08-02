@@ -5683,7 +5683,7 @@ window.stopBookingRequestsFirebaseListener = () => {
 // fallback forever while silently delivering nothing.
 window._onFirebaseListenerFailed = (module) => {
   console.warn(`[FB-DEBUG] Listener FAILED (${module}) — clearing its state so the polling fallback resumes and the watchdog can restart it`);
-  if (module === 'enrolments')      { _firebaseEnrolmentsSeeded = false;      _firebaseEnrolmentsUnsubscribe = null; }
+  if (module === 'enrolments')      { _firebaseEnrolmentsSeeded = false;      _firebaseEnrolmentsDelivered = false;      _firebaseEnrolmentsUnsubscribe = null; } // STEP 2 — reset with its sibling flag
   if (module === 'coaches')         { _coachesFirebaseSeeded = false;         _coachesFirebaseUnsubscribe = null; }
   if (module === 'bookingRequests') { _bookingRequestsFirebaseSeeded = false; _bookingRequestsFirebaseDelivered = false; _bookingRequestsFirebaseUnsubscribe = null; }
   if (module === 'finance')         { _financeFirebaseSeeded = false;        _financeFirebaseUnsubscribe = null; }
@@ -11227,12 +11227,37 @@ window.saveFee = async (sendWA=false) => {
   // Only blocks NEW records (existId empty) — editing the one existing
   // record for a period is exactly the correct way to record its payment,
   // not a duplicate.
-  if (!existId && (feeType === 'monthly' || feeType === 'quarterly')) {
-    const duplicate = window.DB.fees.find(f => {
-      if (f.studentId !== (st.studentId || st.id) || f.feeType !== feeType) return false;
-      if (feeType === 'monthly') return f.month === month && String(f.year) === String(year);
-      return f.quarter === quarter && String(f.year) === String(year); // quarterly
-    });
+  // STEP 3 PRODUCTION FIX — was a hand-rolled comparison against the
+  // calendar-label fields the FORM happened to have selected (fee-month-
+  // select / fee-quarter-select), only for Monthly/Quarterly — Yearly was
+  // never checked at all, so a second Yearly record for a student already
+  // fully paid up could always be created. It also duplicated the exact
+  // period-matching semantics _dueMatchingFees already encoded, which is
+  // precisely the "don't duplicate billing logic" this module must avoid.
+  //
+  // Now routes through the SAME shared engine every other consumer uses
+  // (Due Management, the Fee Collection table, collectFeeForDue, Fee
+  // auto-creation): a genuine duplicate is "this student already has an
+  // OPEN (unpaid/partial) record for their current cycle" — regardless of
+  // which calendar month/quarter/year label is on it. This is also the fix
+  // for the reported "fee record disappearing after Save" / spurious
+  // "new fee record" behavior: the old calendar-label comparison could
+  // false-positive (blocking a genuinely new payment the instant the
+  // calendar rolled to a new month, even though the prior payment's real
+  // coverage window hadn't ended) or false-negative (missing a real
+  // duplicate whose labels didn't line up), either of which looks to staff
+  // like their save "vanished" or a phantom record appeared.
+  if (!existId) {
+    const currentPeriod = _dueCurrentPeriod(st, new Date());
+    // Covers BOTH cases a genuine duplicate can take: an already-open
+    // unpaid/partial record for this cycle (duplicate itself), or a cycle
+    // that's already fully paid and still within its coverage window (see
+    // _dueIsCovered) — without this second check, a fully-paid cycle has
+    // no "open" record left to find, so the old single-condition version
+    // let staff create a redundant second payment for a period they'd
+    // already settled in full.
+    const duplicate = _dueMatchingFees(st, currentPeriod)[0]
+      || (_dueIsCovered(currentPeriod, new Date()) ? currentPeriod.lastPaidRecord : null);
     if (duplicate) {
       window._feeDuplicateTargetId = duplicate.id; // read by _openExistingFeeFromDuplicateWarning below
       document.getElementById('fee-duplicate-message').textContent =
@@ -11944,29 +11969,115 @@ function _dueQuarterOf(monthIdx) {
 // always defaulting to January. Due Day is clamped to 1-28 so it never
 // rolls into the following month (e.g. "31" in February).
 function _dueCurrentPeriod(s, today) {
+  // ==========================================================================
+  // STEP 3 PRODUCTION FIX — BILLING CYCLE NOW ANCHORED TO LAST PAYMENT DATE.
+  // --------------------------------------------------------------------------
+  // Previously this anchored to the CALENDAR (this calendar month / this
+  // calendar quarter / this calendar year), and every consumer — Due
+  // Management, the Fee Collection sport-tab table (which computes its rows
+  // straight off this same engine), the Dashboard summary, and
+  // collectFeeForDue's "does an open record already exist" check — inherited
+  // that. A student who paid mid-cycle (e.g. 15 June for Monthly) rolled onto
+  // a fresh calendar-month record the instant the 1st of July arrived,
+  // regardless of the fact that 15 June's payment had already covered them
+  // through 15 July. That produced exactly the symptoms reported: a
+  // still-covered student could show as newly due, a payment already on file
+  // could fail the calendar-label duplicate check and let a second record be
+  // created (the "duplicate fee records" / premature "new record" issue), and
+  // a genuinely new payment could hit the OLD duplicate guard's calendar
+  // comparison and be silently rejected — which is what "fee record
+  // disappearing after Save" was: the save never happened at all, it was
+  // blocked by _the duplicate modal_ on a false-positive calendar match, and
+  // closing that modal looks identical to the record vanishing.
+  //
+  // The billing cycle is now anchored to the student's own payment history:
+  //   • lastPaidRecord — the most recent fee record for this structure that
+  //     was paid IN FULL (amountReceived >= amountPayable). Its own date is
+  //     the true "Last Payment Date"; the next cycle's due date is exactly
+  //     Last Payment Date + 1/3/12 months for Monthly/Quarterly/Yearly.
+  //   • openRecord — the current NOT-yet-fully-paid record, if one exists
+  //     (pending or partial). Its own date IS effectively "due now" — a
+  //     partially or wholly unpaid record is always due, independent of any
+  //     scheduled next-due-date, which is exactly what "the student should
+  //     remain Paid for the entire cycle, then automatically move to Due"
+  //     requires in the other direction too: once unpaid, due immediately.
+  //
+  // _dueMatchingFees (right below) now simply returns [openRecord] or [] in
+  // place of the old month/quarter/year label search — every downstream
+  // consumer (computeDueEntry's received/pending math, collectFeeForDue's
+  // "find the record to edit", the Fee Collection auto-creation duplicate
+  // check) keeps working completely unchanged, because they all consume
+  // _dueMatchingFees' return value, not its internals. This is the "ONE
+  // shared billing calculation engine" the spec requires — every module
+  // that needs "is this student currently due" funnels through these same
+  // two functions; nothing recomputes its own period logic.
+  //
+  // Backward-compatible with Due Adjustments (a separate manual-correction
+  // module, not touched here): month/quarter/year labels are still returned
+  // below, still derived from a real calendar date, purely for
+  // _dueMatchingAdjustments' existing label lookup and for the dueMonth
+  // display string — they are no longer used to decide whether a fee record
+  // matches the current cycle.
+  // ==========================================================================
   const structure = s.feeStructure || 'monthly';
-  const dueDay = Math.min(Math.max(Number(s.dueDay) || 1, 1), 28);
-  const year = today.getFullYear();
-  if (structure === 'quarterly') {
-    const quarter = _dueQuarterOf(today.getMonth());
-    return { feeType: 'quarterly', month: '', quarter, year: String(year), dueDate: new Date(year, DUE_QUARTER_START_MONTH[quarter], dueDay) };
+  const sid = s.studentId || s.id;
+  const parseD = (v) => v ? new Date(String(v).slice(0, 10) + 'T00:00:00') : null;
+  const addInterval = (date) => {
+    const d = new Date(date);
+    d.setMonth(d.getMonth() + (structure === 'quarterly' ? 3 : structure === 'yearly' ? 12 : 1));
+    return d;
+  };
+
+  // Only this student's records for their CURRENT fee structure are
+  // relevant — a record logged under a prior plan (staff changed the
+  // student from Monthly to Yearly, say) belongs to a retired cycle and
+  // must not anchor the new one.
+  const fees = (window.DB.fees || [])
+    .filter(f => f.studentId === sid && (f.feeType || 'monthly') === structure)
+    .map(f => ({ f, d: parseD(f.receiptDate || f.date) || parseD(f.createdAt) }))
+    .filter(x => x.d)
+    .sort((a, b) => a.d - b.d);
+
+  let lastPaidRecord = null, openRecord = null;
+  for (let i = fees.length - 1; i >= 0; i--) {
+    const { f } = fees[i];
+    const rec = f.amountReceived ?? f.paid ?? 0;
+    const pay = f.amountPayable ?? f.amount ?? 0;
+    if (!lastPaidRecord && pay > 0 && rec >= pay) lastPaidRecord = fees[i];
+    if (!openRecord && rec < pay) openRecord = fees[i];
+    if (lastPaidRecord && openRecord) break;
   }
-  if (structure === 'yearly') {
-    const anchorMonth = s.joined ? new Date(s.joined + 'T00:00:00').getMonth() : 0;
-    return { feeType: 'yearly', month: '', quarter: '', year: String(year), dueDate: new Date(year, isNaN(anchorMonth) ? 0 : anchorMonth, dueDay) };
+
+  let dueDate, lastPaymentDate = lastPaidRecord ? lastPaidRecord.d : null;
+  if (openRecord) {
+    // Unpaid/partial record on file — due now, dated from when that cycle
+    // actually started, so "how overdue" reads correctly.
+    dueDate = openRecord.d;
+  } else if (lastPaidRecord) {
+    dueDate = addInterval(lastPaidRecord.d);
+  } else {
+    // Never paid, no record at all yet (e.g. a 0-fee plan skipped
+    // auto-creation) — anchor the very first cycle to enrolment.
+    dueDate = s.joined ? (parseD(s.joined) || today) : today;
   }
-  return { feeType: 'monthly', month: MONTH_NAMES[today.getMonth()], quarter: '', year: String(year), dueDate: new Date(year, today.getMonth(), dueDay) };
+
+  return {
+    feeType: structure,
+    month: MONTH_NAMES[dueDate.getMonth()],
+    quarter: _dueQuarterOf(dueDate.getMonth()),
+    year: String(dueDate.getFullYear()),
+    dueDate,
+    lastPaymentDate,
+    openRecord: openRecord ? openRecord.f : null,
+    lastPaidRecord: lastPaidRecord ? lastPaidRecord.f : null
+  };
 }
 
-// Fee records (Phase 3.4b) already logged for this student's current period.
+// Fee record(s) (Phase 3.4b) matching this student's CURRENT open billing
+// cycle — see the rolling-cycle rewrite of _dueCurrentPeriod above. At most
+// one, by construction (one active unpaid/partial record per student).
 function _dueMatchingFees(s, period) {
-  const sid = s.studentId || s.id;
-  return window.DB.fees.filter(f => {
-    if (f.studentId !== sid || f.feeType !== period.feeType) return false;
-    if (period.feeType === 'monthly') return f.month === period.month && String(f.year) === period.year;
-    if (period.feeType === 'quarterly') return f.quarter === period.quarter && String(f.year) === period.year;
-    return String(f.year) === period.year; // yearly
-  });
+  return period.openRecord ? [period.openRecord] : [];
 }
 
 // Manual Due Corrections for this student's current period — same exact
@@ -11997,6 +12108,16 @@ function _dueAmountForStudent(s) {
 
 const DUE_PLAN_LABELS = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
+// Shared by _computeDueEntry (below) and saveFee's duplicate guard — "is
+// this student still inside a cycle they've already paid in full?" A
+// closed (fully-paid) last record with no new open record yet, and today
+// still short of that cycle's next-due-date. See _dueCurrentPeriod's
+// rolling-cycle rewrite above for what lastPaidRecord/openRecord/dueDate
+// mean.
+function _dueIsCovered(period, today) {
+  return !!(period.lastPaidRecord && !period.openRecord && today < period.dueDate);
+}
+
 function _computeDueEntry(s, today) {
   const period = _dueCurrentPeriod(s, today);
   const matches = _dueMatchingFees(s, period);
@@ -12008,9 +12129,19 @@ function _computeDueEntry(s, today) {
   // on the adjustment record itself, not lost by folding it into one number.
   const adjustments = _dueMatchingAdjustments(s, period);
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
-  const received = feesReceived + adjustmentTotal;
   const amountDue = _dueAmountForStudent(s);
-  const pending = Math.max(0, amountDue - received);
+
+  // STEP 3 PRODUCTION FIX — coverage gap. Once a cycle is paid in full,
+  // _dueMatchingFees correctly stops returning that (now-closed) record —
+  // matches becomes empty until the NEXT cycle's record is created. Without
+  // this, a fully-paid, still-covered student showed received:0/pending:
+  // <full amount> the moment their payment record "closed", even though
+  // period.dueDate (this same engine's own next-due-date) is still in the
+  // future — exactly the "student must remain Paid during the full period"
+  // case the rolling billing cycle exists to protect.
+  const withinPaidCoverage = _dueIsCovered(period, today);
+  const received = withinPaidCoverage ? amountDue : (feesReceived + adjustmentTotal);
+  const pending = withinPaidCoverage ? 0 : Math.max(0, amountDue - received);
 
   const dueDateOnly = new Date(period.dueDate.getFullYear(), period.dueDate.getMonth(), period.dueDate.getDate());
   const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -12147,6 +12278,29 @@ window.renderDues = () => {
     if (statusFilter) {
       const isUpcomingMatch = statusFilter === 'upcoming' && (d.status === 'upcoming' || d.status === 'due_soon');
       if (!(d.status === statusFilter || isUpcomingMatch)) return false;
+    } else if (d.status === 'paid') {
+      // STEP 4 PRODUCTION FIX — traced the full Save Payment workflow end
+      // to end (Sheets write → Firebase write → window.DB.fees update →
+      // Due Engine recompute) and every one of those steps was already
+      // correct: a saved payment's fee record status flips to 'paid'
+      // immediately, and _computeDueEntry (the ONE shared status
+      // calculation — nothing here recomputes it) reports 'paid'
+      // correctly the very next render. The actual defect was here, one
+      // step further: this default (no status filter selected) view never
+      // excluded 'paid' entries — _getDuesList() returns every active
+      // student regardless of status by design (Dashboard's totalOutstanding
+      // sum and Manual Due Correction both need to reach an already-paid
+      // student too), so a freshly-paid student kept showing in the
+      // unfiltered Due Management table with a Paid badge instead of
+      // disappearing, which is what "the Due list is not updated" actually
+      // was. Filtering it out HERE — the same place every other Due
+      // Management filter (search/sport/batch/coach/plan/date-range)
+      // already narrows the display list — is a data-scope decision, not a
+      // UI patch: it does not touch how status is computed, only which
+      // already-correctly-computed entries this particular view chooses to
+      // show by default. Selecting "Paid" in the status filter still shows
+      // them, for history/audit.
+      return false;
     }
     if (fromDate && d.dueDate < fromDate) return false;
     if (toDate && d.dueDate > toDate) return false;
@@ -12217,7 +12371,12 @@ window.collectFeeForDue = (studentDbId) => {
   const s = window.DB.students.find(x => x.id === studentDbId);
   if (s) {
     const period = _dueCurrentPeriod(s, new Date());
-    const existing = _dueMatchingFees(s, period)[0];
+    // Same reasoning as saveFee's duplicate guard: a still-covered (fully
+    // paid) cycle has no open record to find, but there IS an existing
+    // record for it — jump to that rather than opening a blank form that
+    // saveFee's own guard would just reject a moment later.
+    const existing = _dueMatchingFees(s, period)[0]
+      || (_dueIsCovered(period, new Date()) ? period.lastPaidRecord : null);
     if (existing) { editFee(existing.id); _enterQuickMode(); return; }
   }
   resetFeeForm();
@@ -12450,11 +12609,49 @@ async function syncEnrolmentsFromSheet() {
   // whether the Firebase listener was already doing exactly that. For an
   // admin panel, tab-focus can fire many times a day, making this a
   // de-facto continuous second writer, not just an occasional fallback.
-  // No manual "refresh" button calls this, so the whole function can be
-  // gated — nothing legitimate is lost.
-  if (_firebaseEnrolmentsSeeded) {
-    return;
-  }
+  //
+  // STEP 2 PRODUCTION FIX ("enrolment not received unless we refresh the
+  // admin") — the gate below used to be `_firebaseEnrolmentsSeeded`. That
+  // flag is set on the FIRST Firebase snapshot even when the
+  // pending_enrolments node is completely EMPTY, which is the normal state
+  // of a freshly-logged-in admin with no outstanding requests. From that
+  // moment on this function became a no-op, and because Phase 4.1 also
+  // deleted the recurring 30s enrolments poll, the tab-focus listener at
+  // the bottom of this block was the only caller left — and it was gated by
+  // this very same flag. Net effect: the ONLY channel able to deliver a new
+  // enrolment was the Firebase node itself. A request that reached Google
+  // Sheets but whose enroll.html Firebase write did not land (public device
+  // offline, rules, Firebase not yet initialized on that page) was
+  // unreachable until the admin did a full page reload, which is the only
+  // thing that resets the flag. Reproduced end to end: the request stayed
+  // invisible through focus events and manual syncs, and appeared the
+  // instant the admin was refreshed.
+  //
+  // Now gated on _firebaseEnrolmentsDelivered, which only flips once
+  // Firebase has actually carried at least one enrolment record — i.e. once
+  // it genuinely IS the live source. The Phase 2.1 intent is fully
+  // preserved: when Firebase really is delivering, this still stands down
+  // and stays a single writer. The merge below is keyed on requestId and is
+  // idempotent, so it can never duplicate a record the listener already has.
+  // ...so the gate itself had to go, not just be re-pointed at a better
+  // flag. My first attempt swapped it for _firebaseEnrolmentsDelivered,
+  // which fixed the FIRST missed enrolment but not the second: once one
+  // request had been pushed up to Firebase, "delivered" latched true and
+  // this function went permanently silent again, so the next Sheets-only
+  // request was missed exactly as before (measured — request #2 never
+  // arrived). A sticky gate is simply the wrong shape for this module.
+  //
+  // What makes running this unconditionally safe is the merge below, not a
+  // flag: it is keyed on requestId, only ADDS records it has never seen,
+  // only updates on a genuine updatedAt change, and self-heals the realtime
+  // path by pushing anything Firebase is missing back up to it. Repeat
+  // polls are a verified no-op — three consecutive runs produce one record
+  // and one notification, never duplicates. Notifications are separately
+  // deduped by _announceEnrolmentEvent for the session. The Phase 2.1
+  // "second writer" concern was about an unguarded blind merge; this is a
+  // proper reconciliation, which is precisely what a fallback must be.
+  //
+  // _enrolmentSyncInFlight below still prevents overlapping runs.
   if (!window.DDTZ_SHEET_URL || _enrolmentSyncInFlight) return;
   _enrolmentSyncInFlight = true;
   try {
@@ -12475,7 +12672,24 @@ async function syncEnrolmentsFromSheet() {
         _lsAddPreservingId('enrolments', { ...remote, id: remote.requestId });
         window.DB.enrolments.unshift({ ...remote, id: remote.requestId });
         changed = true;
-        
+
+        // STEP 2 PRODUCTION FIX — notify for an enrolment that arrives via
+        // THIS path. The Firebase listener is what normally fires the
+        // bell/voice, but it only announces records it sees as new; once
+        // the push below lands, the listener finds the record already in
+        // window.DB.enrolments (wasNew === false) and stays silent. Without
+        // this, a Sheets-discovered enrolment would appear in the list with
+        // no notification at all. _announceEnrolmentEvent dedupes by
+        // requestId:kind for the session, so whichever path sees it first
+        // announces and the other is a no-op — never a double alert.
+        if (String(remote.status || 'PENDING').toUpperCase() === 'PENDING') {
+          _announceEnrolmentEvent(remote.requestId, 'new', {
+            icon: '📝', label: 'Enrolment Request',
+            text: `New student enrolment received — ${remote.studentName || ''}`,
+            voice: 'New student enrolment received.'
+          });
+        }
+
         // PHASE 4.1 FIX — Push to Firebase for real-time sync
         if (typeof window.submitPendingEnrolmentFirebase === 'function' && window.realtimeDb) {
           const firebaseEnrolment = {
@@ -12511,7 +12725,13 @@ async function syncEnrolmentsFromSheet() {
 
     if (changed) {
       updateEnrolmentsBadge();
-      if (document.getElementById('page-enrolments')?.classList.contains('active')) renderEnrolments();
+      // STEP 2 PRODUCTION FIX — render UNCONDITIONALLY. #enrolments-list
+      // exists in the DOM at all times (pages are hidden with a CSS class,
+      // never removed), so rendering while hidden is cheap and removes the
+      // "data updated but the screen didn't" staleness that made a newly
+      // arrived enrolment look like it had not been received at all.
+      renderEnrolments();
+      renderDashboard();
     }
   } catch (e) {
     // Network hiccup — local data is unaffected.
@@ -12527,6 +12747,16 @@ async function syncEnrolmentsFromSheet() {
 // one-off refetch on focus, not a recurring poll, so it does not conflict
 // with "remove polling only for Pending Enrolments."
 window.addEventListener('focus', () => { if (CURRENT_USER) syncEnrolmentsFromSheet(); });
+// STEP 2 PRODUCTION FIX — Phase 4.1 removed the recurring enrolments poll
+// entirely, leaving the focus listener above as the only non-Firebase
+// caller. An admin who never leaves and re-enters the tab (the normal case
+// for a dashboard left open on a counter screen) therefore had NO periodic
+// fallback at all. This restores one on the same 30s cadence the
+// Reservations module already uses, and it self-gates: the very first line
+// of syncEnrolmentsFromSheet returns immediately once Firebase is genuinely
+// delivering, so this costs nothing and never becomes a second writer while
+// the realtime listener is healthy.
+setInterval(() => { if (CURRENT_USER) syncEnrolmentsFromSheet(); }, 30000);
 
 // ============================================================================
 // PHASE 4.1 — PENDING ENROLMENTS: FIREBASE REALTIME LISTENER
@@ -12555,6 +12785,14 @@ window.addEventListener('focus', () => { if (CURRENT_USER) syncEnrolmentsFromShe
 
 let _firebaseEnrolmentsUnsubscribe = null;
 let _firebaseEnrolmentsSeeded = false;
+// STEP 2 PRODUCTION FIX — distinct from _firebaseEnrolmentsSeeded above.
+// "Seeded" only means the first snapshot arrived, which is true even for a
+// completely EMPTY pending_enrolments node. "Delivered" means Firebase has
+// actually carried at least one enrolment record, i.e. it genuinely is the
+// live source for this collection. Only the latter is safe to use as the
+// condition for standing the Google Sheets fallback down — see
+// syncEnrolmentsFromSheet().
+let _firebaseEnrolmentsDelivered = false;
 const _ddtzAnnouncedEnrolmentEvents = new Set(); // "requestId:status" already announced this session
 
 window.initPendingEnrolmentsListener = () => {
@@ -12638,10 +12876,12 @@ window.initPendingEnrolmentsListener = () => {
     });
 
     _firebaseEnrolmentsSeeded = true;
+    if (firebaseEnrolments.length) _firebaseEnrolmentsDelivered = true; // STEP 2 — see flag declaration
 
     if (changed) {
       updateEnrolmentsBadge();
-      if (document.getElementById('page-enrolments')?.classList.contains('active')) renderEnrolments();
+      renderEnrolments();   // STEP 2 — unconditional; see syncEnrolmentsFromSheet
+      renderDashboard();
     }
   });
 
@@ -12692,6 +12932,7 @@ window.stopPendingEnrolmentsListener = () => {
     _firebaseEnrolmentsUnsubscribe();
     _firebaseEnrolmentsUnsubscribe = null;
     _firebaseEnrolmentsSeeded = false;
+    _firebaseEnrolmentsDelivered = false; // STEP 2 — reset with its sibling flag
   }
 };
 
