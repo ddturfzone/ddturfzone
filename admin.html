@@ -3972,6 +3972,28 @@ function _enterApp(user) {
   window.rtPollEvents?.();  // and do one immediate poll rather than waiting for the first 2.5s tick
   
   // PHASE 4: Firebase Realtime Database initialization
+  _startFirebaseWhenReady();
+}
+
+// ROOT-CAUSE FIX — "Firebase stuck on Connecting… after a page refresh."
+// firebase.js (and the Firebase SDK CDN scripts) load with `defer`, which
+// guarantees they run after the document is parsed, right before
+// DOMContentLoaded. restoreSession() below is a plain, non-deferred inline
+// IIFE — browsers always execute a non-deferred inline script the instant
+// the parser reaches it, which is unconditionally BEFORE any deferred
+// script runs, regardless of source order in the file. On every refresh
+// with an existing saved session, restoreSession() calls _enterApp()
+// synchronously, which used to do a single `typeof window.initializeFirebase
+// === 'function'` check — at that exact moment firebase.js has not executed
+// yet, so the check silently failed and Firebase was NEVER initialized for
+// the rest of the session. Nothing ever updates the connection indicator
+// after that (it's set by code inside initializeFirebase() itself), so it
+// stays on its default "⚪ Firebase Connecting…" forever. A manual doLogin()
+// click was never affected — by the time a human finishes typing
+// credentials, the deferred scripts have long since finished loading.
+// Fix: retry until initializeFirebase actually exists (typically resolves
+// within one or two 100ms ticks) instead of a single mistimed check.
+function _startFirebaseWhenReady(retriesLeft = 100) {
   if (typeof window.initializeFirebase === 'function') {
     window.initializeFirebase().then((result) => {
       if (result.success) {
@@ -4025,6 +4047,18 @@ function _enterApp(user) {
         console.error('✗ Firebase initialization failed:', result.error);
       }
     });
+  } else if (retriesLeft > 0) {
+    // firebase.js's deferred script hasn't executed yet — try again shortly
+    // instead of silently giving up, which is exactly what happened before
+    // this fix on every page refresh.
+    setTimeout(() => _startFirebaseWhenReady(retriesLeft - 1), 100);
+  } else {
+    console.error('✗ firebase.js never loaded after 10s — realtime sync (Fees/Coaches/Finance/Coach Settlement/etc.) is disabled for this session. Check your network connection or ad-blocker and refresh.');
+    const indicator = document.getElementById('firebase-connection-indicator');
+    if (indicator) {
+      indicator.textContent = '🔴 Firebase Error: script failed to load';
+      indicator.style.color = 'var(--red, #ef4444)';
+    }
   }
 }
 
