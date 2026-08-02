@@ -9874,7 +9874,16 @@ window.saveStudent = async () => {
   // had NO fee record at all until someone manually opened Fee Collection
   // and recorded one. See _autoCreateFeeForNewStudent below for why this
   // is safe against the Due Engine / Coach Settlement.
-  if (!existId) await _autoCreateFeeForNewStudent(data);
+  // ROOT-CAUSE FIX — this was `await`ed here, which meant the Student
+  // record (already safely saved above) could not be confirmed to the
+  // user — modal stays open, no success toast — until a SECOND, unrelated
+  // network round-trip (Sheets POST + Firebase write for the auto-created
+  // fee record, inside _autoCreateFeeForNewStudent) finished. Any Sheets/
+  // network slowness made the Save button look completely unresponsive
+  // even though the student was already saved. Fire-and-forget instead —
+  // consistent with this function's own guarantee, just below, that fee
+  // auto-creation must never be able to affect the student save.
+  if (!existId) _autoCreateFeeForNewStudent(data);
   closeModal('student-modal');
   resetStudentForm();
   renderStudents();
@@ -11239,8 +11248,26 @@ window.editFee = (id) => {
   openModal('fee-modal');
 };
 
+let _feeSaveInFlight = false; // ROOT-CAUSE FIX — see the try/finally below
 window.saveFee = async (sendWA=false) => {
   if (!can('manageFees')) { denyAccess(); return; }
+  // ROOT-CAUSE FIX — duplicate fee records (e.g. the same student ending up
+  // with 7-8 separate "paid" ₹2,000 receipts for one billing cycle). Every
+  // receipt number involved was real and sequential, proving each duplicate
+  // was a genuine, separate saveFee() run — not a display bug. The "one
+  // record per period" duplicate check a few lines below reads
+  // window.DB.fees synchronously at the START of each call, but the new
+  // record isn't added to window.DB.fees until AFTER `await saveDoc(...)`
+  // resolves. If Save is clicked again (e.g. because the button felt
+  // unresponsive) while the first click's save is still in flight, the
+  // second call's duplicate check runs against the same pre-save state and
+  // also passes, creating a second real record — classic double-submit
+  // race condition. This flag closes that window: a second call while one
+  // is already running is ignored outright, for the entire duration of the
+  // save (through the try/finally around the rest of this function).
+  if (_feeSaveInFlight) { return; }
+  _feeSaveInFlight = true;
+  try {
   const stId=document.getElementById('fee-student-select').value;
   const st=window.DB.students.find(s=>s.id===stId);
   if(!st){showToast('Search and select a student','error');return;}
@@ -11435,6 +11462,9 @@ window.saveFee = async (sendWA=false) => {
     const msg = encodeURIComponent(lines.join('\n'));
     const phone=st.phone.replace(/\D/g,'');
     window.open(`https://wa.me/${phone.startsWith('91')?phone:'91'+phone}?text=${msg}`,'_blank');
+  }
+  } finally {
+    _feeSaveInFlight = false;
   }
 };
 window.saveFeeAndWhatsApp=()=>saveFee(true);

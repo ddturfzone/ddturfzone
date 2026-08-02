@@ -95,7 +95,15 @@ const TABS = {
   // SiteConfig (Images/Pricing/Videos columns) — Totals/Students/
   // PaymentHistory are stored as JSON strings, never flattened into
   // dozens of columns. Read back and parsed by handleCoachSettlementsGet.
-  COACH_SETTLEMENTS: 'CoachSettlements'
+  COACH_SETTLEMENTS: 'CoachSettlements',
+  // ROOT-CAUSE FIX — admin.html's _finSyncSummaryToSheets() (Finance page)
+  // has been POSTing type:'finance_summary' since Phase 4.2, but this
+  // handler never existed server-side: every push hit doPost's `default`
+  // branch and returned "Unknown payload type: finance_summary", surfaced
+  // to the user as a red toast on every Finance page view/refresh. One row
+  // per calendar month, upserted by `period` ("YYYY-MM") — same generic
+  // upsert pattern as CoachSettlements above.
+  FINANCE_SUMMARY: 'FinanceSummary'
 };
 
 // ----------------------------------------------------------------------------
@@ -461,6 +469,13 @@ function doPost(e) {
       case 'coach_settlement':       return handleGenericUpsert(payload, TABS.COACH_SETTLEMENTS,
         ['settlementId','coachId','coachName','sport','monthValue','monthLabel','year','revenueSharePercent',
          'totals','students','status','paymentHistory','generatedDate','generatedBy'], 'settlementId');
+      // ROOT-CAUSE FIX — see the TABS.FINANCE_SUMMARY comment above. One row
+      // per calendar month, upserted by `period` — refreshed every time the
+      // Finance page is viewed (admin.html's _finSyncSummaryToSheets), same
+      // generic upsert every other module here already uses.
+      case 'finance_summary':        return handleGenericUpsert(payload, TABS.FINANCE_SUMMARY,
+        ['period','totalIncome','incomeSlot','incomeCoaching','incomeCafe',
+         'totalExpenses','expSlot','expCoaching','expCafe','expGeneral','expOwner','expEmployee','netProfit'], 'period');
       default:
         if (type.indexOf('coaching_') === 0) return handleCoachingFee(payload, type);
         return _fail('Unknown payload type: ' + type);
