@@ -7696,34 +7696,113 @@ window._confirmResetCoachingModule = async () => {
   window._rtRenderBell?.();
   log('✅ This device\'s views refreshed.');
 
-  // ----- Step 6: verify -----
-  log('⏳ Verifying…');
-  const verifyChecks = [];
+  // ----- Step 6: verify — nine independent checks, all-or-nothing gate.
+  // "Completed Successfully" is only ever shown if every single one below
+  // passes; otherwise the exact failing check(s) are named and nothing
+  // claims success. Each check is a genuine re-read (Sheets GET, Firebase
+  // .once('value'), or the same live functions the real pages call), not
+  // an assumption that earlier steps worked.
+  log('⏳ Verifying (9 checks)…');
+  const results = []; // { name, pass, detail }
+  const rec = (name, pass, detail) => results.push({ name, pass, detail });
+
   try {
-    const studentsCheck = await fetch(`${window.DDTZ_SHEET_URL}?action=students&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json());
-    verifyChecks.push(`Sheets Students: ${(studentsCheck?.students || []).length === 0 ? '✅ empty' : '⚠️ ' + studentsCheck.students.length + ' rows remain'}`);
-    const feesCheck = await fetch(`${window.DDTZ_SHEET_URL}?action=fees&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json());
-    verifyChecks.push(`Sheets Fees: ${(feesCheck?.fees || []).length === 0 ? '✅ empty' : '⚠️ ' + feesCheck.fees.length + ' rows remain'}`);
+    const [studentsCheck, feesCheck, attCheck, dueCheck, csCheck] = await Promise.all([
+      fetch(`${window.DDTZ_SHEET_URL}?action=students&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()),
+      fetch(`${window.DDTZ_SHEET_URL}?action=fees&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()),
+      fetch(`${window.DDTZ_SHEET_URL}?action=attendance&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()),
+      fetch(`${window.DDTZ_SHEET_URL}?action=dueAdjustments&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()),
+      fetch(`${window.DDTZ_SHEET_URL}?action=coachSettlements&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json())
+    ]);
+    const sN = (studentsCheck?.students || []).length;
+    rec('Students = 0', sN === 0, `Sheets Students: ${sN} row(s) remain`);
+    const fN = (feesCheck?.fees || []).length;
+    rec('Fee Collection = 0', fN === 0, `Sheets Fees: ${fN} row(s) remain`);
+    const aN = (attCheck?.attendance || []).length;
+    rec('Attendance = 0', aN === 0, `Sheets Attendance: ${aN} row(s) remain`);
+    const dN = (dueCheck?.dueAdjustments || []).length;
+    rec('Due = 0', dN === 0, `Sheets DueAdjustments: ${dN} row(s) remain`);
+    const csN = (csCheck?.settlements || []).length;
+    rec('Coach Settlement = 0', csN === 0, `Sheets CoachSettlements: ${csN} row(s) remain`);
   } catch (e) {
-    verifyChecks.push('⚠️ Could not verify Sheets (network error) — check manually.');
+    ['Students = 0', 'Fee Collection = 0', 'Attendance = 0', 'Due = 0', 'Coach Settlement = 0']
+      .forEach(name => rec(name, false, 'Could not reach Google Sheets to verify (network error)'));
   }
+
+  // Dashboard coaching counts — the same live functions renderDashboard()
+  // itself calls, not a DOM text-scrape (which would break the moment the
+  // label text changes).
+  const activeStudents = (window.DB.students || []).filter(s => s.status === 'active' && !s.archived);
+  const dashCoachingSessions = new Set(activeStudents.map(s => s.sport)).size;
+  const dashPendingFees = typeof _duesSummary === 'function' && typeof _getDuesList === 'function'
+    ? _duesSummary(_getDuesList()).totalOutstanding : 0;
+  rec('Dashboard coaching counts = 0', dashCoachingSessions === 0 && dashPendingFees === 0,
+    `Today's Coaching: ${dashCoachingSessions}, Pending Fees: ₹${dashPendingFees}`);
+
+  // Finance coaching income — same _finIncomeCoaching() the real Finance
+  // page calls, over an all-time range so no date-window can hide a
+  // leftover record.
+  const financeCoachingIncome = _csCanAccess() && typeof _finIncomeCoaching === 'function'
+    ? _finIncomeCoaching('0000-01-01', '9999-12-31') : window.DB.fees.reduce((s,f)=>s+(Number(f.amountReceived??f.paid)||0),0);
+  rec('Finance coaching income = ₹0', financeCoachingIncome === 0, `Coaching Income (all-time): ₹${financeCoachingIncome}`);
+
+  // Coaching notifications cleared — re-read from localStorage, not the
+  // in-memory list from Step 4, so this actually confirms the save stuck.
+  const leftoverNotifs = _rtGetNotifications().filter(n => COACHING_RESET_NOTIF_MODULES.includes(n.module));
+  rec('Coaching notifications cleared', leftoverNotifs.length === 0, `${leftoverNotifs.length} coaching notification(s) remain`);
+
+  // Firebase — checked last since it also gates the final "Manager/Super
+  // Admin parity" check below.
+  let firebaseAllClear = false;
   if (fbRes && fbRes.success && realtimeDbCheckable()) {
     try {
       const db = window.getFirebaseService().db;
-      const [sSnap, fSnap] = await Promise.all([db.ref('students').once('value'), db.ref('fees').once('value')]);
-      verifyChecks.push(`Firebase students: ${!sSnap.exists() ? '✅ empty' : '⚠️ still has data'}`);
-      verifyChecks.push(`Firebase fees: ${!fSnap.exists() ? '✅ empty' : '⚠️ still has data'}`);
+      const [sSnap, fSnap, dSnap, cSnap] = await Promise.all([
+        db.ref('students').once('value'), db.ref('fees').once('value'),
+        db.ref('due_adjustments').once('value'), db.ref('coach_settlements').once('value')
+      ]);
+      firebaseAllClear = !sSnap.exists() && !fSnap.exists() && !dSnap.exists() && !cSnap.exists();
+      rec('Firebase coaching collections = 0', firebaseAllClear,
+        `students:${sSnap.exists()?'has data':'empty'} fees:${fSnap.exists()?'has data':'empty'} due_adjustments:${dSnap.exists()?'has data':'empty'} coach_settlements:${cSnap.exists()?'has data':'empty'}`);
     } catch (e) {
-      verifyChecks.push('⚠️ Could not verify Firebase (network error) — check manually.');
+      rec('Firebase coaching collections = 0', false, 'Could not reach Firebase to verify (network error)');
     }
+  } else {
+    rec('Firebase coaching collections = 0', false, fbRes?.error || 'Firebase reset did not succeed in Step 3');
   }
-  verifyChecks.forEach(log);
+
+  // Manager/Super Admin parity — I cannot directly observe another open
+  // browser session from here. What CAN be verified is the mechanism that
+  // guarantees parity: both Sheets (what any fresh page load reads) and
+  // Firebase (what any already-open session's live listeners react to)
+  // are confirmed empty above — since every device reads from this same
+  // single backend, that structurally guarantees any Manager or Super
+  // Admin session converges to the same empty state. This check's pass
+  // condition is exactly that guarantee holding, not a fabricated direct
+  // observation of another device.
+  const sheetsAllClear = results.slice(0, 5).every(r => r.pass);
+  rec('Manager & Super Admin see identical empty data', sheetsAllClear && firebaseAllClear,
+    sheetsAllClear && firebaseAllClear
+      ? 'Guaranteed structurally — Sheets and Firebase (the one shared backend every device reads from) are both confirmed empty above.'
+      : 'Cannot be guaranteed — Sheets and/or Firebase are not both confirmed empty above.');
+
   log('');
-  log('Any OTHER device (Manager or Super Admin) with this app open will see the same empty Coaching module the moment its Firebase listeners receive this deletion — no manual action needed on that device. A fresh page load on any device will also load empty from Sheets/Firebase directly.');
+  results.forEach(r => log((r.pass ? '✅ ' : '❌ ') + r.name + (r.pass ? '' : ' — ' + r.detail)));
+  log('');
+
+  const allPassed = results.every(r => r.pass);
+  if (allPassed) {
+    log('✅ Coaching Module Reset Completed Successfully');
+    showToast('✅ Coaching Module Reset Completed Successfully', 'info');
+  } else {
+    const failedNames = results.filter(r => !r.pass).map(r => r.name);
+    log(`❌ Coaching Module Reset INCOMPLETE — verification failed at: ${failedNames.join(', ')}`);
+    log('Data has already been deleted from Sheets/Firebase/local where the earlier steps succeeded — this failure is in the VERIFICATION re-read itself (e.g. a network hiccup), not necessarily a sign the delete didn\'t happen. Re-open this dialog to re-run verification, or check the failing item manually.');
+    showToast('❌ Coaching Reset verification failed — see the modal for exactly which check.', 'error');
+  }
 
   cancelBtn.disabled = false;
   cancelBtn.textContent = 'Close';
-  showToast('Coaching module reset complete ✅', 'info');
 };
 function realtimeDbCheckable() { return typeof window.getFirebaseService === 'function' && !!window.getFirebaseService().db; }
 
