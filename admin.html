@@ -869,7 +869,8 @@ tr:hover td{background:#f8fffe}
              reuses the existing collectFeeForDue()/fee-modal/saveFee()
              Quick Payment flow untouched. -->
         <div class="fee-sport-tabs">
-          <button type="button" class="fee-sport-tab active" data-sport="football" onclick="selectFeeSportTab('football')">⚽<span>Football</span></button>
+          <button type="button" class="fee-sport-tab active" data-sport="all" onclick="selectFeeSportTab('all')">🏆<span>All Sports</span></button>
+          <button type="button" class="fee-sport-tab" data-sport="football" onclick="selectFeeSportTab('football')">⚽<span>Football</span></button>
           <button type="button" class="fee-sport-tab" data-sport="cricket" onclick="selectFeeSportTab('cricket')">🏏<span>Cricket</span></button>
           <button type="button" class="fee-sport-tab" data-sport="taekwondo" onclick="selectFeeSportTab('taekwondo')">🥋<span>Taekwondo</span></button>
         </div>
@@ -11484,28 +11485,20 @@ window._openExistingFeeFromDuplicateWarning = () => {
   window._feeDuplicateTargetId = null;
 };
 
-// Computes the Fee Collection stats (Collected/Pending/Partial/Total) and
-// refreshes the sport-tab table. Same aggregation formulas as before
-// (payableOf/receivedOf fallbacks, collected/pending/partial totals) —
-// previously computed over a subset narrowed by the old table's Search/
-// Status/Month filters; those filters no longer exist (the table itself
-// was removed), so this now aggregates over the full fee list, which was
-// already the default (no-filter) behavior in the common case.
+// ROOT-CAUSE FIX — the summary cards above the sport tabs used to be
+// computed from ALL raw fee LEDGER records (window.DB.fees, every sport,
+// every student, every historical payment ever made — via renderFees()),
+// while the table below it showed only the selected sport's CURRENT
+// per-student status (via renderFeeSportTable()'s own separate
+// _computeDueEntry pass over window.DB.students). Those are two different
+// datasets computed two different ways, so switching to e.g. the Cricket
+// tab (1 student, ₹2,000 paid) while the summary kept showing a
+// global ₹31,500 looked exactly like a calculation bug, even though each
+// number was individually "correct" for what it measured. Per spec: "The
+// summary cards and the student table must always use the same filtered
+// dataset" — so both now come from ONE _buildFeeSportList() call below,
+// scoped to whichever sport tab is active ('all' unions every sport).
 window.renderFees = () => {
-  const payableOf = f => f.amountPayable ?? f.amount ?? 0;
-  const receivedOf = f => f.amountReceived ?? f.paid ?? 0;
-  const list = window.DB.fees || [];
-  const collected=list.filter(f=>f.status==='paid').reduce((s,f)=>s+receivedOf(f),0);
-  const pending=list.filter(f=>f.status!=='paid').reduce((s,f)=>s+Math.max(0,f.pending ?? (payableOf(f)-receivedOf(f))),0);
-  const partial=list.filter(f=>f.status==='partial').length;
-  document.getElementById('fee-stats').innerHTML=`
-    <div class="stat-card green"><div class="stat-icon">💰</div><div class="stat-val">₹${collected.toLocaleString()}</div><div class="stat-label">Collected</div></div>
-    <div class="stat-card red"><div class="stat-icon">⏳</div><div class="stat-val">₹${pending.toLocaleString()}</div><div class="stat-label">Pending</div></div>
-    <div class="stat-card yellow"><div class="stat-icon">⚠️</div><div class="stat-val">${partial}</div><div class="stat-label">Partial Payments</div></div>
-    <div class="stat-card blue"><div class="stat-icon">📋</div><div class="stat-val">${list.length}</div><div class="stat-label">Total Records</div></div>`;
-  // The sport-tab table is the actual Fee Collection UI staff see; refresh
-  // it every time renderFees() runs, so every existing caller (sync
-  // listeners, save/delete/edit, etc.) keeps it live for free.
   renderFeeSportTable();
 };
 
@@ -11518,7 +11511,7 @@ window.renderFees = () => {
 // No fee/due calculation, sync, or receipt logic is duplicated or altered
 // here.
 // ============================================================================
-window._activeFeeSport = window._activeFeeSport || 'football';
+window._activeFeeSport = window._activeFeeSport || 'all';
 
 window.selectFeeSportTab = (sport) => {
   window._activeFeeSport = sport;
@@ -11536,22 +11529,49 @@ function _feeRowStatusFor(entry) {
   return 'due';
 }
 
-window.renderFeeSportTable = () => {
-  const tbody = document.getElementById('fee-sport-tbody');
-  if (!tbody) return;
-  const sport = window._activeFeeSport || 'football';
+// The ONE dataset both the summary cards and the table below are built
+// from — 'all' unions every sport, otherwise scoped to exactly the
+// students on that sport. Each student appears at most once (this is a
+// per-STUDENT current-status list, not a raw fee-ledger dump), so
+// "Total Students"/"Collected"/"Pending"/"Partial"/"Total Payable" all
+// describe the exact same set of rows the table renders.
+function _buildFeeSportList(sport) {
   const today = new Date();
-
-  const list = (window.DB.students || [])
-    .filter(s => !s.archived && s.status === 'active' && (s.sport || '').toLowerCase() === sport)
+  return (window.DB.students || [])
+    .filter(s => !s.archived && s.status === 'active' && (sport === 'all' || (s.sport || '').toLowerCase() === sport))
     .map(s => {
       const entry = _computeDueEntry(s, today);
       return { s, entry, rowStatus: _feeRowStatusFor(entry) };
     })
     .sort((a, b) => a.s.name.localeCompare(b.s.name));
+}
+
+window.renderFeeSportTable = () => {
+  const tbody = document.getElementById('fee-sport-tbody');
+  if (!tbody) return;
+  const sport = window._activeFeeSport || 'all';
+  const list = _buildFeeSportList(sport);
+
+  // Summary cards — same `list` the table renders below, never a
+  // separately-filtered or unfiltered dataset. See the ROOT-CAUSE FIX
+  // comment on renderFees() above for why this matters.
+  const collected = list.reduce((s, { entry }) => s + entry.received, 0);
+  const pending = list.reduce((s, { entry }) => s + entry.pending, 0);
+  const payable = list.reduce((s, { entry }) => s + entry.amountDue, 0);
+  const partial = list.filter(({ rowStatus }) => rowStatus === 'partial').length;
+  const statsEl = document.getElementById('fee-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="stat-card blue"><div class="stat-icon">🧑‍🎓</div><div class="stat-val">${list.length}</div><div class="stat-label">Total Students</div></div>
+      <div class="stat-card green"><div class="stat-icon">💰</div><div class="stat-val">₹${collected.toLocaleString('en-IN')}</div><div class="stat-label">Collected</div></div>
+      <div class="stat-card red"><div class="stat-icon">⏳</div><div class="stat-val">₹${pending.toLocaleString('en-IN')}</div><div class="stat-label">Pending</div></div>
+      <div class="stat-card yellow"><div class="stat-icon">⚠️</div><div class="stat-val">${partial}</div><div class="stat-label">Partial Payments</div></div>
+      <div class="stat-card purple"><div class="stat-icon">📋</div><div class="stat-val">₹${payable.toLocaleString('en-IN')}</div><div class="stat-label">Total Payable</div></div>`;
+  }
 
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">💰</div><p>No ${sport} students found.</p></div></td></tr>`;
+    const label = sport === 'all' ? 'any sport' : sport;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">💰</div><p>No students found for ${label}.</p></div></td></tr>`;
     return;
   }
 
