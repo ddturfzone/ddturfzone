@@ -47,8 +47,26 @@ window.initializeFirebase = async () => {
     console.log('✓ Firebase Realtime Database initialized');
 
     // Get Firestore reference
-    firestoreDb = firebase.firestore(firebaseApp);
-    console.log('✓ Firebase Firestore initialized');
+    // BUGFIX: this used to be unguarded, so if firebase.firestore was ever
+    // undefined (e.g. the firebase-firestore-compat.js script tag was
+    // missing from admin.html, as it was until now) this line threw and
+    // was caught by the OUTER try/catch below — which aborted the entire
+    // function before firebaseFullyReady was ever set. That took Realtime
+    // DB and Auth down with it, even though both had already succeeded
+    // above, and left every login stuck on "Connecting..." indefinitely.
+    // Isolating Firestore's own init means a Firestore-specific problem
+    // (e.g. a CDN hiccup) degrades gracefully — Fees will show a Firestore
+    // error, but Bookings/Students/Attendance/etc. via Realtime DB keep
+    // working, and the connection indicator reflects reality instead of
+    // freezing.
+    try {
+      firestoreDb = firebase.firestore(firebaseApp);
+      console.log('✓ Firebase Firestore initialized');
+    } catch (firestoreError) {
+      firestoreDb = null;
+      lastFirebaseError = 'Firestore init error: ' + firestoreError.message;
+      console.error('✗ Firebase Firestore initialization failed (Fees will be unavailable):', firestoreError.message);
+    }
 
     // Setup connection state monitoring
     _setupConnectionMonitoring();
@@ -123,19 +141,30 @@ function _setupConnectionMonitoring() {
 
 /**
  * Update connection indicator in UI
+ * BUGFIX: this used to look up 'connection-indicator', but the actual
+ * element in admin.html is id="firebase-connection-indicator". That
+ * mismatch meant getElementById() always returned null and this function
+ * silently no-op'd on every state change — so the badge stayed frozen on
+ * its default "⚪ Firebase Connecting..." text forever, even once Firebase
+ * connected successfully behind the scenes. Also updated to actually set
+ * the badge's text (it's a text badge, not a colored dot, so setting only
+ * .style.background/.title previously had no visible effect at all).
  */
 function _updateConnectionIndicator() {
-  const indicator = document.getElementById('connection-indicator');
+  const indicator = document.getElementById('firebase-connection-indicator');
   if (!indicator) return;
 
   if (connectionStatus === 'connected') {
-    indicator.style.background = 'var(--green, #0F7A45)';
+    indicator.textContent = '🟢 Firebase Connected';
+    indicator.style.color = 'var(--green, #0F7A45)';
     indicator.title = 'Firebase connected';
   } else if (connectionStatus === 'disconnected') {
-    indicator.style.background = 'var(--red, #ef4444)';
+    indicator.textContent = '🔴 Firebase Disconnected';
+    indicator.style.color = 'var(--red, #ef4444)';
     indicator.title = lastFirebaseError || 'Firebase disconnected';
   } else {
-    indicator.style.background = 'var(--yellow, #eab308)';
+    indicator.textContent = '⚪ Firebase Connecting...';
+    indicator.style.color = 'var(--gray3)';
     indicator.title = 'Connecting...';
   }
 }

@@ -363,6 +363,18 @@ tr:hover td{background:#f8fffe}
      the Firebase Security Rules tell "the admin panel" apart from "the
      public enrolment form." See PHASE_4_1_FINAL_VERIFICATION.md. -->
 <script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-auth-compat.js"></script>
+<!-- BUGFIX (login hang / "Firebase connecting" never resolves): firebase.js
+     calls firebase.firestore(firebaseApp) as part of Phase 5/6 (Fees now
+     live in Firestore), but the Firestore compat SDK was never added here
+     alongside app/database/auth above. Without it, `firebase.firestore` is
+     undefined, so that line throws inside initializeFirebase()'s try block.
+     The catch swallows the error and reports connectionStatus:'disconnected'
+     with firebaseFullyReady left false — which is exactly why every login
+     sat on "Connecting..." indefinitely and none of the Firebase listeners
+     (Fees, Students, Coach Settlement, Booking Requests, Finance, etc.)
+     ever started. Loading this script fixes it with no application code
+     changes needed. -->
+<script defer src="https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore-compat.js"></script>
 <!-- Firebase Service Module (Single initialization point) -->
 <script defer src="firebase.js"></script>
 
