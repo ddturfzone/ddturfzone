@@ -10822,11 +10822,20 @@ window.restoreStudent = async (id) => {
 // someone who was already archived is caught too and offered Restore
 // instead of quietly creating a second, disconnected record for them.
 function _findDuplicateStudent(phone, sport, excludeId) {
-  const cleanPhone = (phone || '').trim();
+  // ROOT-CAUSE FIX — this was the actual bug behind "Save Student does
+  // nothing": (s.phone || '').trim() assumes every existing student's
+  // phone is already a string. At least one stored record has `phone`
+  // as a Number (e.g. an older Sheets import that saved it unquoted),
+  // and Numbers have no .trim() — so this threw on EVERY save (new or
+  // edit), for every sport, the instant it reached an existing record
+  // with a numeric phone, aborting saveStudent() before any toast could
+  // fire. String(...) coercion makes the comparison tolerant of that,
+  // same fix applied to renderStudents()'s search filter above.
+  const cleanPhone = String(phone || '').trim();
   if (!cleanPhone || !sport) return null;
   return window.DB.students.find(s =>
     s.id !== excludeId &&
-    (s.phone || '').trim() === cleanPhone &&
+    String(s.phone || '').trim() === cleanPhone &&
     s.sport === sport
   ) || null;
 }
@@ -11172,10 +11181,17 @@ window.renderStudents = () => {
   _populateStudentCoachBatchFilters();
 
   const list=window.DB.students.filter(s=>{
+    // ROOT-CAUSE FIX — reported bug: student search/save crashing with
+    // "s.phone.includes is not a function". Some existing records have
+    // `phone` (and potentially `name`/`altPhone`) stored as a Number
+    // rather than a string (e.g. an older Sheets import that didn't
+    // quote the value), which has no .includes()/.toLowerCase(). Wrapping
+    // every field in String(...) here makes search tolerant of that,
+    // exactly like the (s.studentId||s.id||'') fields already below it.
     const ms=!search
-      ||s.name.toLowerCase().includes(search)
-      ||s.phone.includes(search)
-      ||(s.altPhone||'').includes(search)
+      ||String(s.name||'').toLowerCase().includes(search)
+      ||String(s.phone||'').includes(search)
+      ||String(s.altPhone||'').includes(search)
       ||(s.studentId||s.id||'').toLowerCase().includes(search)
       ||(s.admissionNo||'').toLowerCase().includes(search)
       ||(s.batch||'').toLowerCase().includes(search)
