@@ -1916,6 +1916,19 @@ tr:hover td{background:#f8fffe}
           <div style="font-size:12px;color:var(--gray3);margin-top:8px">Manual on-demand Excel backups are available from Bookings and Reports. Browsers can't write files to disk automatically for security reasons — this reminder is the closest safe equivalent to "automatic" backups.</div>
         </div>
 
+        <div class="card mb-16" style="margin-bottom:16px;border:1.5px solid #fecaca" data-requires-action="factoryReset">
+          <div class="card-title" style="color:#991b1b">☠️ Danger Zone</div>
+          <div style="font-size:12px;color:var(--gray3);margin-bottom:12px">
+            This permanently erases <strong>everything</strong> — every booking, student, fee, coach, attendance record,
+            café sale, request, due, and settlement — from all three places this app stores data: Google Sheets,
+            Firebase (Realtime Database + Firestore), and this browser's local cache. Your <strong>login accounts are kept</strong>
+            so nobody gets locked out. A JSON backup downloads automatically first, but once this runs there is no
+            "undo" button — only restoring that backup file by hand. Only use this to genuinely start over from zero
+            (e.g. wiping test/demo data before going live).
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="factoryResetAllData()">🗑️ Reset All Data (Sheets + Firebase + Cache)</button>
+        </div>
+
         <div class="card">
           <div class="card-title">🔐 Role Permissions Reference</div>
           <div class="table-wrap">
@@ -3674,6 +3687,13 @@ const ACTION_PERMISSIONS = {
   // on the Pending Enrolments page; View stays available to Staff (same
   // page-level View Only shape as everything else in this app).
   manageEnrolments:     [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // DANGER ZONE — Factory Reset. Wipes Google Sheets, Firebase (Realtime DB
+  // + Firestore), and this browser's local cache in one action. Super
+  // Admin only, same reasoning as every other irreversible/broad-blast-
+  // radius action above (bulkDeleteStudents, etc.) — except this one has
+  // the largest blast radius in the entire app, so it gets the strictest
+  // gate available.
+  factoryReset:         [ROLES.SUPER_ADMIN],
 };
 
 let CURRENT_USER = null; // { email, name, role }
@@ -7643,6 +7663,113 @@ window.handleRestoreFileSelected = async (event) => {
   } finally {
     event.target.value = '';
   }
+};
+
+// ============================================================================
+// DANGER ZONE — FACTORY RESET
+// ============================================================================
+// This is the single deliberate, sanctioned exception to the
+// DATA_PRESERVATION_POLICY banner above LS (never call LS.set(col, []))
+// — everywhere else in this file that rule stands. Here it's the whole
+// point: a Super-Admin-triggered, heavily confirmed, explicit wipe of
+// every data collection this app has, across all three places it lives
+// (Google Sheets, Firebase, this browser). Nothing about this runs
+// automatically or as a side effect of any other action.
+//
+// Order of operations, each step best-effort and logged so a partial
+// failure (e.g. no internet) doesn't hide what did/didn't get cleared:
+//   1. Permission + typed confirmation gate.
+//   2. Auto-download a JSON backup — the one non-skippable safety net.
+//   3. Clear Firebase Realtime Database (generic root wipe).
+//   4. Clear Firebase Firestore (fees collection).
+//   5. Clear Google Sheets data tabs via Apps Script (Users tab preserved
+//      server-side — see handleResetAllData in Code.gs).
+//   6. Clear local: window.DB + every 'ddtz_*' collection key, backup
+//      history/snapshots, sync queue, and this device's ID sequence.
+//   7. Clear browser Cache Storage (PWA service worker cache), then reload.
+window.factoryResetAllData = async () => {
+  if (!can('factoryReset')) { denyAccess('Only a Super Admin can reset all data.', 'factoryReset'); return; }
+
+  const typed = prompt(
+    'This PERMANENTLY deletes every booking, student, fee, coach, attendance record, café sale, ' +
+    'request, due, and settlement — from Google Sheets, Firebase, and this browser. Login accounts are kept. ' +
+    'A backup downloads automatically first, but this cannot otherwise be undone.\n\n' +
+    'Type RESET ALL DATA to confirm.'
+  );
+  if (typed !== 'RESET ALL DATA') { showToast('Reset cancelled — nothing was changed.'); return; }
+
+  showToast('Downloading safety backup before continuing…', 'info');
+  try { downloadJSONBackup(); } catch (e) { console.error('Pre-reset backup failed:', e); }
+  // Give the download a moment to actually start before we start deleting.
+  await new Promise(resolve => setTimeout(resolve, 1200));
+
+  showToast('Resetting everything — this can take a few seconds…', 'info');
+  const report = { firebaseRealtime: null, firestore: null, sheets: null };
+
+  // 3. Firebase Realtime Database
+  try {
+    report.firebaseRealtime = await window.factoryResetRealtimeDatabase?.();
+  } catch (e) {
+    report.firebaseRealtime = { ok: false, error: e.message };
+  }
+
+  // 4. Firebase Firestore
+  try {
+    report.firestore = await window.factoryResetFirestore?.(['fees']);
+  } catch (e) {
+    report.firestore = { ok: false, error: e.message };
+  }
+
+  // 5. Google Sheets (Users tab preserved server-side)
+  try {
+    report.sheets = await postToGoogleSheet({
+      type: 'resetAllData',
+      confirm: 'RESET_ALL_DATA',
+      performedBy: CURRENT_USER?.name || CURRENT_USER?.email || 'Unknown'
+    });
+  } catch (e) {
+    report.sheets = { ok: false, error: e.message };
+  }
+
+  // 6. Local browser data — the one place this file explicitly forbids
+  // LS.set(col, []) everywhere else. This is that sanctioned exception.
+  BACKUP_COLLECTIONS.forEach(col => {
+    LS.set(col, []);
+    if (window.DB.hasOwnProperty(col)) window.DB[col] = [];
+  });
+  // customers/coachingCategories/enrolments/birthdayWishes aren't in
+  // BACKUP_COLLECTIONS but do live in window.DB — clear those too.
+  Object.keys(window.DB).forEach(col => { window.DB[col] = []; });
+  try {
+    localStorage.removeItem('ddtz_id_seq');       // next records start at 0001 again
+    localStorage.removeItem(SYNC_QUEUE_KEY);       // don't resurrect deleted records via a stale offline queue
+    localStorage.removeItem(BACKUP_HISTORY_KEY);   // local snapshot history (the JSON backup just downloaded is unaffected — it's already saved to disk)
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(BACKUP_DATA_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch (e) { console.error('Local cache clear error:', e); }
+
+  // 7. Browser Cache Storage (PWA offline cache), then reload fresh.
+  try {
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) { console.error('Cache Storage clear error:', e); }
+
+  const failures = [];
+  if (report.firebaseRealtime && report.firebaseRealtime.ok === false) failures.push('Firebase Realtime Database: ' + report.firebaseRealtime.error);
+  if (report.firestore && report.firestore.ok === false) failures.push('Firestore: check console for per-collection detail');
+  if (report.sheets && report.sheets.ok === false) failures.push('Google Sheets: ' + report.sheets.error);
+
+  if (failures.length) {
+    console.error('Factory reset finished with some failures:', failures);
+    alert('Reset finished, but some parts failed (local cache is cleared either way):\n\n' + failures.join('\n') + '\n\nCheck your internet connection and the browser console, then try again if needed.');
+  } else {
+    showToast('✅ Everything has been reset. Reloading…');
+  }
+
+  setTimeout(() => location.reload(), 1500);
 };
 
 window.restoreFromGoogleSheet = async () => {

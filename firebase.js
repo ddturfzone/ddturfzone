@@ -390,6 +390,99 @@ window.listenLiveAvailability = (callback, onError) => {
 };
 
 // ============================================================================
+// FACTORY RESET (used by Settings → Danger Zone → Reset All Data)
+// ============================================================================
+
+/**
+ * Wipes EVERY top-level node under the Realtime Database root.
+ *
+ * Deliberately schema-agnostic (reads whatever keys actually exist at
+ * root and deletes each one) rather than hardcoding a list of node names
+ * like 'students'/'fees'/'coaches'/'bookingRequests' — this file doesn't
+ * define every listener admin.html calls (e.g. listenStudents, listenFees,
+ * listenCoaches, listenDueAdjustments, listenBookingRequests,
+ * listenFinanceExpenses, listenCoachSettlements all reference RTDB paths
+ * that live in a fuller version of this file than what's here), so a
+ * generic root wipe is the only way to guarantee this actually clears
+ * everything regardless of the exact path names those listeners use.
+ *
+ * Returns which top-level keys were found and cleared, so the caller can
+ * show the admin exactly what happened.
+ */
+window.factoryResetRealtimeDatabase = async () => {
+  try {
+    if (!realtimeDb) return { ok: false, error: 'Realtime Database not initialized' };
+
+    const rootSnap = await realtimeDb.ref('/').once('value');
+    const topLevelKeys = [];
+    rootSnap.forEach((child) => { topLevelKeys.push(child.key); return false; });
+
+    if (topLevelKeys.length === 0) {
+      console.log('✓ Realtime Database factory reset — nothing to clear, already empty');
+      return { ok: true, cleared: [] };
+    }
+
+    // A single multi-path update (each path set to null) removes every
+    // node in one round trip instead of N separate .remove() calls.
+    const updates = {};
+    topLevelKeys.forEach((key) => { updates['/' + key] = null; });
+    await realtimeDb.ref('/').update(updates);
+
+    console.log('✓ Realtime Database factory reset — cleared:', topLevelKeys.join(', '));
+    return { ok: true, cleared: topLevelKeys };
+  } catch (error) {
+    console.error('✗ Realtime Database factory reset failed:', error);
+    return { ok: false, error: error.message };
+  }
+};
+
+/**
+ * Deletes every document in each given Firestore collection.
+ * Defaults to just ['fees'] — the only Firestore collection this file
+ * knows about. If the real app has migrated more collections to
+ * Firestore since this snapshot of firebase.js, pass their names too,
+ * e.g. window.factoryResetFirestore(['fees', 'students']).
+ *
+ * Batches deletes in groups of 400 to stay comfortably under Firestore's
+ * 500-operation-per-batch limit.
+ */
+window.factoryResetFirestore = async (collections) => {
+  collections = collections || ['fees'];
+  if (!firestoreDb) return { ok: false, error: 'Firestore not initialized' };
+
+  const results = {};
+  for (const colName of collections) {
+    try {
+      const snap = await firestoreDb.collection(colName).get();
+      const BATCH_SIZE = 400;
+      let deleted = 0;
+      let batch = firestoreDb.batch();
+      let opsInBatch = 0;
+
+      for (const doc of snap.docs) {
+        batch.delete(doc.ref);
+        opsInBatch++;
+        deleted++;
+        if (opsInBatch >= BATCH_SIZE) {
+          await batch.commit();
+          batch = firestoreDb.batch();
+          opsInBatch = 0;
+        }
+      }
+      if (opsInBatch > 0) await batch.commit();
+
+      results[colName] = { ok: true, deleted };
+      console.log(`✓ Firestore collection "${colName}" factory reset — ${deleted} document(s) deleted`);
+    } catch (error) {
+      results[colName] = { ok: false, error: error.message };
+      console.error(`✗ Firestore collection "${colName}" factory reset failed:`, error);
+    }
+  }
+
+  return { ok: Object.values(results).every((r) => r.ok), results };
+};
+
+// ============================================================================
 // DIAGNOSTICS (same as before)
 // ============================================================================
 window._ddtzDiag = {
