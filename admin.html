@@ -5365,16 +5365,27 @@ window.initStudentsFirebaseListener = () => {
       }
     });
 
-    // Archived/removed on another device — same reconciliation
-    // syncStudentsFromSheet already did for the Sheets-poll path, now also
-    // driven by Firebase. Guarded against this device's own not-yet-synced
-    // archive/delete, same as syncStudentsFromSheet's stillPendingArchive.
-    if (_studentsFirebaseSeeded) {
-      const stillPendingArchive = new Set(_getSyncQueue().filter(p => p.type === 'student' && (p.action === 'archive' || p.action === 'delete')).map(p => p.studentId));
-      const beforeCount = window.DB.students.length;
-      window.DB.students = window.DB.students.filter(s => !s.studentId || seenStudentIds.has(s.studentId) || stillPendingArchive.has(s.studentId));
-      if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students);}
-    }
+    // ROOT-CAUSE FIX — reported bug: adding a new student made OTHER,
+    // already-saved students vanish from the list for a few minutes (only
+    // reappearing after a full logout/login, or after the next focus-
+    // triggered syncStudentsFromSheet() refetch). This block used to
+    // delete any local student not present in *this particular* Firebase
+    // snapshot, on the assumption that "missing from the snapshot" meant
+    // "archived/removed elsewhere." That assumption doesn't hold: a
+    // realtime-db 'value' event can fire the moment a single child is
+    // written, and depending on this device's own listener/cache state
+    // that event isn't guaranteed to already contain every other student
+    // who simply hasn't finished round-tripping — so every save could
+    // wipe out students who were never actually deleted anywhere.
+    //
+    // This is the exact same root cause (and exact same fix) already
+    // applied to syncStudentsFromSheet()'s poll path above — see that
+    // comment for the full writeup. Archived/removed students are still
+    // handled safely: the create/update loop above already adopts each
+    // remote record's own `status`/`archived` field when it changes, so
+    // no blanket "delete anything not seen in this snapshot" pass is
+    // needed on top of that.
+    void seenStudentIds; // still used by the create/update loop above; no longer used to delete
 
     _studentsFirebaseSeeded = true;
     if (changed) {
