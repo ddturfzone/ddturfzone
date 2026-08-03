@@ -10221,6 +10221,16 @@ window.renderCustomers = () => {
 
 // ===== STUDENTS =====
 window.saveStudent = async () => {
+ // DIAGNOSTIC FIX — reported bug: "Save Student" button does nothing at
+ // all (no toast, no error, no save). That signature means an exception
+ // was being thrown somewhere inside this function and swallowed by the
+ // browser with no visible feedback — same class of "silently fails"
+ // problem already solved for permission checks in denyAccess() above.
+ // Wrapping the whole function body means any future failure here now
+ // ALWAYS surfaces as a red toast + a console.error with the real
+ // JS error message/stack, instead of the button just looking dead.
+ // Purely additive — no existing logic changed, only wrapped.
+ try {
   if (!can('manageStudents')) { denyAccess(); return; }
   const name=document.getElementById('st-name').value.trim();
   const phone=document.getElementById('st-phone').value.trim();
@@ -10378,6 +10388,12 @@ window.saveStudent = async () => {
   _refreshDuesIfActive(); _refreshCoachSettlementIfActive(); // PRODUCTION VERIFICATION FIX — student changes feed both
   showToast('Student saved! ✅');
   _announceStudentEvent(id, existId ? 'updated' : 'created', existId ? 'Student details updated.' : 'New student enrolled.');
+ } catch (err) {
+  // Surfaces the exact failure instead of the button silently doing
+  // nothing — check the browser console for the full stack trace.
+  console.error('[saveStudent] Save failed:', err);
+  showToast('Save failed: ' + (err?.message || 'Unknown error') + ' (see console for details)', 'error');
+ }
 };
 
 // ============================================================================
