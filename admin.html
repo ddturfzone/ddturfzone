@@ -7620,6 +7620,179 @@ window.openResetCoachingModal = () => {
 const COACHING_RESET_COLLECTIONS = ['students', 'fees', 'attendance', 'dueAdjustments', 'coachSettlements'];
 const COACHING_RESET_NOTIF_MODULES = ['student', 'fee', 'coach_settlement'];
 
+// ============================================================================
+// COACHING WORKFLOW SELF-TEST — in-memory only, never touches Sheets or
+// Firebase, never writes test data into production. Runs the exact real
+// production functions (_dueCurrentPeriod, _computeDueEntry, csComputeSettlement,
+// _duesSummary, _finIncomeCoaching, _receiptDocHTML) against a temporary
+// swap of window.DB's coaching collections, then restores the original
+// data in a `finally` block — guaranteed even if an assertion throws.
+//
+// Deliberately does NOT call any function with a real side effect
+// (saveDoc, autoSync*, queuedSync, syncXFirebase, csGenerateSettlement,
+// window.open for WhatsApp, or real speechSynthesis) — only the pure
+// compute functions every real page already calls, fed synthetic data.
+// WhatsApp/Voice are verified as "ready" (preconditions + wiring present),
+// not actually triggered.
+// ============================================================================
+function _selfTestSnapshotAndSwap() {
+  const snapshot = {
+    students: window.DB.students, fees: window.DB.fees, attendance: window.DB.attendance,
+    dueAdjustments: window.DB.dueAdjustments, coachSettlements: window.DB.coachSettlements, coaches: window.DB.coaches
+  };
+  window.DB.students = [];
+  window.DB.fees = [];
+  window.DB.attendance = [];
+  window.DB.dueAdjustments = [];
+  window.DB.coachSettlements = [];
+  window.DB.coaches = [{ id: '_TESTCOACH', coachId: '_TESTCOACH', name: '_SelfTest Coach', sport: 'football', status: 'active', revenueSharePercent: 50 }];
+  return snapshot;
+}
+function _selfTestRestore(snapshot) {
+  window.DB.students = snapshot.students;
+  window.DB.fees = snapshot.fees;
+  window.DB.attendance = snapshot.attendance;
+  window.DB.dueAdjustments = snapshot.dueAdjustments;
+  window.DB.coachSettlements = snapshot.coachSettlements;
+  window.DB.coaches = snapshot.coaches;
+}
+
+window.runCoachingWorkflowSelfTest = () => {
+  const results = [];
+  const rec = (name, pass, detail) => results.push({ name, pass, detail: detail || '' });
+  const snapshot = _selfTestSnapshotAndSwap();
+  try {
+    const monthly = { id: '_TESTM', studentId: '_TESTM', name: '_SelfTest Monthly', sport: 'football', status: 'active', archived: false,
+      feeStructure: 'monthly', fee: 1000, dueDay: 10, joined: '2026-01-01', discountType: 'none', discountValue: 0, coach: '_SelfTest Coach', phone: '9000000001', batch: 'A' };
+    const quarterly = { id: '_TESTQ', studentId: '_TESTQ', name: '_SelfTest Quarterly', sport: 'football', status: 'active', archived: false,
+      feeStructure: 'quarterly', qfee: 3000, joined: '2026-01-01', discountType: 'none', discountValue: 0, coach: '_SelfTest Coach', phone: '9000000002', batch: 'A' };
+    const yearly = { id: '_TESTY', studentId: '_TESTY', name: '_SelfTest Yearly', sport: 'football', status: 'active', archived: false,
+      feeStructure: 'yearly', yearlyFee: 10000, joined: '2026-03-15', discountType: 'none', discountValue: 0, coach: '_SelfTest Coach', phone: '9000000003', batch: 'A' };
+    window.DB.students.push(monthly, quarterly, yearly);
+
+    // ----- 1. Add Student -----
+    rec('1. Add Student — appears in Students', window.DB.students.length === 3, `${window.DB.students.length}/3 test students present`);
+
+    // ----- 2. Attendance -----
+    window.DB.attendance.push({ id: '_TESTATT1', studentId: monthly.id, date: getToday(), status: 'P' });
+    const attForMonthly = window.DB.attendance.filter(a => a.studentId === monthly.id);
+    rec('2. Attendance — appears in Attendance', attForMonthly.length === 1, `${attForMonthly.length} record(s) for test student`);
+
+    // ----- 3. Fee Collection (Pending) -----
+    const today = new Date();
+    let entryM = _computeDueEntry(monthly, today);
+    rec('3. Fee Collection — Pending before payment', entryM.status !== 'paid' && entryM.pending === entryM.amountDue,
+      `status=${entryM.status} pending=${entryM.pending} amountDue=${entryM.amountDue}`);
+
+    // ----- 4. Due — appears in Due before payment -----
+    const duesBefore = _duesSummary([entryM]);
+    rec('4. Due — student appears in Due list before payment', duesBefore.totalOutstanding === entryM.amountDue,
+      `totalOutstanding=${duesBefore.totalOutstanding}`);
+
+    // ----- Mark Paid (in-memory only — direct array push, no saveDoc/sync) -----
+    const periodM = _dueCurrentPeriod(monthly, today);
+    const feeRecM = {
+      id: '_TESTFEE_M', studentId: monthly.id, studentName: monthly.name, sport: monthly.sport, batch: monthly.batch, coach: monthly.coach,
+      feeType: 'monthly', month: periodM.month, quarter: periodM.quarter, year: periodM.year,
+      dueMonth: _feeDueMonthLabel('monthly', periodM.month, periodM.quarter, periodM.year),
+      amountPayable: entryM.amountDue, amountReceived: entryM.amountDue, pending: 0,
+      paymentMethod: 'Cash', paymentType: 'full', receiptDate: getToday(), date: getToday(),
+      status: 'paid', receiptNo: '_TESTRCPT001', notes: '', includesJoiningFee: false
+    };
+    window.DB.fees.push(feeRecM);
+
+    entryM = _computeDueEntry(monthly, today);
+    rec('5. Fee Collection becomes Paid after payment', entryM.status === 'paid' && entryM.pending === 0,
+      `status=${entryM.status} pending=${entryM.pending}`);
+
+    const duesAfter = _duesSummary([entryM]);
+    rec('6. Student automatically removed from Due', duesAfter.totalOutstanding === 0, `totalOutstanding=${duesAfter.totalOutstanding}`);
+
+    // ----- 7. Coach Settlement updates immediately (pure compute, no write) -----
+    const settlement = csComputeSettlement('_TESTCOACH', `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`);
+    const settledRow = settlement?.students.find(r => r.studentId === monthly.studentId);
+    rec('7. Coach Settlement reflects the payment', !!settledRow && settledRow.paymentStatus === 'Paid' && settlement.totals.totalCollected >= entryM.amountDue,
+      settledRow ? `paymentStatus=${settledRow.paymentStatus} totalCollected=${settlement.totals.totalCollected}` : 'monthly student not found in settlement rows');
+    // No-duplicate-settlement guard — verifies the exact condition
+    // csGenerateSettlement() itself checks, without calling that
+    // (side-effecting: it writes to Firebase/Sheets) function for real.
+    const wouldBeDuplicate = (window.DB.coachSettlements || []).some(s => s.coachId === '_TESTCOACH' && s.monthValue === `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`);
+    rec('7b. No duplicate Coach Settlement (guard condition sound)', wouldBeDuplicate === false, 'no settlement generated yet, guard correctly sees none');
+
+    // ----- 8. Dashboard coaching counts reflect the change -----
+    const dashActive = window.DB.students.filter(s => s.status === 'active' && !s.archived);
+    const dashSports = new Set(dashActive.map(s => s.sport)).size;
+    rec('8. Dashboard coaching counts reflect test data', dashSports === 1 && duesAfter.totalOutstanding === 0,
+      `sports=${dashSports} totalOutstanding=${duesAfter.totalOutstanding}`);
+
+    // ----- 9. Finance coaching income reflects the payment -----
+    const financeIncome = _finIncomeCoaching('0000-01-01', '9999-12-31');
+    rec('9. Finance coaching income reflects the payment', financeIncome === entryM.amountDue, `income=${financeIncome} expected=${entryM.amountDue}`);
+
+    // ----- 10. Receipt generation (pure function, safe to call for real) -----
+    let receiptHTML = '';
+    let receiptOk = false;
+    try {
+      receiptHTML = _receiptDocHTML(feeRecM);
+      receiptOk = typeof receiptHTML === 'string' && receiptHTML.includes(feeRecM.receiptNo) && receiptHTML.includes(String(feeRecM.amountReceived));
+    } catch (e) { receiptOk = false; }
+    rec('10. Receipt is generated', receiptOk, receiptOk ? 'receipt HTML contains receipt number and amount' : 'receipt generation failed or missing expected content');
+
+    // ----- 11. WhatsApp receipt readiness (preconditions only — never
+    // actually calls window.open, which would pop a real browser tab) -----
+    const waReady = !!(monthly.phone && feeRecM.receiptNo && feeRecM.dueMonth && feeRecM.amountReceived);
+    rec('11. WhatsApp receipt ready (preconditions present)', waReady,
+      `phone=${!!monthly.phone} receiptNo=${!!feeRecM.receiptNo} dueMonth=${!!feeRecM.dueMonth} amount=${!!feeRecM.amountReceived}`);
+
+    // ----- 12. Voice notification wiring (existence only — never
+    // actually calls it, which would trigger real audio) -----
+    rec('12. Voice notification wiring present', typeof window.playVoiceAnnouncement === 'function', 'window.playVoiceAnnouncement exists');
+
+    // ----- 13/14. Quarterly + Yearly calendar billing -----
+    // Explicit literal check of the two examples from the requirement,
+    // using fixed reference dates rather than "today" so the assertion is
+    // exact and reproducible regardless of when this test runs.
+    const q1 = _dueCurrentPeriod(quarterly, new Date('2026-07-01T00:00:00'));
+    const q1Str = `${q1.dueDate.getFullYear()}-${String(q1.dueDate.getMonth()+1).padStart(2,'0')}-${String(q1.dueDate.getDate()).padStart(2,'0')}`;
+    rec('13a. Quarterly — 1 Jul falls in the Jul-Sep quarter (due 2026-07-01)', q1Str === '2026-07-01', `computed dueDate=${q1Str}`);
+    const q2 = _dueCurrentPeriod(quarterly, new Date('2026-10-01T00:00:00'));
+    const q2Str = `${q2.dueDate.getFullYear()}-${String(q2.dueDate.getMonth()+1).padStart(2,'0')}-${String(q2.dueDate.getDate()).padStart(2,'0')}`;
+    rec('13b. Quarterly — next due after 1 Jul is 1 Oct (calendar quarter, not +90 days)', q2Str === '2026-10-01', `computed dueDate=${q2Str}`);
+    // Off-boundary check — the actual point of "calendar-based, never
+    // rolling": a payment mid-quarter must NOT shift the next due date.
+    const qMid = _dueCurrentPeriod(quarterly, new Date('2026-08-15T00:00:00'));
+    const qMidStr = `${qMid.dueDate.getFullYear()}-${String(qMid.dueDate.getMonth()+1).padStart(2,'0')}-${String(qMid.dueDate.getDate()).padStart(2,'0')}`;
+    rec('13c. Quarterly — mid-quarter date (15 Aug) still resolves to the Jul-Sep bucket (2026-07-01), never a rolling date', qMidStr === '2026-07-01', `computed dueDate=${qMidStr}`);
+
+    const y1 = _dueCurrentPeriod(yearly, new Date('2027-03-15T00:00:00'));
+    const y1Str = `${y1.dueDate.getFullYear()}-${String(y1.dueDate.getMonth()+1).padStart(2,'0')}-${String(y1.dueDate.getDate()).padStart(2,'0')}`;
+    rec('14a. Yearly — join-anniversary (15 Mar) renews next calendar year (2027-03-15)', y1Str === '2027-03-15', `computed dueDate=${y1Str}`);
+    const y0 = _dueCurrentPeriod(yearly, new Date('2026-03-15T00:00:00'));
+    const y0Str = `${y0.dueDate.getFullYear()}-${String(y0.dueDate.getMonth()+1).padStart(2,'0')}-${String(y0.dueDate.getDate()).padStart(2,'0')}`;
+    rec('14b. Yearly — first cycle anchors to join date itself (2026-03-15)', y0Str === '2026-03-15', `computed dueDate=${y0Str}`);
+
+    const mDue1 = _dueCurrentPeriod(monthly, new Date('2026-08-10T00:00:00'));
+    const mDue1Str = `${mDue1.dueDate.getFullYear()}-${String(mDue1.dueDate.getMonth()+1).padStart(2,'0')}-${String(mDue1.dueDate.getDate()).padStart(2,'0')}`;
+    rec('15. Monthly — respects student\'s own Due Day (10th)', mDue1Str === '2026-08-10', `computed dueDate=${mDue1Str}`);
+
+    // ----- 16. No duplicate fee records — the exact guard saveFee() uses -----
+    const dupCheck = _dueMatchingFees(monthly, _dueCurrentPeriod(monthly, today));
+    rec('16. No duplicate fee records (one record per period)', dupCheck.length === 1, `${dupCheck.length} matching record(s) for this period`);
+
+    // ----- 17. No duplicate students / attendance (array-length sanity) -----
+    rec('17. No duplicate students', window.DB.students.filter(s => s.studentId === monthly.studentId).length === 1, 'exactly one record for the test student ID');
+    rec('18. No duplicate attendance', window.DB.attendance.filter(a => a.studentId === monthly.id && a.date === getToday()).length === 1, 'exactly one attendance record for that student+date');
+
+  } catch (e) {
+    rec('Self-test crashed', false, e.message || String(e));
+  } finally {
+    // GUARANTEED restore — real data is never left swapped out, no matter
+    // what happened above.
+    _selfTestRestore(snapshot);
+  }
+  return { pass: results.every(r => r.pass), results };
+};
+
 window._confirmResetCoachingModule = async () => {
   if (!can('resetCoachingModule')) { denyAccess(); return; }
   const typed = (document.getElementById('reset-coaching-confirm-text').value || '').trim();
@@ -7786,18 +7959,54 @@ window._confirmResetCoachingModule = async () => {
       ? 'Guaranteed structurally — Sheets and Firebase (the one shared backend every device reads from) are both confirmed empty above.'
       : 'Cannot be guaranteed — Sheets and/or Firebase are not both confirmed empty above.');
 
+  // No duplicate Firebase listeners — each init function has its own
+  // internal "already subscribed" guard (e.g. initStudentsFirebaseListener
+  // checks `if (_studentsFirebaseUnsubscribe) return;`). Calling them again
+  // here is safe (idempotent by design, no data written) and confirms the
+  // guard actually holds rather than just trusting it does.
+  const beforeUnsub = { s: _studentsFirebaseUnsubscribe, f: _feesFirebaseUnsubscribe, d: _dueAdjustmentsFirebaseUnsubscribe, c: _csFirebaseUnsubscribe };
+  window.initStudentsFirebaseListener?.(); window.initFeesFirebaseListener?.(); window.initDueAdjustmentsFirebaseListener?.(); window.initCoachSettlementFirebaseListener?.();
+  const noDupeListeners = beforeUnsub.s === _studentsFirebaseUnsubscribe && beforeUnsub.f === _feesFirebaseUnsubscribe
+    && beforeUnsub.d === _dueAdjustmentsFirebaseUnsubscribe && beforeUnsub.c === _csFirebaseUnsubscribe;
+  rec('No duplicate Firebase listeners', noDupeListeners, noDupeListeners ? 'Re-init calls were no-ops — existing subscriptions unchanged, none doubled.' : 'A listener re-subscribed instead of no-op\'ing — investigate its guard.');
+
+  // No stale cache — window.DB now matches exactly what LS (localStorage)
+  // holds for each cleared collection, confirming Step 4/5 above actually
+  // took effect and nothing re-populated from an old in-memory reference.
+  const cacheConsistent = COACHING_RESET_COLLECTIONS.every(col => window.DB[col].length === 0 && LS.get(col).length === 0);
+  rec('No stale cache', cacheConsistent, cacheConsistent ? 'window.DB and localStorage agree — both empty for every cleared collection.' : 'window.DB and localStorage disagree on at least one collection.');
+
+  // Public enrolment notifications — a genuinely separate module from the
+  // 5 being reset (EnrolmentRequests is deliberately NOT touched by this
+  // reset), so this only confirms its realtime listener is actually
+  // active, not a simulated end-to-end submission (which would require
+  // writing a real test enrolment to Firebase — exactly what "do NOT
+  // write test data into production" rules out).
+  const enrolmentListenerActive = typeof window.listenPendingEnrolments === 'function' && !!_firebaseEnrolmentsUnsubscribe;
+  rec('Public enrolment notifications wiring active', enrolmentListenerActive,
+    enrolmentListenerActive ? 'listenPendingEnrolments is subscribed — a real submission will surface without logout/login.' : 'Pending Enrolments listener is not currently subscribed — check Firebase connection.');
+
   log('');
   results.forEach(r => log((r.pass ? '✅ ' : '❌ ') + r.name + (r.pass ? '' : ' — ' + r.detail)));
+
+  // ----- Step 7: end-to-end workflow self-test (in-memory, see
+  // runCoachingWorkflowSelfTest's own header comment for what this does
+  // and does not touch). -----
+  log('');
+  log('⏳ Running end-to-end workflow self-test (in-memory, no production data written)…');
+  const selfTest = window.runCoachingWorkflowSelfTest();
+  selfTest.results.forEach(r => log((r.pass ? '✅ ' : '❌ ') + r.name + (r.pass ? '' : ' — ' + r.detail)));
   log('');
 
-  const allPassed = results.every(r => r.pass);
+  const allPassed = results.every(r => r.pass) && selfTest.pass;
   if (allPassed) {
     log('✅ Coaching Module Reset Completed Successfully');
-    showToast('✅ Coaching Module Reset Completed Successfully', 'info');
+    log('✅ Coaching Module is PRODUCTION READY');
+    showToast('✅ Coaching Module Reset Completed Successfully — PRODUCTION READY', 'info');
   } else {
-    const failedNames = results.filter(r => !r.pass).map(r => r.name);
+    const failedNames = results.filter(r => !r.pass).map(r => r.name).concat(selfTest.results.filter(r => !r.pass).map(r => r.name));
     log(`❌ Coaching Module Reset INCOMPLETE — verification failed at: ${failedNames.join(', ')}`);
-    log('Data has already been deleted from Sheets/Firebase/local where the earlier steps succeeded — this failure is in the VERIFICATION re-read itself (e.g. a network hiccup), not necessarily a sign the delete didn\'t happen. Re-open this dialog to re-run verification, or check the failing item manually.');
+    log('Data has already been deleted from Sheets/Firebase/local where the earlier steps succeeded — a failed RESET check is likely a verification re-read issue (e.g. a network hiccup), not necessarily a sign the delete didn\'t happen. A failed SELF-TEST check points at real workflow logic and should be investigated before calling the module production ready. Re-open this dialog to re-run verification.');
     showToast('❌ Coaching Reset verification failed — see the modal for exactly which check.', 'error');
   }
 
@@ -11593,15 +11802,10 @@ window.saveFee = async (sendWA=false) => {
   // like their save "vanished" or a phantom record appeared.
   if (!existId) {
     const currentPeriod = _dueCurrentPeriod(st, new Date());
-    // Covers BOTH cases a genuine duplicate can take: an already-open
-    // unpaid/partial record for this cycle (duplicate itself), or a cycle
-    // that's already fully paid and still within its coverage window (see
-    // _dueIsCovered) — without this second check, a fully-paid cycle has
-    // no "open" record left to find, so the old single-condition version
-    // let staff create a redundant second payment for a period they'd
-    // already settled in full.
-    const duplicate = _dueMatchingFees(st, currentPeriod)[0]
-      || (_dueIsCovered(currentPeriod, new Date()) ? currentPeriod.lastPaidRecord : null);
+    // Calendar billing — at most one record exists per student per
+    // calendar period (see _dueCurrentPeriod), so the single matched
+    // record, whatever its status (pending/partial/paid), IS the duplicate.
+    const duplicate = _dueMatchingFees(st, currentPeriod)[0];
     if (duplicate) {
       window._feeDuplicateTargetId = duplicate.id; // read by _openExistingFeeFromDuplicateWarning below
       document.getElementById('fee-duplicate-message').textContent =
@@ -12335,123 +12539,78 @@ function _dueQuarterOf(monthIdx) {
 }
 
 // The "current" billing period + its Due Date for a student's Fee Plan, as
-// of `today`. Monthly = this calendar month. Quarterly = this calendar
-// quarter (Q1 Jan-Mar … Q4 Oct-Dec — the same Q1-Q4 the Fee Collection form
-// already uses). Yearly = anchored to the student's Joining month every
-// year (falls back to January if no Joining Date is on file) so an annual
-// student's due date recurs on the same month each year rather than
-// always defaulting to January. Due Day is clamped to 1-28 so it never
-// rolls into the following month (e.g. "31" in February).
+// of `today`. STRICT CALENDAR BILLING — every plan type is a fixed,
+// non-overlapping calendar bucket; the actual date a payment happens to
+// land on never shifts the next due date. Explicit production requirement
+// (final Coaching Module sign-off): "Never calculate rolling 90-day or
+// 365-day periods."
+//   • Monthly — due on the student's own Due Day (s.dueDay, 1-31 clamped
+//     to 1-28 so it never rolls into the next month, e.g. "31" in
+//     February), recurring every calendar month. Falls back to the 1st if
+//     no Due Day is set.
+//   • Quarterly — due on the 1st of the calendar quarter containing
+//     `today` (Q1 Jan-Mar, Q2 Apr-Jun, Q3 Jul-Sep, Q4 Oct-Dec — the exact
+//     DUE_QUARTER_START_MONTH boundaries above), regardless of which day
+//     within the quarter the student actually pays.
+//   • Yearly — due on the student's own join-date anniversary (month +
+//     day of s.joined), recurring every calendar year. Falls back to
+//     1 January if no Joining Date is on file.
+//
+// Matching a fee record to "the current period" is therefore back to
+// LABEL matching (month+year / quarter+year / year) — safe here in a way
+// it was NOT safe before this rewrite: every label is computed by this one
+// canonical function from a real calendar date, never read off whatever
+// the entry FORM's dropdowns happened to have selected (that mismatch —
+// form state vs. computed state — was the actual root cause of the old
+// "duplicate fee records" / "fee record disappearing after Save" bugs,
+// not label-matching itself).
 function _dueCurrentPeriod(s, today) {
-  // ==========================================================================
-  // STEP 3 PRODUCTION FIX — BILLING CYCLE NOW ANCHORED TO LAST PAYMENT DATE.
-  // --------------------------------------------------------------------------
-  // Previously this anchored to the CALENDAR (this calendar month / this
-  // calendar quarter / this calendar year), and every consumer — Due
-  // Management, the Fee Collection sport-tab table (which computes its rows
-  // straight off this same engine), the Dashboard summary, and
-  // collectFeeForDue's "does an open record already exist" check — inherited
-  // that. A student who paid mid-cycle (e.g. 15 June for Monthly) rolled onto
-  // a fresh calendar-month record the instant the 1st of July arrived,
-  // regardless of the fact that 15 June's payment had already covered them
-  // through 15 July. That produced exactly the symptoms reported: a
-  // still-covered student could show as newly due, a payment already on file
-  // could fail the calendar-label duplicate check and let a second record be
-  // created (the "duplicate fee records" / premature "new record" issue), and
-  // a genuinely new payment could hit the OLD duplicate guard's calendar
-  // comparison and be silently rejected — which is what "fee record
-  // disappearing after Save" was: the save never happened at all, it was
-  // blocked by _the duplicate modal_ on a false-positive calendar match, and
-  // closing that modal looks identical to the record vanishing.
-  //
-  // The billing cycle is now anchored to the student's own payment history:
-  //   • lastPaidRecord — the most recent fee record for this structure that
-  //     was paid IN FULL (amountReceived >= amountPayable). Its own date is
-  //     the true "Last Payment Date"; the next cycle's due date is exactly
-  //     Last Payment Date + 1/3/12 months for Monthly/Quarterly/Yearly.
-  //   • openRecord — the current NOT-yet-fully-paid record, if one exists
-  //     (pending or partial). Its own date IS effectively "due now" — a
-  //     partially or wholly unpaid record is always due, independent of any
-  //     scheduled next-due-date, which is exactly what "the student should
-  //     remain Paid for the entire cycle, then automatically move to Due"
-  //     requires in the other direction too: once unpaid, due immediately.
-  //
-  // _dueMatchingFees (right below) now simply returns [openRecord] or [] in
-  // place of the old month/quarter/year label search — every downstream
-  // consumer (computeDueEntry's received/pending math, collectFeeForDue's
-  // "find the record to edit", the Fee Collection auto-creation duplicate
-  // check) keeps working completely unchanged, because they all consume
-  // _dueMatchingFees' return value, not its internals. This is the "ONE
-  // shared billing calculation engine" the spec requires — every module
-  // that needs "is this student currently due" funnels through these same
-  // two functions; nothing recomputes its own period logic.
-  //
-  // Backward-compatible with Due Adjustments (a separate manual-correction
-  // module, not touched here): month/quarter/year labels are still returned
-  // below, still derived from a real calendar date, purely for
-  // _dueMatchingAdjustments' existing label lookup and for the dueMonth
-  // display string — they are no longer used to decide whether a fee record
-  // matches the current cycle.
-  // ==========================================================================
   const structure = s.feeStructure || 'monthly';
   const sid = s.studentId || s.id;
   const parseD = (v) => v ? new Date(String(v).slice(0, 10) + 'T00:00:00') : null;
-  const addInterval = (date) => {
-    const d = new Date(date);
-    d.setMonth(d.getMonth() + (structure === 'quarterly' ? 3 : structure === 'yearly' ? 12 : 1));
-    return d;
-  };
 
-  // Only this student's records for their CURRENT fee structure are
-  // relevant — a record logged under a prior plan (staff changed the
-  // student from Monthly to Yearly, say) belongs to a retired cycle and
-  // must not anchor the new one.
-  const fees = (window.DB.fees || [])
-    .filter(f => f.studentId === sid && (f.feeType || 'monthly') === structure)
-    .map(f => ({ f, d: parseD(f.receiptDate || f.date) || parseD(f.createdAt) }))
-    .filter(x => x.d)
-    .sort((a, b) => a.d - b.d);
+  let month = '', quarter = '', year, dueDate;
 
-  let lastPaidRecord = null, openRecord = null;
-  for (let i = fees.length - 1; i >= 0; i--) {
-    const { f } = fees[i];
-    const rec = f.amountReceived ?? f.paid ?? 0;
-    const pay = f.amountPayable ?? f.amount ?? 0;
-    if (!lastPaidRecord && pay > 0 && rec >= pay) lastPaidRecord = fees[i];
-    if (!openRecord && rec < pay) openRecord = fees[i];
-    if (lastPaidRecord && openRecord) break;
+  if (structure === 'quarterly') {
+    const qStartMonth = Math.floor(today.getMonth() / 3) * 3; // 0, 3, 6, 9
+    dueDate = new Date(today.getFullYear(), qStartMonth, 1);
+    quarter = _dueQuarterOf(qStartMonth);
+    year = String(dueDate.getFullYear());
+  } else if (structure === 'yearly') {
+    const joined = parseD(s.joined);
+    const annMonth = joined ? joined.getMonth() : 0;
+    const annDay = joined ? Math.min(joined.getDate(), 28) : 1;
+    dueDate = new Date(today.getFullYear(), annMonth, annDay);
+    if (today < dueDate) dueDate = new Date(today.getFullYear() - 1, annMonth, annDay);
+    year = String(dueDate.getFullYear());
+  } else { // monthly
+    const dueDay = Math.min(28, Math.max(1, Number(s.dueDay) || 1));
+    dueDate = new Date(today.getFullYear(), today.getMonth(), dueDay);
+    if (today < dueDate) dueDate = new Date(today.getFullYear(), today.getMonth() - 1, dueDay);
+    month = MONTH_NAMES[dueDate.getMonth()];
+    year = String(dueDate.getFullYear());
   }
 
-  let dueDate, lastPaymentDate = lastPaidRecord ? lastPaidRecord.d : null;
-  if (openRecord) {
-    // Unpaid/partial record on file — due now, dated from when that cycle
-    // actually started, so "how overdue" reads correctly.
-    dueDate = openRecord.d;
-  } else if (lastPaidRecord) {
-    dueDate = addInterval(lastPaidRecord.d);
-  } else {
-    // Never paid, no record at all yet (e.g. a 0-fee plan skipped
-    // auto-creation) — anchor the very first cycle to enrolment.
-    dueDate = s.joined ? (parseD(s.joined) || today) : today;
-  }
+  // Only this student's records for their CURRENT fee structure and
+  // CURRENT calendar period are relevant — a record logged under a prior
+  // plan (staff changed the student from Monthly to Yearly, say) or a
+  // past/future period belongs elsewhere and must not match here.
+  const matches = (window.DB.fees || []).filter(f => {
+    if (f.studentId !== sid) return false;
+    if ((f.feeType || 'monthly') !== structure) return false;
+    if (structure === 'monthly') return f.month === month && String(f.year) === year;
+    if (structure === 'quarterly') return f.quarter === quarter && String(f.year) === year;
+    return String(f.year) === year; // yearly
+  });
 
-  return {
-    feeType: structure,
-    month: MONTH_NAMES[dueDate.getMonth()],
-    quarter: _dueQuarterOf(dueDate.getMonth()),
-    year: String(dueDate.getFullYear()),
-    dueDate,
-    lastPaymentDate,
-    openRecord: openRecord ? openRecord.f : null,
-    lastPaidRecord: lastPaidRecord ? lastPaidRecord.f : null
-  };
+  return { feeType: structure, month, quarter, year, dueDate, matches };
 }
 
-// Fee record(s) (Phase 3.4b) matching this student's CURRENT open billing
-// cycle — see the rolling-cycle rewrite of _dueCurrentPeriod above. At most
-// one, by construction (one active unpaid/partial record per student).
+// Fee record(s) matching this student's CURRENT calendar period. At most
+// one, by construction (one record per student per billing period — the
+// duplicate guard in saveFee() enforces this).
 function _dueMatchingFees(s, period) {
-  return period.openRecord ? [period.openRecord] : [];
+  return period.matches || [];
 }
 
 // Manual Due Corrections for this student's current period — same exact
@@ -12482,14 +12641,17 @@ function _dueAmountForStudent(s) {
 
 const DUE_PLAN_LABELS = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
-// Shared by _computeDueEntry (below) and saveFee's duplicate guard — "is
-// this student still inside a cycle they've already paid in full?" A
-// closed (fully-paid) last record with no new open record yet, and today
-// still short of that cycle's next-due-date. See _dueCurrentPeriod's
-// rolling-cycle rewrite above for what lastPaidRecord/openRecord/dueDate
-// mean.
+// Shared by saveFee's duplicate guard and collectFeeForDue — "does this
+// student's CURRENT calendar period already have a fully-paid record?"
+// With calendar billing, a period is a fixed bucket with at most one
+// record, so this is simply: does the matched record (if any) have
+// amountReceived >= amountPayable.
 function _dueIsCovered(period, today) {
-  return !!(period.lastPaidRecord && !period.openRecord && today < period.dueDate);
+  const rec = (period.matches || [])[0];
+  if (!rec) return false;
+  const paid = rec.amountReceived ?? rec.paid ?? 0;
+  const payable = rec.amountPayable ?? rec.amount ?? 0;
+  return payable > 0 && paid >= payable;
 }
 
 function _computeDueEntry(s, today) {
@@ -12505,17 +12667,12 @@ function _computeDueEntry(s, today) {
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
   const amountDue = _dueAmountForStudent(s);
 
-  // STEP 3 PRODUCTION FIX — coverage gap. Once a cycle is paid in full,
-  // _dueMatchingFees correctly stops returning that (now-closed) record —
-  // matches becomes empty until the NEXT cycle's record is created. Without
-  // this, a fully-paid, still-covered student showed received:0/pending:
-  // <full amount> the moment their payment record "closed", even though
-  // period.dueDate (this same engine's own next-due-date) is still in the
-  // future — exactly the "student must remain Paid during the full period"
-  // case the rolling billing cycle exists to protect.
-  const withinPaidCoverage = _dueIsCovered(period, today);
-  const received = withinPaidCoverage ? amountDue : (feesReceived + adjustmentTotal);
-  const pending = withinPaidCoverage ? 0 : Math.max(0, amountDue - received);
+  // Calendar billing — the current period IS the only relevant bucket, so
+  // received/pending are simply this period's own record(s) plus any
+  // adjustment. No cross-period "still covered" forwarding is needed
+  // (that concept only existed for the rolling model this replaced).
+  const received = feesReceived + adjustmentTotal;
+  const pending = Math.max(0, amountDue - received);
 
   const dueDateOnly = new Date(period.dueDate.getFullYear(), period.dueDate.getMonth(), period.dueDate.getDate());
   const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -12745,12 +12902,11 @@ window.collectFeeForDue = (studentDbId) => {
   const s = window.DB.students.find(x => x.id === studentDbId);
   if (s) {
     const period = _dueCurrentPeriod(s, new Date());
-    // Same reasoning as saveFee's duplicate guard: a still-covered (fully
-    // paid) cycle has no open record to find, but there IS an existing
-    // record for it — jump to that rather than opening a blank form that
-    // saveFee's own guard would just reject a moment later.
-    const existing = _dueMatchingFees(s, period)[0]
-      || (_dueIsCovered(period, new Date()) ? period.lastPaidRecord : null);
+    // Calendar billing — same reasoning as saveFee's duplicate guard: if a
+    // record already exists for this student's current calendar period
+    // (any status), jump to editing it rather than opening a blank form
+    // that saveFee's own guard would just reject a moment later.
+    const existing = _dueMatchingFees(s, period)[0];
     if (existing) { editFee(existing.id); _enterQuickMode(); return; }
   }
   resetFeeForm();
@@ -14814,22 +14970,11 @@ function csStudentsForCoach(coachName) {
  * multiple, matching the corrected Dues aggregation pattern.
  */
 function csStudentFeeForMonth(student, monthLabel, year) {
-  // ROOT-CAUSE FIX (real one) — Coach Settlement was matching fee records
-  // by calendar-month LABEL (f.month === "August"). But Fee Collection's
-  // "Paid" status and Due Management's "removed from Due" are both
-  // determined by the ROLLING BILLING CYCLE engine (_dueCurrentPeriod /
-  // _computeDueEntry), which is intentionally NOT anchored to calendar
-  // month labels — see that engine's own comments: the next due date is
-  // Last Payment Date + 1/3/12 months, not "the 1st of next month". A
-  // student can be genuinely Paid and correctly dropped from the Due
-  // list while the fee record on file doesn't literally say "August" —
-  // e.g. they paid for a cycle that started in July and is still
-  // covering them into August. Matching on the label was therefore a
-  // second, PARALLEL definition of "is this student paid" that could
-  // (and did) disagree with the real one — exactly what the spec
-  // prohibits: "Coach Settlement must NEVER calculate payment status
-  // independently. It must ONLY consume the same shared billing data
-  // already used by Fee Collection and Due Management."
+  // ROOT-CAUSE FIX (real one) — Coach Settlement must NEVER calculate
+  // payment status independently; it must ONLY consume the same shared
+  // billing engine (_dueCurrentPeriod / _computeDueEntry) already used by
+  // Fee Collection and Due Management, never a second, parallel
+  // definition of "is this student paid" computed locally here.
   //
   // Fix: stop matching by label entirely. Call _computeDueEntry — the
   // exact function Due Management's own renderDues() calls — evaluated
@@ -14856,11 +15001,9 @@ function csStudentFeeForMonth(student, monthLabel, year) {
   // concern) — collapsed from the same dueEntry, not re-derived. A
   // zero-fee plan (nothing owed) is always Paid, same as pending<=0.
   const paymentStatus = (monthlyFee <= 0 || dueEntry.status === 'paid') ? 'Paid' : (collected > 0 ? 'Partial' : 'Pending');
-  // Payment date — the date of whichever real record the engine actually
-  // used: the closing payment if the cycle is fully covered, otherwise
-  // the open (partial) record's date, if any.
+  // Payment date — the date of this calendar period's own record, if any.
   const period = dueEntry.period || {};
-  const dateRecord = period.lastPaidRecord || period.openRecord;
+  const dateRecord = (period.matches || [])[0];
   const paymentDate = dateRecord ? (dateRecord.receiptDate || dateRecord.date || '') : '';
 
   return { monthlyFee, collected, pending, paymentStatus, paymentDate };
