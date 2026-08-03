@@ -5478,25 +5478,30 @@ window.initFeesFirebaseListener = () => {
       }
     });
 
-    // Fee Collection Integration (Phase 3) — REMOVAL DETECTION. This
-    // listener previously only ever added or updated — a fee deleted
-    // elsewhere (its Firebase node removed) would simply stop appearing
-    // in future snapshots, but nothing here noticed. The local, stale
-    // copy just sat in window.DB.fees forever, still counted by Due/
-    // Dashboard/Coach Settlement on every OTHER device. Same fix
-    // pattern already applied to Bookings: anything locally present but
-    // missing from this snapshot, and not itself still queued for this
-    // device's own pending sync, gets removed too.
-    const stillQueuedReceiptNos = new Set(_getSyncQueue().filter(p => p.type === 'fee' && p.receiptNo).map(p => p.receiptNo));
-    const before = window.DB.fees.length;
-    window.DB.fees = window.DB.fees.filter(f => {
-      if (!f.receiptNo) return true; // not yet synced to Sheets/Firebase at all — never remove locally-only records
-      if (seenReceiptNos.has(f.receiptNo) || stillQueuedReceiptNos.has(f.receiptNo)) return true;
-      return false;
-    });
-    if (window.DB.fees.length !== before) {
-      changed = true;
-    }
+    // ROOT-CAUSE FIX — reported bug: updating/paying a fee made an
+    // ALREADY-PAID student flip back to "Due" a moment later. Same root
+    // cause, same fix as the Students listener above: a Firebase 'value'
+    // event on the whole 'fees' node fires the instant ANY fee is
+    // written, and this block used to delete any local fee not present
+    // in *that particular* snapshot, on the assumption that "missing
+    // from the snapshot" meant "deleted elsewhere." That's not a safe
+    // assumption for the same reason it wasn't for Students — a record
+    // simply not yet reflected in this device's current snapshot is not
+    // the same thing as a record that was actually removed, and wiping
+    // it out of localStorage silently deleted real, still-valid payment
+    // history, which is exactly what made a paid student's Due Engine
+    // status recompute as unpaid again.
+    //
+    // Deletion is still handled correctly without this blanket pass:
+    // the device that actually deletes a fee removes it from
+    // window.DB.fees immediately at the point of deletion (see
+    // deleteFee/permanentlyDeleteFee) and records it in
+    // _getLocallyDeletedFeeIds() so it's never re-added by a remote
+    // snapshot (the `deletedIds.has(remote.receiptNo)` guard above).
+    // Other devices pick up that deletion the same safe way
+    // syncFeesFromSheet() already does — via the Sheet's own explicit
+    // `status === 'deleted'` tombstone, never via "absent = deleted".
+    void seenReceiptNos; // still used by the create/update loop above; no longer used to delete
 
     _feesFirebaseSeeded = true;
     if (changed) {
