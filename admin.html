@@ -3827,6 +3827,35 @@ function _normalizeRole(raw) {
   return resolved;
 }
 
+// EMERGENCY STABILITY FIX (refresh race): firebase.js is loaded via
+// <script defer>, so it only executes after the whole document has been
+// parsed. This inline script block, however, is a REGULAR (non-deferred)
+// script, so it runs immediately as the parser reaches it — before the
+// deferred scripts. On a fresh login this never matters (the user clicks
+// Login well after the page has fully loaded, so initializeFirebase already
+// exists by then). But on a page REFRESH, restoreSession() below calls
+// _enterApp() synchronously, right here, during initial parsing — at that
+// exact moment window.initializeFirebase can still be undefined. The old
+// code's `if (typeof window.initializeFirebase === 'function')` guard just
+// silently skipped initialization in that case, so Firebase was NEVER
+// started and the indicator sat on its default "Connecting..." forever.
+// This helper waits (briefly) for the function to actually appear instead
+// of giving up on the very first check.
+function _callWhenFirebaseReady(fn, attempt) {
+  attempt = attempt || 0;
+  if (typeof window.initializeFirebase === 'function') { fn(); return; }
+  if (attempt > 100) { // ~10s at 100ms steps — firebase.js genuinely failed to load
+    console.error('✗ firebase.js never finished loading (check the Network tab / ad-blockers) — Firebase indicator will stay stuck.');
+    const indicator = document.getElementById('firebase-connection-indicator');
+    if (indicator) {
+      indicator.textContent = '🔴 Firebase Error: script failed to load';
+      indicator.style.color = 'var(--red, #ef4444)';
+    }
+    return;
+  }
+  setTimeout(() => _callWhenFirebaseReady(fn, attempt + 1), 100);
+}
+
 function _enterApp(user) {
   CURRENT_USER = { ...user, role: _normalizeRole(user.role) };
   document.getElementById('auth-screen').style.display = 'none';
@@ -3848,7 +3877,9 @@ function _enterApp(user) {
   window.rtPollEvents?.();  // and do one immediate poll rather than waiting for the first 2.5s tick
   
   // PHASE 4: Firebase Realtime Database initialization
-  if (typeof window.initializeFirebase === 'function') {
+  // (see _callWhenFirebaseReady above for why this can't just be a
+  // `typeof window.initializeFirebase === 'function'` check)
+  _callWhenFirebaseReady(() => {
     window.initializeFirebase().then((result) => {
       if (result.success) {
         console.log('✓ Firebase initialized successfully');
@@ -3903,7 +3934,7 @@ function _enterApp(user) {
         console.error('✗ Firebase initialization failed:', result.error);
       }
     });
-  }
+  });
 }
 
 // Hides nav items / page-only buttons the current role isn't allowed to see.
