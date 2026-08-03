@@ -10337,18 +10337,23 @@ window.saveStudent = async () => {
     window.DB.students.unshift(data);
   }
   else{const idx=window.DB.students.findIndex(x=>x.id===existId);if(idx>=0)window.DB.students[idx]={...data,id:existId};}
-  // PHASE 6 — Firebase-first, same non-blocking fail-soft pattern as
-  // saveCoach: attempt+await the Firebase write (normally sub-second) so
-  // other open sessions see it live, THEN fire the existing Sheets sync
-  // as a separate, non-blocking call. Firebase failing never blocks this
-  // save or the Sheets write — same established convention as Coaches.
-  const fbStudentResult = await window.syncStudentFirebase?.({
+  // ROOT-CAUSE FIX — this `await`ed the Firebase write before the modal
+  // could close/show success, on the theory that awaiting makes it "live
+  // everywhere sooner." That's not true: the write is dispatched to
+  // Firebase the instant this call is made, regardless of whether THIS
+  // tab awaits its result — awaiting only delayed this device's own UI
+  // feedback. A slow/unreachable Firebase connection made the Save
+  // button look unresponsive even though the student record was already
+  // safely saved above. Fire-and-forget instead, same fix as the
+  // secondary fee-auto-creation call just below and saveDueAdjustment().
+  window.syncStudentFirebase?.({
     ...data,
     updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
+  }).then(fbStudentResult => {
+    if (fbStudentResult && !fbStudentResult.success) {
+      console.warn('Student Firebase sync failed (Sheets sync still proceeding):', fbStudentResult.error);
+    }
   });
-  if (fbStudentResult && !fbStudentResult.success) {
-    console.warn('Student Firebase sync failed (Sheets sync still proceeding):', fbStudentResult.error);
-  }
   autoSyncStudent(data, existId ? 'update' : 'create');
   // STEP 2 — Fee Collection auto-creation. A brand-new student previously
   // had NO fee record at all until someone manually opened Fee Collection
@@ -13002,14 +13007,21 @@ window.saveDueAdjustment = async () => {
   // PHASE 6 — Dues Synchronization. This correction used to be a true
   // dead end for every OTHER device (write-only to Sheets, no GET to read
   // it back — see Code.gs handleDueAdjustmentsGet, added this phase, and
-  // firebase.js syncDueAdjustmentFirebase/listenDueAdjustments). Firebase
-  // write is awaited first so it's live everywhere in real time; the
-  // Sheets write below remains the fire-and-forget permanent record,
-  // same non-blocking pattern every other module in this file uses.
-  const fbAdjResult = await window.syncDueAdjustmentFirebase?.(record);
-  if (fbAdjResult && !fbAdjResult.success) {
-    console.warn('Due Adjustment Firebase sync failed (Sheets sync still proceeding):', fbAdjResult.error);
-  }
+  // firebase.js syncDueAdjustmentFirebase/listenDueAdjustments).
+  // ROOT-CAUSE FIX — this used to `await` the Firebase write before
+  // closing the modal/showing the success toast. Awaiting it does NOT
+  // make the update reach other devices any faster (the write is already
+  // dispatched the instant the call is made, regardless of whether this
+  // tab awaits its result) — it only delayed THIS device's own UI
+  // feedback, so a slow/unreachable Firebase connection made "Save"
+  // look stuck, same class of bug fixed in saveStudent() this session.
+  // Fire-and-forget instead, same non-blocking pattern the Sheets write
+  // below already uses.
+  window.syncDueAdjustmentFirebase?.(record).then(fbAdjResult => {
+    if (fbAdjResult && !fbAdjResult.success) {
+      console.warn('Due Adjustment Firebase sync failed (Sheets sync still proceeding):', fbAdjResult.error);
+    }
+  });
   postToGoogleSheet({ type: 'due_adjustment', ...record }).catch(() => {});
 
   logAudit({
@@ -13890,20 +13902,21 @@ window.saveCoach = async () => {
   const id=await saveDoc('coaches',data,existId||null);
   if(!existId){data.id=id;data.coachId=id;window.DB.coaches.push(data);}
   else{const idx=window.DB.coaches.findIndex(x=>x.id===existId);if(idx>=0)window.DB.coaches[idx]={...data,id:existId};}
-  // PHASE 4.3.1 — Firebase-first: attempt the Firebase write and wait for
-  // it (normally sub-second), THEN fire the existing Sheets sync as a
-  // separate, non-blocking call. Firebase failing does not block this
-  // save — matches this app's established fail-soft convention — it just
-  // means this specific change won't appear live on other devices until
-  // Firebase recovers; the Sheets write (the permanent record) still
-  // happens either way.
-  const fbResult = await window.syncCoachFirebase?.({
+  // ROOT-CAUSE FIX — this `await`ed the Firebase write before closeModal/
+  // showToast below, same bug already fixed this session in saveStudent()
+  // and saveDueAdjustment(): awaiting does not make the write reach other
+  // devices any faster (it's dispatched the instant the call is made
+  // either way) — it only delayed this device's own "Coach saved"
+  // confirmation, making Save look unresponsive on a slow connection.
+  // Fire-and-forget instead.
+  window.syncCoachFirebase?.({
     ...(data.coachId ? data : { ...data, coachId: data.id }),
     updatedBy: CURRENT_USER?.email || CURRENT_USER?.name || ''
+  }).then(fbResult => {
+    if (fbResult && !fbResult.success) {
+      console.warn('Coach Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+    }
   });
-  if (fbResult && !fbResult.success) {
-    console.warn('Coach Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
-  }
   // TEMP DIAGNOSTICS — records both legs' outcome for the diagnostics
   // panel. Sheets sync itself stays fire-and-forget (unchanged); this
   // just ALSO attaches a diagnostic-only continuation, it doesn't make
