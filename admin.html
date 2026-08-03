@@ -9119,6 +9119,15 @@ function autoSyncFee(fee, actionOverride) {
     coach: fee.coach || '',
     feeType: fee.feeType || 'monthly',
     dueMonth: fee.dueMonth || '',
+    // BUGFIX (Paid reverting to Due) — the Dues Engine's period matcher
+    // (_dueCurrentPeriod, used by both the Fee Collection table and the
+    // Dues page) keys off f.month/f.quarter, NOT f.dueMonth. These were
+    // never sent to the backend at all, so Code.gs had nothing to store —
+    // any device that later pulled this record back from the Sheet got a
+    // fee with no month/quarter, failed the period match, and showed it
+    // as unpaid even though its own Status field still said "paid".
+    month: fee.month || '',
+    quarter: fee.quarter || '',
     year: fee.year,
     amountPayable: fee.amountPayable,
     amountReceived: fee.amountReceived,
