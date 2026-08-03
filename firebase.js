@@ -66,7 +66,6 @@ let authState = 'pending'; // 'pending' | 'success' | 'failed' | 'skipped'
  * rationale and the exact rule this pairs with.
  */
 window.initializeFirebase = async () => {
-  console.log('[FB-DEBUG] Firebase initialization started'); // TEMP DEBUG LOG — remove after live verification
   try {
     if (firebaseApp) {
       console.warn('Firebase already initialized');
@@ -80,7 +79,6 @@ window.initializeFirebase = async () => {
     // Get Realtime Database reference
     realtimeDb = firebase.database(firebaseApp);
     console.log('✓ Firebase Realtime Database initialized');
-    console.log('[FB-DEBUG] Database connected'); // TEMP DEBUG LOG — remove after live verification
 
     // Setup connection state monitoring
     _setupConnectionMonitoring();
@@ -93,12 +91,10 @@ window.initializeFirebase = async () => {
     // instead of a generic message, matching this file's existing
     // fail-soft pattern everywhere else.
     if (typeof firebase.auth === 'function') {
-      console.log('[FB-DEBUG] Anonymous sign-in started'); // TEMP DEBUG LOG — remove after live verification
       try {
         await firebase.auth().signInAnonymously();
         authState = 'success';
         console.log('✓ Firebase anonymous auth established (admin-side only)');
-        console.log('[FB-DEBUG] Anonymous sign-in successful'); // TEMP DEBUG LOG — remove after live verification
       } catch (authError) {
         authState = 'failed';
         lastFirebaseError = 'Authentication error: ' + authError.message;
@@ -113,7 +109,6 @@ window.initializeFirebase = async () => {
     // fully settled (success or caught failure) — is Firebase genuinely
     // ready for a write/listener to depend on it.
     firebaseFullyReady = true;
-    console.log(`[FB-DEBUG] Firebase initialized — fullyReady=true, authState=${authState}`); // TEMP DEBUG LOG — remove after live verification
 
     return {
       success: true,
@@ -161,12 +156,6 @@ function _setupConnectionMonitoring() {
       lastFirebaseError = null;
       if (window._ddtzDiag) window._ddtzDiag.hasEverConnected = true; // TEMP SYSTEM HEALTH
       console.log('🟢 Firebase connected');
-      // Distinguishing first-connect from reconnect matters for live
-      // testing: during a Wi-Fi-off/on test the tester needs to actually
-      // SEE that the socket came back, not just infer it.
-      console.log(wasDisconnected
-        ? '[FB-DEBUG] Connection restored (reconnected after a drop)'
-        : '[FB-DEBUG] Connection established'); // TEMP DEBUG LOG — remove after live verification
       if (wasDisconnected) {
         // `.info/connected` flipping back to true is the AUTHORITATIVE
         // signal that Firebase itself reconnected — strictly more
@@ -181,7 +170,6 @@ function _setupConnectionMonitoring() {
     } else {
       connectionStatus = 'disconnected';
       console.log('🔴 Firebase disconnected');
-      console.log('[FB-DEBUG] Firebase disconnected'); // TEMP DEBUG LOG — remove after live verification
     }
     _updateConnectionIndicator();
   }, (error) => {
@@ -385,7 +373,6 @@ window.listenPendingEnrolments = (callback) => {
 
   const ref = realtimeDb.ref('pending_enrolments');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (pending_enrolments)'); // TEMP DEBUG LOG — remove after live verification
     const enrolments = [];
     snapshot.forEach((child) => {
       enrolments.push({ firebaseKey: child.key, ...child.val() });
@@ -406,7 +393,6 @@ window.listenPendingEnrolments = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (pending_enrolments)'); // TEMP DEBUG LOG — remove after live verification
 
   return () => ref.off('value', handler); // unsubscribe function
 };
@@ -581,7 +567,6 @@ window.refreshFirebaseConnectionIndicator = () => {
     const previous = connectionStatus;
     connectionStatus = reallyConnected ? 'connected' : 'disconnected';
     if (previous !== connectionStatus) {
-      console.log(`[FB-DEBUG] Indicator re-synced from live state: ${previous} → ${connectionStatus}`); // TEMP DEBUG LOG
     }
     _updateConnectionIndicator();
   }).catch(err => {
@@ -820,6 +805,17 @@ window.drainRetryQueue = async () => {
         const result = await window.submitBookingRequestFirebase(item.data);
         if (!result.success) throw new Error(result.error || 'retry failed');
         console.log('✓ Retry succeeded for', item.firebaseKey || item.data?.requestId);
+      } else if (item.operation === 'booking_request_update' && typeof window.syncBookingRequestFirebase === 'function') {
+        // ROOT-CAUSE FIX (Pending Reservation sync) — third producer,
+        // for admin.html's confirm/reject/edit/delete status broadcast
+        // (see the comment inside syncBookingRequestFirebase above for
+        // why this one has no other fallback path). Without this
+        // branch, a queued item would sit here forever: it'd fall into
+        // the "unknown operation type" bucket below and just get kept,
+        // never actually retried.
+        const result = await window.syncBookingRequestFirebase(item.data);
+        if (!result.success) throw new Error(result.error || 'retry failed');
+        console.log('✓ Retry succeeded for', item.firebaseKey || item.data?.requestId);
       } else {
         // Unknown operation type — keep it queued rather than silently drop it.
         stillFailed.push(item);
@@ -912,7 +908,6 @@ window.listenFinanceExpenses = (callback) => {
   }
   const ref = realtimeDb.ref('finance_expenses');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (finance_expenses)'); // TEMP DEBUG LOG — remove after live verification
     const expenses = [];
     snapshot.forEach((child) => expenses.push({ firebaseKey: child.key, ...child.val() }));
     callback(expenses);
@@ -927,7 +922,6 @@ window.listenFinanceExpenses = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (finance_expenses)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -986,7 +980,6 @@ window.listenCoaches = (callback) => {
   }
   const ref = realtimeDb.ref('coaches');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (coaches)'); // TEMP DEBUG LOG — remove after live verification, same convention as Phase 4.2's emergency fix
     const coaches = [];
     snapshot.forEach((child) => coaches.push({ firebaseKey: child.key, ...child.val() }));
     callback(coaches);
@@ -999,7 +992,6 @@ window.listenCoaches = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (coaches)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1069,7 +1061,6 @@ window.listenStudents = (callback) => {
   }
   const ref = realtimeDb.ref('students');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (students)'); // TEMP DEBUG LOG — remove after live verification
     const students = [];
     snapshot.forEach((child) => students.push({ firebaseKey: child.key, ...child.val() }));
     callback(students);
@@ -1082,7 +1073,6 @@ window.listenStudents = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (students)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1131,7 +1121,6 @@ window.listenFees = (callback) => {
   }
   const ref = realtimeDb.ref('fees');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (fees)'); // TEMP DEBUG LOG — remove after live verification
     const fees = [];
     snapshot.forEach((child) => fees.push({ firebaseKey: child.key, ...child.val() }));
     callback(fees);
@@ -1144,7 +1133,6 @@ window.listenFees = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (fees)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1185,7 +1173,6 @@ window.listenDueAdjustments = (callback) => {
   }
   const ref = realtimeDb.ref('due_adjustments');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (due_adjustments)'); // TEMP DEBUG LOG — remove after live verification
     const adjustments = [];
     snapshot.forEach((child) => adjustments.push({ firebaseKey: child.key, ...child.val() }));
     callback(adjustments);
@@ -1198,11 +1185,37 @@ window.listenDueAdjustments = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (due_adjustments)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
 console.log('✓ Phase 6 Due Adjustments Realtime Sync Module Loaded');
+
+/**
+ * Coaching Module Reset — removes every child under each of the five
+ * coaching-only Firebase nodes in one batch (students, fees,
+ * due_adjustments, coach_settlements — attendance has no Firebase node,
+ * Sheets/localStorage only). Deliberately does NOT touch coaches,
+ * finance_expenses, booking_requests, pending_enrolments, or any other
+ * node. Every currently-connected device's own listenStudents/listenFees/
+ * listenDueAdjustments/listenCoachSettlements callback fires naturally
+ * once these are removed — that's what makes the reset show up live on a
+ * Manager's already-open session too, with no separate push needed.
+ */
+window.resetCoachingFirebaseData = async () => {
+  if (!realtimeDb) return { success: false, error: 'Firebase not initialized' };
+  try {
+    await Promise.all([
+      realtimeDb.ref('students').remove(),
+      realtimeDb.ref('fees').remove(),
+      realtimeDb.ref('due_adjustments').remove(),
+      realtimeDb.ref('coach_settlements').remove()
+    ]);
+    return { success: true };
+  } catch (error) {
+    console.error('✗ Coaching Firebase reset failed:', error);
+    return { success: false, error: error.message };
+  }
+};
 
 // ============================================================================
 // PHASE 5 — COACH SETTLEMENT REALTIME SYNC (Super Admin only, same
@@ -1232,6 +1245,20 @@ window.syncCoachSettlementFirebase = async (record) => {
 };
 
 /**
+ * Remove a coach settlement record from Firebase (mirrors deleteFinanceExpenseFirebase).
+ * Used when a Super Admin deletes a generated settlement so it can be
+ * regenerated with current fee data.
+ */
+window.deleteCoachSettlementFirebase = async (settlementId) => {
+  return new Promise((resolve) => {
+    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    realtimeDb.ref('coach_settlements/' + settlementId).remove()
+      .then(() => resolve({ success: true }))
+      .catch((error) => resolve({ success: false, error: error.message }));
+  });
+};
+
+/**
  * Real-time listener for coach settlements. admin.html only calls this
  * when _finCanAccess() (Super Admin) is true, same hard gate as Finance.
  */
@@ -1242,7 +1269,6 @@ window.listenCoachSettlements = (callback) => {
   }
   const ref = realtimeDb.ref('coach_settlements');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (coach_settlements)'); // TEMP DEBUG LOG — remove after live verification
     const settlements = [];
     snapshot.forEach((child) => settlements.push({ firebaseKey: child.key, ...child.val() }));
     callback(settlements);
@@ -1255,7 +1281,6 @@ window.listenCoachSettlements = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (coach_settlements)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
@@ -1309,7 +1334,31 @@ window.submitBookingRequestFirebase = async (payload) => {
  */
 window.syncBookingRequestFirebase = async (record) => {
   return new Promise((resolve) => {
-    if (!realtimeDb) { resolve({ success: false, error: 'Firebase not initialized' }); return; }
+    // ROOT-CAUSE FIX (Pending Reservation sync) — this write is the ONLY
+    // channel that tells other admin devices a request was
+    // confirmed/rejected/edited/deleted (Code.gs's pendingRequests GET
+    // endpoint deliberately returns PENDING rows only, so it can never
+    // carry a status change — see handlePendingRequests). Previously,
+    // if this write failed (realtimeDb not ready yet, a dropped
+    // connection, a backgrounded tab, etc.) it just resolved
+    // {success:false} and the caller (confirmBookingRequest/
+    // rejectBookingRequest in admin.html) never checked that result —
+    // so the failure was silent and PERMANENT: the confirming device
+    // updated its own local state regardless (optimistic UI), while
+    // every other device kept showing the request as PENDING forever,
+    // with nothing left to ever re-deliver the status change. That
+    // mismatch is exactly the reported bug (Manager sees it gone,
+    // Super Admin still sees it pending).
+    //
+    // Fix: queue a failed write onto the SAME offline retry queue
+    // 'booking_request_submit' already uses (queueForRetry/
+    // drainRetryQueue below), so it auto-retries on reconnect instead
+    // of vanishing. Purely additive — the write itself is unchanged.
+    if (!realtimeDb) {
+      window.queueForRetry?.(record.requestId || record.id, 'booking_request_update', record);
+      resolve({ success: false, error: 'Firebase not initialized' });
+      return;
+    }
     const requestId = record.requestId || record.id;
     if (!requestId) { resolve({ success: false, error: 'Missing requestId' }); return; }
     realtimeDb.ref('booking_requests/' + requestId).set({
@@ -1319,6 +1368,9 @@ window.syncBookingRequestFirebase = async (record) => {
     }).then(() => resolve({ success: true }))
       .catch((error) => {
         console.error('✗ Booking request Firebase sync failed:', error);
+        // ROOT-CAUSE FIX — see comment above: queue for retry instead of
+        // dropping this status broadcast on the floor.
+        window.queueForRetry?.(requestId, 'booking_request_update', record);
         resolve({ success: false, error: error.message });
       });
   });
@@ -1336,7 +1388,6 @@ window.listenBookingRequests = (callback) => {
   }
   const ref = realtimeDb.ref('booking_requests');
   const handler = (snapshot) => {
-    console.log('[FB-DEBUG] Listener received update (booking_requests)'); // TEMP DEBUG LOG — remove after live verification
     const requests = [];
     snapshot.forEach((child) => requests.push({ firebaseKey: child.key, ...child.val() }));
     callback(requests);
@@ -1349,100 +1400,10 @@ window.listenBookingRequests = (callback) => {
     _updateConnectionIndicator();
   };
   ref.on('value', handler, errorHandler);
-  console.log('[FB-DEBUG] Listener attached (booking_requests)'); // TEMP DEBUG LOG — remove after live verification
   return () => ref.off('value', handler);
 };
 
 console.log('✓ Stage 1 Reservation Requests Realtime Sync Module Loaded');
-
-// ============================================================================
-// STAGE 2 — Public Slot Availability Realtime Sync
-// ----------------------------------------------------------------------------
-// STABILITY PHASE — PRIORITY 1. Unlike every other module in this file,
-// the PUBLIC site (index.html) never had a Firebase listener for confirmed
-// bookings/blocked slots — it only ever polled Code.gs's
-// `action=availability` REST endpoint on a 30s setInterval. That's the
-// actual gap behind "index doesn't always show live availability": a
-// booking made in Admin could take up to 30s (or longer, on a slow Apps
-// Script cold-start) to appear on the public site.
-//
-// This adds the same push-on-write / listen-in-realtime pattern already
-// used above for booking_requests/fees/students, through a NEW,
-// PUBLIC-readable, privacy-minimal node — 'live_availability'. Only
-// date/start/end/status/sport/reason ever get written here — NEVER name,
-// phone, or any payment figure (same principle already applied in
-// apps-script-birthday-backend.gs's getTodaysBirthdayStudents). All actual
-// booking business logic (conflict checks, provisional-ID reconciliation,
-// the Sheets-authoritative write) stays exactly where it already is, in
-// Code.gs / admin.html — this file only mirrors the public-safe subset of
-// the result, and only AFTER Code.gs has confirmed the write.
-// ============================================================================
-
-/**
- * Called from admin.html's postToGoogleSheet, right after a booking or
- * blocked-slot write is CONFIRMED by the Sheets-authoritative backend —
- * never before, so this can never show a slot as booked/blocked that the
- * server actually rejected (e.g. a conflict). .set() (not .push()), keyed
- * by the record's own id, so a retried/edited write overwrites the same
- * node instead of creating a duplicate — same reasoning as every other
- * *Firebase function in this file. Pass data === null to remove a record
- * (booking cancelled / block deleted) instead of leaving a stale entry.
- * Best-effort by design: if this fails, index.html's existing polling
- * fallback still keeps availability correct, just not instant.
- */
-window.publishAvailabilityRecord = (kind, id, data) => {
-  if (!realtimeDb || !id) return;
-  try {
-    const ref = realtimeDb.ref('live_availability/' + kind + '/' + id);
-    if (data === null) {
-      ref.remove().catch((err) => console.error('✗ [SYNC] Availability remove failed:', kind, id, err));
-      return;
-    }
-    ref.set({ ...data, _fbUpdatedAt: firebase.database.ServerValue.TIMESTAMP })
-      .catch((err) => console.error('✗ [SYNC] Availability publish failed:', kind, id, err));
-  } catch (err) {
-    console.error('✗ [SYNC] publishAvailabilityRecord error:', err);
-  }
-};
-
-/**
- * Real-time listener for public availability (PUBLIC — index.html).
- * Streams bookings and blocks as one merged callback so the caller never
- * has to coordinate two listeners' first-snapshot timing separately.
- * Firebase's own socket handles reconnect + resync of missed updates
- * automatically once .on('value') is attached — no re-subscription logic
- * needed here, unlike the admin-only listeners above, which additionally
- * plug into the reconnect watchdog to recover from a subscription that
- * never got attached in the first place (not applicable here, since this
- * is the only listener index.html ever runs).
- * On a permission-denied or connection error, tells the caller so it can
- * fall back to polling Code.gs directly instead of silently going stale.
- */
-window.listenLiveAvailability = (callback, onError) => {
-  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
-  const ref = realtimeDb.ref('live_availability');
-  const handler = (snapshot) => {
-    const bookings = [];
-    const blocks = [];
-    snapshot.forEach((kindSnap) => {
-      kindSnap.forEach((child) => {
-        const rec = { id: child.key, ...child.val() };
-        if (kindSnap.key === 'bookings') bookings.push(rec);
-        else if (kindSnap.key === 'blocks') blocks.push(rec);
-      });
-    });
-    console.log('[SYNC] Live availability snapshot:', bookings.length, 'booking(s),', blocks.length, 'block(s)');
-    callback({ bookings, blocks });
-  };
-  const errorHandler = (error) => {
-    console.error('✗ [SYNC] Live availability listener error:', error);
-    onError?.(error);
-  };
-  ref.on('value', handler, errorHandler);
-  return () => ref.off('value', handler);
-};
-
-console.log('✓ Stage 2 Public Slot Availability Realtime Sync Module Loaded');
 
 // ============================================================================
 // TEMP DIAGNOSTICS PANEL — Phase 4.x migration debugging only.
