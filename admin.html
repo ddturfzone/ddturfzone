@@ -5877,14 +5877,28 @@ async function syncStudentsFromSheet() {
       }
     });
 
-    // A student this device still has locally but the Sheet no longer
-    // lists as active (archived elsewhere) — drop it here too, unless this
-    // device's own archive for it hasn't reached the server yet.
-    const stillPendingArchive = new Set(_getSyncQueue().filter(p => p.type === 'student' && (p.action === 'archive' || p.action === 'delete')).map(p => p.studentId));
-    const beforeCount = window.DB.students.length;
-    window.DB.students = window.DB.students.filter(s => remoteIds.has(s.studentId) || stillPendingArchive.has(s.studentId));
-    if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students); }
-
+    // ROOT-CAUSE FIX — reported bug: a brand-new student saved locally
+    // would vanish after a plain page refresh (only reappearing after a
+    // full logout/login). This block used to delete any local student
+    // not yet present in the Sheet's response, on the assumption that
+    // "missing from the Sheet" meant "archived on another device." That
+    // assumption doesn't hold for a student that was JUST created here:
+    // autoSyncStudent()'s write to the Sheet is fire-and-forget and often
+    // takes a few seconds (Apps Script), and queuedSync() only records a
+    // payload in the offline sync queue when the network call is offline
+    // or fails — a normal, still-in-flight request isn't "pending" by
+    // that definition. Refreshing the page during that window aborted
+    // the in-flight write, and this filter then deleted the very student
+    // that had just been saved, straight out of localStorage.
+    //
+    // Now that Students is Firebase-first (per the architecture
+    // migration), Firebase is the authoritative live source and its own
+    // listener (initStudentsFirebaseListener above) already handles
+    // archive/remove reconciliation safely, keyed off the same sync
+    // queue. This Sheets-side deletion is redundant on top of that and
+    // was the actual source of the data loss, so it's disabled here —
+    // the Sheet-adoption of updates just above (an edited record with a
+    // newer updatedAt) is untouched and still runs normally.
     if (changed) {
       populateFeeStudentSelect();
       if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
