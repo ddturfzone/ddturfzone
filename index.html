@@ -78,6 +78,21 @@
   .reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
   .reveal.revealed{opacity:1;transform:translateY(0)}
   @media (prefers-reduced-motion:reduce){ .reveal{opacity:1;transform:none;transition:none} }
+
+  /* ---- Birthday wish banner (lightweight, CSS-only animation) ---- */
+  .birthday-banner{position:fixed;left:0;right:0;z-index:45;display:none;justify-content:center;padding:0 16px;pointer-events:none}
+  .birthday-banner.show{display:flex}
+  .birthday-banner-card{pointer-events:auto;display:flex;align-items:center;gap:12px;max-width:640px;background:linear-gradient(135deg,var(--pitch-dark),var(--pitch));color:var(--white);border-radius:14px;box-shadow:var(--shadow-lg);padding:14px 18px;margin-top:10px;opacity:0;transform:translateY(-16px);animation:bdaySlideIn .5s ease forwards}
+  .birthday-banner-icon{font-size:26px;animation:bdayBounce 1.6s ease-in-out infinite}
+  .birthday-banner-text{font-size:14px;line-height:1.4}
+  .birthday-banner-text b{font-family:'Anton',sans-serif;font-weight:400;letter-spacing:.3px;text-transform:uppercase}
+  .birthday-banner-close{pointer-events:auto;background:rgba(255,255,255,.15);border:none;color:var(--white);width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1;flex-shrink:0}
+  .birthday-banner-close:hover{background:rgba(255,255,255,.3)}
+  @keyframes bdaySlideIn{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes bdayBounce{0%,100%{transform:translateY(0) rotate(0deg)}25%{transform:translateY(-3px) rotate(-8deg)}75%{transform:translateY(-3px) rotate(8deg)}}
+  @media (prefers-reduced-motion:reduce){ .birthday-banner-card,.birthday-banner-icon{animation:none} }
+  @media (max-width:480px){ .birthday-banner-text{font-size:13px} }
+
   .nav .wrap{display:flex;align-items:center;justify-content:space-between;padding-top:14px;padding-bottom:14px}
   .nav-logo{font-family:'Anton',sans-serif;font-size:22px;letter-spacing:1px;display:flex;align-items:center;gap:8px}
   .nav-logo span{color:var(--pitch-2)}
@@ -402,6 +417,9 @@
     </button>
   </div>
 </nav>
+
+<!-- Birthday wish banner — populated only when a student's birthday falls today -->
+<div class="birthday-banner" id="birthday-banner"></div>
 
 <!-- MOBILE SLIDE-IN MENU -->
 <div class="mobile-menu-overlay" id="mobile-menu-overlay" onclick="closeMobileMenu()"></div>
@@ -2149,6 +2167,50 @@
     els.forEach(el => obs.observe(el));
   }
 
+  // ===== Birthday wish banner =====
+  // Reuses the same Students data (DOB, name) and the same getTodaysBirthdays
+  // backend action as admin.html's dashboard widget and birthday-page.html —
+  // no new tab, no new Sheet columns, no separate birthday database. Purely
+  // additive: if the endpoint is unreachable or nobody has a birthday today,
+  // the banner element simply stays hidden and nothing else on the page is
+  // affected.
+  function _bdayTodayStr(){
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function _escBday(s){
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  window._dismissBirthdayBanner = function(){
+    const banner = document.getElementById('birthday-banner');
+    if (banner) banner.classList.remove('show');
+    try { sessionStorage.setItem('ddtz_bday_banner_dismissed', _bdayTodayStr()); } catch (e) {}
+  };
+  async function initBirthdayBanner(){
+    const banner = document.getElementById('birthday-banner');
+    if (!banner) return;
+    if (sessionStorage.getItem('ddtz_bday_banner_dismissed') === _bdayTodayStr()) return;
+    const sheetUrl = getLiveSheetUrl();
+    if (!sheetUrl) return;
+    try {
+      const res = await fetch(`${sheetUrl}?action=getTodaysBirthdays&_=${Date.now()}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!data || !data.success || !data.students || !data.students.length) return;
+      const names = data.students.map(s => (s.firstName || s.name || '').trim()).filter(Boolean);
+      if (!names.length) return;
+      const namesText = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+      banner.innerHTML = `
+        <div class="birthday-banner-card">
+          <div class="birthday-banner-icon">🎉</div>
+          <div class="birthday-banner-text"><b>Happy Birthday, ${_escBday(namesText)}!</b><br>Wishing you a wonderful birthday from DD Turf Zone.</div>
+          <button class="birthday-banner-close" aria-label="Dismiss" onclick="_dismissBirthdayBanner()">✕</button>
+        </div>`;
+      const nav = document.getElementById('site-nav');
+      banner.style.top = (nav ? nav.offsetHeight : 0) + 'px';
+      banner.classList.add('show');
+    } catch (e) { /* silent — banner just doesn't show */ }
+  }
+
   // ===== Boot sequence =====
   const _effectiveImages = getEffectiveWebsiteImages();
   applyWebsiteImages(_effectiveImages);
@@ -2168,6 +2230,8 @@
   syncLiveSiteConfig();
   setInterval(syncLiveSiteConfig, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncLiveSiteConfig(); });
+  initBirthdayBanner();
+  setInterval(initBirthdayBanner, 300000); // re-check every 5 min so the banner appears/clears itself as the date rolls over, without a page reload
 
   // ----- AI Assistant Hub -----
   // Answers instantly from a local knowledge base of real DD Turf Zone

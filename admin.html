@@ -15579,7 +15579,7 @@ window.sendBirthdayWish = (studentId) => {
   // Exact requested template, first-name-only, public Birthday Page link
   // included, NO private info (no DOB, parent name, phone, address, or
   // student ID) anywhere in the outgoing message.
-  const message = `🎉 Happy Birthday, ${firstName}!\n\nWishing you a wonderful year filled with happiness, good health, confidence, success, and many victories.\n\nYour DD Turf Zone family wishes you an amazing year ahead! 🥳\n\n🎂 We've also featured today's birthday wishes on our website.\n\n👉 View your birthday wish here:\n${BIRTHDAY_PAGE_PUBLIC_URL}\n\nHave a fantastic celebration!\n\n❤️ DD Turf Zone Family`;
+  const message = `Happy Birthday, ${firstName}!\n\nWishing you a wonderful year filled with happiness, good health, confidence, success, and many victories.\n\nYour DD Turf Zone family wishes you an amazing year ahead!\n\nWe have also featured today's birthday wishes on our website.\n\nView your birthday wish here:\n${BIRTHDAY_PAGE_PUBLIC_URL}\n\nHave a fantastic celebration!\n\nDD Turf Zone Family`;
   const phone = (s.phone || '').replace(/\D/g, '');
   const waNumber = phone ? buildWaPhone(phone) : '';
   if (!phone) showToast('No phone number on file — pick the contact in WhatsApp.', 'info');
