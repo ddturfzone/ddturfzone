@@ -4483,6 +4483,14 @@ function categoryLabel(slug) {
   const c = (window.DB.coachingCategories||[]).find(c=>c.slug===slug);
   return c ? `${c.icon} ${c.name}` : slug;
 }
+// Symbol-free sibling of categoryLabel — for the fee receipt and WhatsApp/
+// Copy/Email fee messages, which must never contain an emoji (categoryLabel's
+// icon prefix included). categoryLabel itself is left untouched since every
+// other on-screen badge/label in the app still wants the icon.
+function categoryNamePlain(slug) {
+  const c = (window.DB.coachingCategories||[]).find(c=>c.slug===slug);
+  return c ? c.name : (slug || '-');
+}
 function _fillCategorySelect(el, { includeAll=false, includeTurf=false, includeInactive=false, keepCurrent=true } = {}) {
   if (!el) return;
   const current = el.value;
@@ -5474,6 +5482,13 @@ window.initStudentsFirebaseListener = () => {
       populateFeeStudentSelect();
       if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
       _refreshDuesIfActive();
+      // FIX — same reasoning as syncStudentsFromSheet's identical addition
+      // below: the very first Firebase snapshot on a fresh browser
+      // (Incognito, another device) is exactly what backfills a birthday
+      // student's record here, but nothing previously told the Dashboard's
+      // birthday widget to redraw once that happened, so it stayed on its
+      // initial (often empty) render forever.
+      renderBirthdayWidget?.();
     }
   });
 
@@ -5952,6 +5967,18 @@ async function syncStudentsFromSheet() {
     if (changed) {
       populateFeeStudentSelect();
       if (document.getElementById('page-students')?.classList.contains('active')) renderStudents();
+      // FIX — on a fresh browser/Incognito (empty localStorage), the
+      // Dashboard's birthday widget renders ONCE right after login, before
+      // this fetch has had a chance to complete — so it painted with
+      // whatever window.DB.students happened to be at that instant (often
+      // nothing yet). Nothing ever told it to refresh once the real
+      // roster actually arrived, which is exactly why "Send Birthday
+      // Wish" looked broken there: the card/button a normal browser saw
+      // immediately (from its already-populated localStorage) never
+      // appeared at all on a fresh device, or appeared stale. Every other
+      // page already re-renders itself here when its own data changes —
+      // the birthday widget was the one dashboard-only view that didn't.
+      renderBirthdayWidget?.();
     }
   } catch (e) {
     // Network hiccup — local data (and the offline sync queue) is
@@ -11594,32 +11621,42 @@ async function _saveFeeImpl(sendWA=false) {
   }
 
   if(sendWA){
-    // Rebuilt per spec: plain aligned text, no emoji clusters. The old
-    // message packed emoji like 🏟️/🙏 (multi-codepoint sequences with
-    // variation selectors) next to a bare "%" from encodeURIComponent —
-    // some Android WhatsApp/webview combinations fail to render those
-    // multi-byte sequences correctly and show them as "�" boxes instead.
-    // Sticking to plain ASCII labels + a single, common ✅ emoji avoids that.
+    // STANDARDIZED — this used to be its own third, independently-worded
+    // message (with an emoji and ₹, never fixed when the Receipt Delivery
+    // messages elsewhere in this file were cleaned up). Now shares the
+    // exact same plain-text template/field set/footer as
+    // _receiptWhatsAppMessage, so "Save & WhatsApp" and "Generate Receipt
+    // -> WhatsApp" always say the same thing for the same payment.
+    const biz = _idCardBizSettings();
     const lines = [
-      '✅ Fee Payment Confirmed',
-      '',
-      `Receipt : ${data.receiptNo || '(pending sync)'}`,
-      `Student : ${st.name}`,
-      `Sport   : ${st.sport.charAt(0).toUpperCase()+st.sport.slice(1)} Coaching`,
-      `Period  : ${data.dueMonth}`,
-      `Payable : ₹${amount.toLocaleString('en-IN')}`,
-      `Received: ₹${paid.toLocaleString('en-IN')}`,
-      `Pending : ₹${data.pending.toLocaleString('en-IN')}`,
-      `Mode    : ${data.paymentMethod}`,
-      '',
-      'Thank you for your payment!',
-      '',
       'DD Turf Zone',
-      'Madambakkam'
+      'Fee Payment Receipt',
+      '',
+      `Student Name: ${st.name}`,
+      `Sport: ${categoryNamePlain(st.sport)}`,
+      `Payment Date: ${formatDate(data.receiptDate || data.date)}`,
+      `Payment Period: ${data.dueMonth}`,
+      `Amount Paid: Rs. ${paid.toLocaleString('en-IN')}`,
+      `Payment Status: ${_RC_STATUS_PLAIN[data.status] || data.status || '-'}`,
+      `Payment Method: ${data.paymentMethod}`,
+      `Receipt No: ${data.receiptNo || '(pending sync)'}`,
+      '',
+      'Thank you.',
+      'DD Turf Zone',
+      `Contact: ${biz.contact}`,
+      `Address: ${biz.address}`
     ];
     const msg = encodeURIComponent(lines.join('\n'));
-    const phone=st.phone.replace(/\D/g,'');
-    window.open(`https://wa.me/${phone.startsWith('91')?phone:'91'+phone}?text=${msg}`,'_blank');
+    // FIX — st.phone.replace(...) used to run unguarded; an empty phone
+    // field (not unusual on an older/edited student record) meant this
+    // silently opened wa.me/91?text=... — a malformed single-digit
+    // "recipient" — instead of the same soft "no number on file, pick the
+    // contact yourself" behavior every other WhatsApp send in this file uses.
+    const phone = (st.phone || '').replace(/\D/g, '');
+    if (!phone) showToast('No parent mobile number on file — pick the contact in WhatsApp.', 'info');
+    const waNumber = phone ? buildWaPhone(phone) : '';
+    const win = window.open(`https://wa.me/${waNumber}?text=${msg}`, '_blank');
+    if (!win) showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error');
   }
 };
 
@@ -11834,19 +11871,23 @@ window.deleteFee = async (id) => {
 function _receiptDocHTML(f) {
   const biz = _idCardBizSettings();
   const logoUrl = _idCardLogoUrl();
+  const parent = _receiptParentContact(f);
   const payable = f.amountPayable ?? f.amount ?? 0;
   const received = f.amountReceived ?? f.paid ?? 0;
   const pending = Math.max(0, f.pending ?? (payable - received));
   const dueMonth = f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year);
-  const statusLabels = { paid: 'badge-green ✅ Paid', partial: 'badge-yellow ⚠️ Partially Paid', pending: 'badge-red ❌ Pending' };
+  // CLEANUP — status/type labels no longer carry an emoji prefix; the
+  // colored badge chip itself already communicates status, an emoji on
+  // top of it is a decorative symbol the badge doesn't need (see the
+  // "avoid unnecessary decorative symbols in the receipt" requirement).
+  const statusLabels = { paid: 'badge-green Paid', partial: 'badge-yellow Partially Paid', pending: 'badge-red Pending' };
   const [cls, ...rest] = (statusLabels[f.status] || 'badge-gray ' + f.status).split(' ');
-  const typeLabels = { full: '✅ Full Payment', partial: '⚠️ Partial Payment', advance: '⏫ Advance Payment' };
+  const typeLabels = { full: 'Full Payment', partial: 'Partial Payment', advance: 'Advance Payment' };
   return `
     <div class="rc-head">
       ${logoUrl
         ? `<img src="${logoUrl}" alt="${biz.name}">`
         : `<div class="rc-biz-name-fallback">${biz.name}</div>`}
-      <div class="rc-contact">${biz.address}<br>📞 ${biz.contact}</div>
     </div>
     <div class="rc-title">Payment Receipt</div>
     <div class="rc-meta">
@@ -11855,12 +11896,13 @@ function _receiptDocHTML(f) {
     </div>
     <div class="rc-section-label">Student</div>
     <div class="rc-row"><span>Name</span><b>${f.studentName || '-'}</b></div>
+    ${parent.name ? `<div class="rc-row"><span>Parent Name</span><b>${parent.name}</b></div>` : ''}
     <div class="rc-row"><span>Student ID</span><b>${f.studentId || '-'}</b></div>
-    <div class="rc-row"><span>Sport</span><b>${categoryLabel(f.sport) || f.sport || '-'}</b></div>
+    <div class="rc-row"><span>Sport</span><b>${categoryNamePlain(f.sport)}</b></div>
     <div class="rc-row"><span>Batch</span><b>${f.batch || '-'}</b></div>
     <div class="rc-row"><span>Coach</span><b>${f.coach || '-'}</b></div>
     <div class="rc-section-label">Payment</div>
-    <div class="rc-row"><span>Due Month</span><b>${dueMonth}</b></div>
+    <div class="rc-row"><span>Payment Period</span><b>${dueMonth}</b></div>
     <div class="rc-row"><span>Fee Type</span><b>${(f.feeType||'monthly').charAt(0).toUpperCase()+(f.feeType||'monthly').slice(1)}</b></div>
     <div class="rc-row"><span>Payment Method</span><b>${f.paymentMethod || '-'}</b></div>
     <div class="rc-row"><span>Payment Type</span><b>${typeLabels[f.paymentType] || f.paymentType || '-'}</b></div>
@@ -11869,7 +11911,12 @@ function _receiptDocHTML(f) {
     <div class="rc-amount-row rc-total"><span>Pending Balance</span><span>₹${pending.toLocaleString('en-IN')}</span></div>
     <div style="text-align:center;margin-top:10px"><span class="rc-badge badge ${cls}">${rest.join(' ')}</span></div>
     ${f.notes ? `<div class="rc-notes"><b>Notes:</b> ${f.notes}</div>` : ''}
-    <div class="rc-foot">Thank you for your payment!<br>${biz.name} · ${biz.address}</div>
+    <div class="rc-foot">
+      Thank you for your payment.<br><br>
+      <b>${biz.name}</b><br>
+      Contact: ${biz.contact}<br>
+      Address: ${biz.address}
+    </div>
   `;
 }
 
@@ -11981,27 +12028,36 @@ function _receiptParentContact(f) {
 // multi-codepoint emoji as "�" on some Android webviews) — shared verbatim
 // across WhatsApp, Copy Message, and Email so all three ways of sending this
 // always say exactly the same thing.
+const _RC_STATUS_PLAIN = { paid: 'Paid', partial: 'Partially Paid', pending: 'Pending' };
+
 function _receiptMessageText(f, parentName) {
   const amount = f.amountReceived ?? f.paid ?? 0;
+  const dueMonth = f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year);
+  const biz = _idCardBizSettings();
   return [
     'DD Turf Zone',
+    'Fee Payment Receipt',
     '',
     `Dear ${parentName || 'Parent/Guardian'},`,
     '',
     'We have received your coaching fee payment.',
     '',
-    `Student : ${f.studentName || '-'}`,
-    `Student ID : ${f.studentId || '-'}`,
-    `Sport : ${categoryLabel(f.sport) || f.sport || '-'}`,
-    `Batch : ${f.batch || '-'}`,
-    `Receipt No : ${f.receiptNo || 'Pending sync…'}`,
-    `Payment Date : ${formatDate(f.receiptDate || f.date)}`,
-    `Amount Paid : ₹${amount.toLocaleString('en-IN')}`,
-    `Payment Method : ${f.paymentMethod || '-'}`,
+    `Student Name: ${f.studentName || '-'}`,
+    `Student ID: ${f.studentId || '-'}`,
+    `Sport: ${categoryNamePlain(f.sport)}`,
+    `Batch: ${f.batch || '-'}`,
+    `Payment Date: ${formatDate(f.receiptDate || f.date)}`,
+    `Payment Period: ${dueMonth}`,
+    `Amount Paid: Rs. ${Number(amount).toLocaleString('en-IN')}`,
+    `Payment Status: ${_RC_STATUS_PLAIN[f.status] || f.status || '-'}`,
+    `Payment Method: ${f.paymentMethod || '-'}`,
+    `Receipt No: ${f.receiptNo || 'Pending sync'}`,
     '',
     'Thank you for your payment.',
     '',
-    'DD Turf Zone'
+    'DD Turf Zone',
+    `Contact: ${biz.contact}`,
+    `Address: ${biz.address}`
   ].join('\n');
 }
 
@@ -12012,23 +12068,29 @@ function _receiptMessageText(f, parentName) {
 // for the user to attach manually.
 function _receiptWhatsAppMessage(f, parentName, pdfAttached) {
   const amount = f.amountReceived ?? f.paid ?? 0;
+  const dueMonth = f.dueMonth || _feeDueMonthLabel(f.feeType, f.month, f.quarter, f.year);
+  const biz = _idCardBizSettings();
   return [
     'DD Turf Zone',
+    'Fee Payment Receipt',
     '',
-    `Dear ${parentName || 'Customer'},`,
-    '',
-    'Thank you for your payment.',
+    `Student Name: ${f.studentName || '-'}`,
+    `Sport: ${categoryNamePlain(f.sport)}`,
+    `Payment Date: ${formatDate(f.receiptDate || f.date)}`,
+    `Payment Period: ${dueMonth}`,
+    `Amount Paid: Rs. ${Number(amount).toLocaleString('en-IN')}`,
+    `Payment Status: ${_RC_STATUS_PLAIN[f.status] || f.status || '-'}`,
+    `Payment Method: ${f.paymentMethod || '-'}`,
+    `Receipt No: ${f.receiptNo || 'Pending sync'}`,
     '',
     pdfAttached
       ? 'Please find your payment receipt attached.'
       : 'Your payment receipt has been downloaded to your device. Please attach it to this chat before sending.',
     '',
-    `Receipt No: ${f.receiptNo || 'Pending sync'}`,
-    `Student Name: ${f.studentName || '-'}`,
-    `Amount Paid: Rs. ${Number(amount).toLocaleString('en-IN')}`,
-    `Payment Date: ${formatDate(f.receiptDate || f.date)}`,
-    '',
-    'Thank you for choosing DD Turf Zone.'
+    'Thank you.',
+    'DD Turf Zone',
+    `Contact: ${biz.contact}`,
+    `Address: ${biz.address}`
   ].join('\n');
 }
 
@@ -12625,20 +12687,28 @@ window.saveDueAdjustment = async () => {
 // webviews) — kept as its own message since a payment reminder and a
 // payment confirmation are different things.
 function _dueReminderMessageText(d) {
+  const biz = _idCardBizSettings();
   return [
-    'DD Turf Zone', '',
-    `Dear ${d.parent || 'Parent/Guardian'},`, '',
-    'This is a friendly reminder that your coaching fee payment is due.', '',
-    `Student : ${d.name}`,
-    `Student ID : ${d.studentId}`,
-    `Sport : ${categoryLabel(d.sport) || d.sport || '-'}`,
-    `Batch : ${d.batch || '-'}`,
-    `Fee Plan : ${d.planLabel}`,
-    `Due Date : ${_fmtDueDate(d.dueDate)}`,
-    `Amount Due : ₹${d.amountDue.toLocaleString('en-IN')}`,
-    `Pending Balance : ₹${d.pending.toLocaleString('en-IN')}`, '',
-    'Kindly complete the payment at your earliest convenience.', '',
-    'Thank you,', 'DD Turf Zone'
+    'DD Turf Zone',
+    'Fee Payment Due',
+    '',
+    `Dear ${d.parent || 'Parent/Guardian'},`,
+    '',
+    `Student Name: ${d.name}`,
+    `Student ID: ${d.studentId}`,
+    `Sport: ${categoryNamePlain(d.sport)}`,
+    `Batch: ${d.batch || '-'}`,
+    `Fee Plan: ${d.planLabel}`,
+    `Due Amount: Rs. ${d.amountDue.toLocaleString('en-IN')}`,
+    `Pending Balance: Rs. ${d.pending.toLocaleString('en-IN')}`,
+    `Due Date: ${_fmtDueDate(d.dueDate)}`,
+    '',
+    'Kindly complete the pending payment at your earliest convenience.',
+    '',
+    'Thank you.',
+    'DD Turf Zone',
+    `Contact: ${biz.contact}`,
+    `Address: ${biz.address}`
   ].join('\n');
 }
 
