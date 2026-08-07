@@ -65,10 +65,24 @@
     /* Birthday Grid */
     .birthday-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
       gap: 30px;
       margin-bottom: 50px;
     }
+
+    /* Single birthday today (the common case) gets one large, centered
+       "greeting card" instead of a small grid tile — the grid still
+       handles 2+ birthdays exactly as before, just with bigger cards
+       (see the base .photo-container/.student-photo/.student-name bumps
+       below) so neither case reads as "too small" anymore. */
+    .birthday-grid.single {
+      grid-template-columns: minmax(320px, 600px);
+      justify-content: center;
+    }
+    .birthday-grid.single .photo-container { height: 380px; }
+    .birthday-grid.single .student-photo { width: 300px; height: 300px; border-width: 10px; }
+    .birthday-grid.single .happy-birthday-headline { font-size: 30px; }
+    .birthday-grid.single .student-name { font-size: 48px; }
 
     .birthday-card {
       background: var(--card);
@@ -91,7 +105,7 @@
 
     .photo-container {
       position: relative;
-      height: 280px;
+      height: 320px;
       background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
       display: flex;
       align-items: center;
@@ -111,9 +125,25 @@
       animation: float 6s ease-in-out infinite;
     }
 
+    /* Simple decorative flourish — plain CSS/emoji, no image assets, no
+       new libraries — so the photo area reads as a celebration rather
+       than a plain data tile. */
+    .photo-container::after {
+      content: '🎈 🎉 🎊';
+      position: absolute;
+      bottom: 10px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 22px;
+      opacity: 0.6;
+      animation: float 5s ease-in-out infinite;
+      z-index: 0;
+    }
+
     .student-photo {
-      width: 240px;
-      height: 240px;
+      width: 260px;
+      height: 260px;
       border-radius: 50%;
       object-fit: cover;
       border: 8px solid var(--card);
@@ -145,8 +175,24 @@
       text-align: center;
     }
 
+    /* This text never actually appeared on the live page before — the
+       "Happy Birthday" wording only existed inside the hidden template
+       used to generate the downloadable PNG card. Added here so the page
+       itself reads as a proper greeting card, not just a name + sport tile. */
+    .happy-birthday-headline {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 4px;
+    }
+
     .student-name {
-      font-size: 28px;
+      font-size: 34px;
       font-weight: 700;
       margin-bottom: 8px;
       color: var(--text);
@@ -228,6 +274,26 @@
       opacity: 0.6;
       cursor: not-allowed;
       transform: none;
+    }
+
+    /* Birthday music — Web Audio API only (see playBirthdayMusic in the
+       script below), no audio file, no external service. Sits in the
+       header, off to the side of the title, never autoplays. */
+    .btn-music {
+      margin-top: 18px;
+      width: auto;
+      display: inline-flex;
+      background: linear-gradient(135deg, var(--warning), #f59e0b);
+      color: white;
+      padding: 12px 26px;
+      border-radius: 30px;
+      font-size: 15px;
+      box-shadow: 0 6px 16px rgba(217, 119, 6, 0.3);
+    }
+
+    .btn-music:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 22px rgba(217, 119, 6, 0.4);
     }
 
     /* Empty State */
@@ -469,10 +535,17 @@
       h1 { font-size: 36px; }
       .subtitle { font-size: 16px; }
       .birthday-grid { grid-template-columns: 1fr; gap: 20px; }
+      .birthday-grid.single { grid-template-columns: 1fr; }
       .birthday-card { border-radius: 12px; }
-      .photo-container { height: 240px; }
+      .photo-container { height: 260px; }
+      .birthday-grid.single .photo-container { height: 280px; }
       .student-photo { width: 200px; height: 200px; }
-      .student-name { font-size: 24px; }
+      .birthday-grid.single .student-photo { width: 220px; height: 220px; }
+      .happy-birthday-headline { font-size: 16px; }
+      .birthday-grid.single .happy-birthday-headline { font-size: 20px; }
+      .student-name { font-size: 26px; }
+      .birthday-grid.single .student-name { font-size: 32px; }
+      .btn-music { padding: 10px 20px; font-size: 14px; }
 
       .card-content {
         width: 100vw;
@@ -495,6 +568,7 @@
       <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2ODApLCBxdWFsaXR5ID0gODAK/9sAQwAGBAUGBQQGBgUGBwcGCAoQCgoJCQoUDg8MEBcUGBgXFBYWGh0lHxobIxwWFiAsICMmJykqKRkfLTAtKDAlKCko/9sAQwEHBwcKCAoTCgoTKBoWGigoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo/8AAEQgBkAGQAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD+qqKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD//Z" class="logo" alt="DD Turf Zone">
       <h1>🎂 Today's Birthdays</h1>
       <p class="subtitle">Celebrating our amazing athletes at DD Turf Zone</p>
+      <button type="button" class="btn-music" id="bdayMusicBtn" onclick="playBirthdayMusic()">🎵 Play Birthday Music</button>
     </header>
 
     <!-- Birthday Grid -->
@@ -600,6 +674,7 @@
       const grid = document.getElementById('birthdayGrid');
       
       if (!birthdayStudents || birthdayStudents.length === 0) {
+        grid.classList.remove('single');
         grid.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">🎂</div>
@@ -610,6 +685,10 @@
         return;
       }
 
+      // Single birthday today (the common case) gets the large, centered
+      // "hero" card treatment — see .birthday-grid.single in the stylesheet.
+      grid.classList.toggle('single', birthdayStudents.length === 1);
+
       grid.innerHTML = birthdayStudents.map((student, idx) => `
         <div class="birthday-card" style="animation-delay: ${idx * 0.1}s">
           <div class="photo-container">
@@ -617,6 +696,7 @@
             <img src="${student.photo}" alt="${student.firstName}" class="student-photo" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22240%22 height=%22240%22 viewBox=%220 0 240 240%22%3E%3Crect fill=%224F46E5%22 width=%22240%22 height=%22240%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 font-size=%2272%22 fill=%22white%22 text-anchor=%22middle%22 dominant-baseline=%22central%22 font-family=%22Arial%22%3E${sportIcons[student.sport] || '⭐'}%3C/text%3E%3C/svg%3E'">
           </div>
           <div class="info">
+            <div class="happy-birthday-headline">Happy Birthday</div>
             <div class="student-name">${student.firstName}</div>
             <div class="sport-badge">${sportIcons[student.sport] || '⭐'} ${student.sport.charAt(0).toUpperCase() + student.sport.slice(1)}</div>
             <div class="message">🎉 Wishing you a wonderful year filled with happiness, health, and success!</div>
@@ -813,6 +893,66 @@ DD Turf Zone Family`;
       const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
       window.open(whatsappUrl, '_blank');
     }
+
+    // ===== Birthday Music =====
+    // No audio file exists anywhere in this project, and adding one (or an
+    // external music API/CDN) is explicitly out of scope here — so this
+    // synthesizes the traditional "Happy Birthday to You" melody directly
+    // with the Web Audio API (the same technology admin.html already uses
+    // for its notification beep), entirely in-browser, no file, no network
+    // request. Never plays automatically — only in response to the
+    // button's click, so it can never be blocked/silently fail like
+    // browser autoplay would.
+    const HAPPY_BIRTHDAY_MELODY = [
+      ['C4', 0.75], ['C4', 0.25], ['D4', 1], ['C4', 1], ['F4', 1], ['E4', 2],
+      ['C4', 0.75], ['C4', 0.25], ['D4', 1], ['C4', 1], ['G4', 1], ['F4', 2],
+      ['C4', 0.75], ['C4', 0.25], ['C5', 1], ['A4', 1], ['F4', 1], ['E4', 1], ['D4', 2],
+      ['Bb4', 0.75], ['Bb4', 0.25], ['A4', 1], ['F4', 1], ['G4', 1], ['F4', 2]
+    ];
+    const NOTE_FREQUENCIES = {
+      C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00,
+      A4: 440.00, Bb4: 466.16, C5: 523.25
+    };
+
+    let _bdayAudioCtx = null;
+    window.playBirthdayMusic = function () {
+      const btn = document.getElementById('bdayMusicBtn');
+      try {
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) { console.warn('Web Audio API not available in this browser.'); return; }
+        const ctx = _bdayAudioCtx || (_bdayAudioCtx = new AudioCtor());
+        if (ctx.state === 'suspended') ctx.resume();
+
+        const beatSeconds = 0.38;
+        let t = ctx.currentTime + 0.05;
+        HAPPY_BIRTHDAY_MELODY.forEach(([note, beats]) => {
+          const freq = NOTE_FREQUENCIES[note];
+          const dur = beats * beatSeconds;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(0.25, t + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.92);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + dur);
+          t += dur * 0.98; // tiny gap between notes for articulation
+        });
+
+        if (btn) {
+          const totalMs = (t - ctx.currentTime) * 1000;
+          btn.disabled = true;
+          btn.textContent = '🎵 Playing...';
+          setTimeout(() => { btn.disabled = false; btn.textContent = '🎵 Play Birthday Music'; }, totalMs);
+        }
+      } catch (err) {
+        console.warn('Birthday music playback failed:', err);
+        if (btn) { btn.disabled = false; btn.textContent = '🎵 Play Birthday Music'; }
+      }
+    };
 
     // Initialize on load
     document.addEventListener('DOMContentLoaded', init);

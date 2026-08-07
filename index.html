@@ -700,10 +700,6 @@
       <div class="ai-platform-buttons">
         <button class="ai-btn ai-btn-send" id="ai-send-btn" onclick="sendAIMessage()">Send</button>
       </div>
-      <div class="ai-gemini-row" id="ai-gemini-row" style="display:none">
-        <button class="ai-btn ai-btn-gemini" id="ai-gemini-btn" onclick="askGemini()">✨ Ask Gemini</button>
-      </div>
-      <div class="ai-toast" id="ai-toast" style="display:none"></div>
     </div>
     <div class="ai-disclaimer">AI Assistant provides general information and guidance. Live slot availability and confirmed bookings are managed through the DD Turf Zone Booking System and WhatsApp.</div>
   </div>
@@ -2267,62 +2263,17 @@
     return Object.values(AI_KB).map(v => '- ' + v).join('\n') + `\n- Official Google Maps location: ${OFFICIAL_MAPS_LINK}`;
   }
 
-  // Keyword groups mapped to a KB answer. Multiple differently-worded
-  // phrasings map to the same entry so the assistant understands natural
-  // language, not just one exact keyword.
-  const AI_FAQ = [
-    { keys: ['whatsapp','book','reserve','how do i book','how to book','make a booking','slot booking','turf booking','want to play'], answer: AI_KB.booking },
-    { keys: ['price','pricing','rate','cost','fee','fees','charges','how much','happy hour'], answer: AI_KB.pricing },
-    { keys: ['football coach','football academy','football training','football class','football camp'], answer: AI_KB.footballCoaching },
-    { keys: ['cricket coach','cricket academy','cricket training','cricket class','cricket camp'], answer: AI_KB.cricketCoaching },
-    { keys: ['taekwondo','karate','martial art','self defense','self-defense'], answer: AI_KB.taekwondo },
-    { keys: ['summer camp','holiday camp','vacation camp','kids camp'], answer: AI_KB.summerCamp },
-    { keys: ['tournament','event','league','competition','group booking'], answer: AI_KB.tournaments },
-    { keys: ['cricket turf','cricket box','cricket pitch','cricket net'], answer: AI_KB.cricketTurf },
-    { keys: ['football turf','football ground','football box','5 a side','7 a side','5-a-side','7-a-side'], answer: AI_KB.footballTurf },
-    { keys: ['facility','facilities','amenities','parking','washroom','cafe','canteen','changing room'], answer: AI_KB.facilities },
-    { keys: ['contact','phone number','call','number','reach you'], answer: AI_KB.contact },
-    { keys: ['open','timing','hours','24','what time','when are you open','closing time','opening time'], answer: AI_KB.timings },
-    { keys: ['cancel','cancellation','reschedule','refund'], answer: AI_KB.cancellation },
-    { keys: ['payment','pay','gpay','upi','cash','card accepted'], answer: AI_KB.payment },
-    { keys: ['rule','policy','terms','booking rule'], answer: AI_KB.bookingRules }
-  ];
-
-  // Location questions get a special reply with an actual "Open in Google
-  // Maps" button attached, using the official share link — never the old
-  // embed-only URL.
+  // Location questions get a real "Open in Google Maps" button attached
+  // to the AI's reply, using the official share link — never the old
+  // embed-only URL. Availability questions trigger a real live-data
+  // lookup (see _buildLiveInfoForQuestion below) before the question ever
+  // reaches the AI, so it answers from real current slot data instead of
+  // guessing. Neither of these is a canned text answer — the actual reply
+  // text always comes from Gemini (see askDDTZAssistant below); these two
+  // patterns only decide (a) whether to attach a Maps button, and (b)
+  // what real data, if any, to hand the AI before it answers.
   const AI_LOCATION_RE = /(location|address|where.*(you|it|turf|place)|madambakkam|direction|navigate|find us|how (do|to) (i |we )?reach|nearby landmark|\blandmark\b|\bmap\b)/;
   const AI_AVAILABILITY_RE = /(availab|free slot|open slot|vacant|slot timing|which slot)/;
-
-  // Greetings and small talk — always answered warmly, NEVER with the
-  // "I don't have a specific answer" / contact fallback.
-  const AI_GREETINGS = [
-    { test: /good\s*morning/, reply: "Good morning! ☀️ How can I help — booking a slot, checking pricing, or coaching info?" },
-    { test: /good\s*afternoon/, reply: "Good afternoon! 👋 What can I help with — availability, pricing, or coaching details?" },
-    { test: /good\s*evening/, reply: "Good evening! 🌆 Looking to book a slot, or have a question about pricing or coaching?" },
-    { test: /^(thanks|thank you|thankyou|thnx|tq)\b/, reply: "You're most welcome! 😊 Let me know if there's anything else about DD Turf Zone I can help with." },
-    { test: /^(bye|goodbye|see ya|see you|cya|talk later)\b/, reply: "Thanks for stopping by! 👋 Come back anytime — see you on the turf!" },
-    { test: /^(ok|okay|k|cool|great|nice|got it|alright|sure)\b\.?$/, reply: "Great! Anything else you'd like to know — availability, pricing, or coaching timings?" },
-    { test: /^(hi|hello|hey|yo|hii+|helloo+|hola)\b/, reply: "Hey there! 👋 Welcome to DD Turf Zone. Ask me about slot booking, pricing, coaching, or anything else — happy to help!" }
-  ];
-  function _greetingReply(q){
-    const trimmed = q.trim().toLowerCase();
-    for (const g of AI_GREETINGS) if (g.test.test(trimmed)) return g.reply;
-    return null;
-  }
-
-  // Light natural-language normalization: collapses a few common
-  // rewordings onto the vocabulary AI_FAQ's keys are written in, so
-  // "how much does it cost" matches the same entry as "pricing".
-  const AI_SYNONYMS = [
-    [/\breserv(e|ing|ed)\b/g, 'book'], [/\bhow much\b/g, 'cost'], [/\bavailability|available|free\b/g, 'availab'],
-    [/\bwhat time\b/g, 'timing'], [/\bwhen (is|are) (you|it)\b/g, 'timing']
-  ];
-  function _normalize(q){
-    let n = q.toLowerCase().trim();
-    AI_SYNONYMS.forEach(([re, rep]) => { n = n.replace(re, rep); });
-    return n;
-  }
 
   const AI_SUGGESTIONS = [
     'What slots are available today?', 'Book a Football Turf', 'Cricket Coaching Details',
@@ -2491,33 +2442,30 @@
   }
 
   // Keeps the whole session's back-and-forth in memory (this session
-  // only — nothing is persisted) so short follow-ups like "and on
-  // weekends?" can be resolved against the previous topic, and so the
-  // Gemini handoff carries real conversational context, not just the
-  // single latest line.
+  // only — nothing is persisted anywhere, matching "do not store private
+  // user conversations permanently") and sent along with every question
+  // to Gemini, so follow-ups like "what about under 8?" or "and the fee?"
+  // resolve against the real previous turns instead of a guessed topic.
   let _aiChatHistory = [];
-  let _aiLastTopicIdx = -1;
 
   function _dateLabel(iso, withWeekday){
     return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', withWeekday ? { weekday:'short', day:'numeric', month:'short' } : { day:'numeric', month:'short' });
   }
 
-  // Resolves ONE reply for the given question. Order: greeting/small-talk
-  // (never falls through to the contact fallback) → live availability →
-  // location (gets a Maps button) → keyword FAQ match → short follow-up
-  // reusing the last matched topic → only THEN the honest "I don't know
-  // yet" fallback, which points to Gemini/WhatsApp rather than pretending.
-  // Async because a live availability question fetches real per-date data
-  // from the Apps Script/Sheet rather than reading only whatever's already
-  // cached for the widget's currently-selected date.
-  async function _localAIAnswer(question){
-    const greet = _greetingReply(question);
-    if (greet) { _aiLastTopicIdx = -1; return { text: greet }; }
-
-    const q = _normalize(question);
+  // Builds a real-data string for the AI to answer from — NEVER a canned
+  // text answer itself. If the question looks like an availability
+  // question, fetches actual current slot data for the specific date(s)/
+  // time asked about (reusing the exact same live data source the
+  // reservation widget above uses) and hands Gemini the real open/booked/
+  // blocked ranges. If live data can't be fetched, says so explicitly so
+  // the AI is told to admit that rather than guess. Also attaches the
+  // official Maps link as a fact when the question looks location-related.
+  // Returns '' when neither applies — most questions need no live lookup.
+  async function _buildLiveInfoForQuestion(question){
+    let info = '';
+    const q = question.toLowerCase();
 
     if (AI_AVAILABILITY_RE.test(q)) {
-      _aiLastTopicIdx = -1;
       const parsedDates = _parseDatesFromQuestion(question);
       const parsedTime = _parseTimeFromQuestion(question);
       const targetDates = parsedDates || [_availSelectedDate || _isoFromDate(_todayLocalDate())];
@@ -2528,48 +2476,75 @@
       }
 
       if (results.some(r => r.slots === null)) {
-        return { text: `Live availability isn't connected right now, so I can't confirm open slots — please WhatsApp us at 7305123765 to check.` };
-      }
-
-      const multi = results.length > 1;
-
-      if (parsedTime) {
+        info += 'Live availability data could not be fetched right now — tell the customer you cannot confirm current availability and point them to the reservation menu or WhatsApp.\n';
+      } else if (parsedTime) {
         const lines = results.map(r => {
           const match = _slotStatusAt(parsedTime, r.slots);
-          const label = `${_dateLabel(r.iso, multi)}`;
-          if (!match) return `${label}: ${parsedTime} is available ✅`;
-          return `${label}: ${parsedTime} is ${match.status === 'blocked' ? 'blocked 🚫' : 'already booked ❌'}`;
+          const label = _dateLabel(r.iso, results.length > 1);
+          if (!match) return `${label}: ${parsedTime} is currently OPEN`;
+          return `${label}: ${parsedTime} is currently ${match.status === 'blocked' ? 'BLOCKED' : 'ALREADY BOOKED'}`;
         });
-        return { text: `${lines.join('\n')}\nUse the reservation menu above to book it.` };
+        info += 'Real current slot status for the exact time asked about:\n' + lines.join('\n') + '\n';
+      } else {
+        const lines = results.map(r => {
+          const openRanges = _summarizeSlots(r.slots);
+          const label = _dateLabel(r.iso, results.length > 1);
+          return openRanges.length ? `${label}: open ranges — ${openRanges.join(', ')}` : `${label}: fully booked/blocked`;
+        });
+        info += 'Real current open time ranges:\n' + lines.join('\n') + '\n';
       }
-
-      const lines = results.map(r => {
-        const openRanges = _summarizeSlots(r.slots);
-        const label = `${_dateLabel(r.iso, multi)}`;
-        return openRanges.length ? `${label}: ${openRanges.join(', ')}` : `${label}: fully booked/blocked.`;
-      });
-      return { text: `Open slots —\n${lines.join('\n')}\nUse the reservation menu above to pick your sport, date, start time and duration.` };
     }
 
     if (AI_LOCATION_RE.test(q)) {
-      _aiLastTopicIdx = -1;
-      return { text: AI_KB.location, mapsButton: true };
+      info += `Official Google Maps link (mention it when giving directions): ${OFFICIAL_MAPS_LINK}\n`;
     }
 
-    for (let idx = 0; idx < AI_FAQ.length; idx++) {
-      const entry = AI_FAQ[idx];
-      if (entry.keys.some(k => q.includes(k))) { _aiLastTopicIdx = idx; return { text: entry.answer }; }
-    }
+    return info;
+  }
 
-    // Short follow-up with no keyword match of its own — reuse the last
-    // topic ("and weekends?" right after a pricing answer) instead of
-    // immediately giving up.
-    if (_aiLastTopicIdx >= 0 && q.split(/\s+/).length <= 6) {
-      return { text: AI_FAQ[_aiLastTopicIdx].answer };
-    }
+  // The one function that actually answers a question — a real
+  // conversational call to Gemini (proxied through the existing Apps
+  // Script backend so the API key stays server-side, never in this
+  // page's HTML/JS), not a keyword/if-else match. Sends: the question,
+  // recent conversation history (so follow-ups like "what about under
+  // 8?" resolve correctly), the DD Turf Zone knowledge base text
+  // (assembled from the real content already in AI_KB above), and any
+  // real live-data note from _buildLiveInfoForQuestion.
+  async function askDDTZAssistant(question, history){
+    const sheetUrl = getLiveSheetUrl();
+    if (!sheetUrl) return { text: 'The AI Assistant is not connected right now. Please WhatsApp us at 7305123765 for help.' };
 
-    _aiLastTopicIdx = -1;
-    return { text: "I don't have a specific answer for that yet — tap ✨ Ask Gemini below for a fuller answer, or WhatsApp us directly at 7305123765 and our team will help right away." };
+    const liveInfo = await _buildLiveInfoForQuestion(question);
+    // `history` is _aiChatHistory at call time, which already ends with
+    // [..., this question, the "Thinking…" placeholder] — both must be
+    // dropped here since the question is sent separately as `message`
+    // below (and the placeholder is never a real turn), or Gemini would
+    // see the current question twice.
+    const geminiHistory = history
+      .slice(0, -2)
+      .slice(-12)
+      .map(m => ({ role: m.role === 'user' ? 'user' : 'model', text: m.text }));
+
+    try {
+      const res = await fetch(sheetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          type: 'aiChat',
+          message: question,
+          history: geminiHistory,
+          knowledgeBase: _fullKnowledgeBaseText(),
+          liveInfo
+        })
+      });
+      const data = await res.json();
+      if (!data || !data.ok || !data.reply) {
+        return { text: (data && data.error) || 'The AI Assistant is temporarily unavailable. Please try again, or WhatsApp us at 7305123765.' };
+      }
+      return { text: data.reply, mapsButton: AI_LOCATION_RE.test(question.toLowerCase()) };
+    } catch (e) {
+      return { text: 'The AI Assistant is temporarily unavailable. Please try again, or WhatsApp us at 7305123765.' };
+    }
   }
 
   function _escapeHtml(s){
@@ -2578,8 +2553,8 @@
 
   function _scrollAIChatToBottom(){
     // Scrolls only the chat log itself, not the page — this is what keeps
-    // the Send / ✨ Ask Gemini buttons directly below it in view without
-    // the visitor ever needing to scroll the page.
+    // the Send button directly below it in view without the visitor ever
+    // needing to scroll the page.
     const log = document.getElementById('ai-chat-log');
     if (log) log.scrollTop = log.scrollHeight;
   }
@@ -2595,9 +2570,10 @@
     _scrollAIChatToBottom();
   }
 
-  // Sends the typed question, gets an immediate local reply, and reveals
-  // the ✨ Ask Gemini button right below the chat — the one tap needed
-  // after Send whenever a deeper answer is wanted.
+  // Sends the typed question to the real assistant (askDDTZAssistant
+  // above) and shows the reply in place of a "Thinking…" placeholder —
+  // every question goes through this same path now; there is no separate
+  // "deeper answer" button anymore because this IS the real answer.
   window.sendAIMessage = async function(){
     const input = document.getElementById('ai-question-input');
     const question = input && input.value.trim();
@@ -2605,65 +2581,17 @@
     _aiChatHistory.push({ role: 'user', text: question });
     input.value = '';
 
-    // Availability questions do a real network round-trip per date asked
-    // about — show a placeholder bubble so the wait isn't silent, then
-    // swap it for the real answer once it resolves.
-    const checkingLive = AI_AVAILABILITY_RE.test(_normalize(question));
-    let placeholderIdx = -1;
-    if (checkingLive) {
-      _aiChatHistory.push({ role: 'bot', text: '🔎 Checking live availability…' });
-      placeholderIdx = _aiChatHistory.length - 1;
-    }
+    _aiChatHistory.push({ role: 'bot', text: 'Thinking…' });
+    const placeholderIdx = _aiChatHistory.length - 1;
     _renderAIChat();
 
-    const result = await _localAIAnswer(question);
-    const finalMsg = { role: 'bot', text: result.text, mapsButton: !!result.mapsButton };
-    if (placeholderIdx >= 0) _aiChatHistory[placeholderIdx] = finalMsg;
-    else _aiChatHistory.push(finalMsg);
+    const result = await askDDTZAssistant(question, _aiChatHistory);
+    _aiChatHistory[placeholderIdx] = { role: 'bot', text: result.text, mapsButton: !!result.mapsButton };
     _renderAIChat();
-    const geminiRow = document.getElementById('ai-gemini-row');
-    if (geminiRow) geminiRow.style.display = 'block';
   };
   // Back-compat alias — nothing else in this file calls the old name, but
   // kept in case of an external/bookmarked reference.
   window.askAIAssistant = window.sendAIMessage;
-
-  // Opens Gemini pre-filled with: the full DD Turf Zone knowledge base,
-  // the recent conversation for context, live slot info when the question
-  // was about availability, and the official Maps link when it was about
-  // location — all in one tap. The prompt is also copied to the
-  // clipboard as a fallback, since Gemini's own UI (not DD Turf Zone's)
-  // decides whether a URL query actually pre-fills the box.
-  window.askGemini = async function(){
-    const lastUser = [..._aiChatHistory].reverse().find(m => m.role === 'user');
-    const question = lastUser ? lastUser.text : 'Tell me about DD Turf Zone.';
-    const recentContext = _aiChatHistory.slice(-8).map(m => `${m.role === 'user' ? 'Customer' : 'Assistant'}: ${m.text}`).join('\n');
-
-    let liveInfo = '';
-    const qNorm = _normalize(question);
-    if (AI_AVAILABILITY_RE.test(qNorm)) {
-      const openRanges = _buildAvailabilitySummary();
-      liveInfo = openRanges && openRanges.length
-        ? `\nLive open slots right now for the selected date: ${openRanges.join(', ')}.`
-        : '\nLive slot data is not available right now — advise the customer to check the website\'s reservation menu or WhatsApp DD Turf Zone directly.';
-    }
-    if (AI_LOCATION_RE.test(qNorm)) {
-      liveInfo += `\nAlways give this exact Google Maps link for directions: ${OFFICIAL_MAPS_LINK}`;
-    }
-
-    const prompt = `You are answering as DD Turf Zone's customer assistant. Use ONLY the facts below — do not invent details not listed here.\n\nDD TURF ZONE KNOWLEDGE BASE:\n${_fullKnowledgeBaseText()}${liveInfo}\n\nRecent conversation:\n${recentContext}\n\nCustomer's question: ${question}\n\nAnswer helpfully and concisely.`;
-
-    try { await navigator.clipboard.writeText(prompt); } catch (e) { /* clipboard may be blocked by the browser — the URL param below still carries the prompt */ }
-
-    window.open(`https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`, '_blank');
-
-    const toast = document.getElementById('ai-toast');
-    if (toast) {
-      toast.style.display = 'block';
-      toast.textContent = "✨ Opening Gemini with your question and DD Turf Zone info pre-filled. If it doesn't appear, just paste (Ctrl+V) — it's already copied.";
-      setTimeout(() => { toast.style.display = 'none'; }, 6000);
-    }
-  };
 </script>
 
 </body>

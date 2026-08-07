@@ -335,6 +335,11 @@ tr:hover td{background:#f8fffe}
 .receipt-doc .rc-section-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--gray3);margin:14px 0 6px}
 .receipt-doc .rc-row{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--gray2)}
 .receipt-doc .rc-row b{color:var(--gray3);font-weight:600}
+/* Café Bill item table — reuses every other .rc-* rule above verbatim;
+   these two are the only new rules, for the Item/Qty/Price/Amount grid
+   the Fee Receipt (which has no line-item table) never needed. */
+.receipt-doc .rc-item-head{display:grid;grid-template-columns:2fr 0.6fr 1fr 1fr;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--gray3);padding:6px 0;border-bottom:1px solid var(--gray2)}
+.receipt-doc .rc-item-row{display:grid;grid-template-columns:2fr 0.6fr 1fr 1fr;font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--gray2)}
 .receipt-doc .rc-amount-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0}
 .receipt-doc .rc-amount-row.rc-total{font-size:16px;font-weight:800;color:var(--dark);border-top:2px solid var(--dark);margin-top:6px;padding-top:8px}
 .receipt-doc .rc-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700}
@@ -1571,30 +1576,29 @@ tr:hover td{background:#f8fffe}
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-secondary" data-requires-action="downloadExcel" onclick="downloadCafeReportExcel()">⬇️ Excel Report</button>
             <button class="btn btn-secondary" onclick="openModal('cafe-item-modal')">+ Add Menu Item</button>
-            <button class="btn btn-primary" onclick="openModal('cafe-sale-modal')">+ Log Sale</button>
+            <button class="btn btn-primary" onclick="openCafeSaleModal()">+ Log Sale</button>
           </div>
         </div>
 
         <div class="stats-grid" id="cafe-stats"></div>
 
-        <div class="grid-2 mt-16">
-          <div class="card">
-            <div class="card-title">🍽️ Menu</div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Item</th><th>Category</th><th>Price</th><th></th></tr></thead>
-                <tbody id="cafe-menu-tbody"></tbody>
-              </table>
-            </div>
+        <div class="card mt-16" style="margin-bottom:16px">
+          <div class="card-title">🧾 Café Activity — Today</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Customer</th><th>Items</th><th>Total</th><th></th></tr></thead>
+              <tbody id="cafe-sales-tbody"></tbody>
+            </table>
           </div>
-          <div class="card">
-            <div class="card-title">🧾 Today's Sales</div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Item</th><th>Qty</th><th>Amount</th><th>Method</th></tr></thead>
-                <tbody id="cafe-sales-tbody"></tbody>
-              </table>
-            </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🍽️ Menu</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Item</th><th>Category</th><th>Price</th><th></th></tr></thead>
+              <tbody id="cafe-menu-tbody"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1919,14 +1923,13 @@ tr:hover td{background:#f8fffe}
         <div class="card mb-16" style="margin-bottom:16px;border:1.5px solid #fecaca" data-requires-action="factoryReset">
           <div class="card-title" style="color:#991b1b">☠️ Danger Zone</div>
           <div style="font-size:12px;color:var(--gray3);margin-bottom:12px">
-            This permanently erases <strong>everything</strong> — every booking, student, fee, coach, attendance record,
-            café sale, request, due, and settlement — from all three places this app stores data: Google Sheets,
-            Firebase (Realtime Database + Firestore), and this browser's local cache. Your <strong>login accounts are kept</strong>
-            so nobody gets locked out. A JSON backup downloads automatically first, but once this runs there is no
-            "undo" button — only restoring that backup file by hand. Only use this to genuinely start over from zero
-            (e.g. wiping test/demo data before going live).
+            Reset Data lets you permanently remove ONE category of records at a time (Students, Coaches, Bookings,
+            Fees, Attendance, Café Sales, Enquiries, or Birthday Data) — every other category is left completely
+            untouched. Login accounts, permissions, coaching categories, café menu items, and all other site
+            configuration are <strong>never</strong> affected by any reset, including Reset All Data. A JSON backup
+            downloads automatically before Reset All Data runs, but none of this can otherwise be undone.
           </div>
-          <button class="btn btn-danger btn-sm" onclick="factoryResetAllData()">🗑️ Reset All Data (Sheets + Firebase + Cache)</button>
+          <button class="btn btn-danger btn-sm" onclick="openResetDataMenu()">🗑️ Reset Data</button>
         </div>
 
         <div class="card">
@@ -1969,19 +1972,125 @@ tr:hover td{background:#f8fffe}
 
 <!-- CAFÉ SALE MODAL -->
 <div class="modal-overlay" id="cafe-sale-modal">
-  <div class="modal" style="max-width:420px">
-    <div class="modal-title">Log Sale</div>
-    <div class="form-group"><label>Item *</label>
-      <select id="cafe-sale-item" onchange="onCafeSaleItemChange()"></select>
+  <div class="modal" style="max-width:460px">
+    <div class="modal-title">☕ Café Sale</div>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button type="button" class="btn btn-primary" id="cafe-mode-booking-btn" style="flex:1" onclick="setCafeSaleMode('booking')">Booking Customer</button>
+      <button type="button" class="btn btn-secondary" id="cafe-mode-walkin-btn" style="flex:1" onclick="setCafeSaleMode('walkin')">Public / Walk-in</button>
     </div>
-    <div class="form-group"><label>Quantity *</label><input type="number" id="cafe-sale-qty" value="1" min="1" oninput="onCafeSaleQtyChange()"></div>
-    <div class="form-group"><label>Amount (₹)</label><input type="number" id="cafe-sale-amount" readonly style="background:var(--gray)"></div>
-    <div class="form-group"><label>Payment Method</label>
-      <select id="cafe-sale-method"><option value="Cash">Cash</option><option value="GPay">GPay</option></select>
+
+    <!-- BOOKING CUSTOMER FIELDS -->
+    <div id="cafe-booking-fields">
+      <div class="form-group"><label>Date</label><input type="date" id="cafe-bk-date" onchange="onCafeBookingDateChange()"></div>
+      <div class="form-group"><label>Booked Slot</label>
+        <select id="cafe-bk-slot" onchange="onCafeBookingSlotChange()"><option value="">Select a booked slot</option></select>
+      </div>
+      <div id="cafe-bk-info" style="display:none;background:var(--gray);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px">
+        <div><b id="cafe-bk-info-name"></b></div>
+        <div style="color:var(--gray3)" id="cafe-bk-info-phone"></div>
+      </div>
     </div>
+
+    <!-- PUBLIC / WALK-IN FIELDS -->
+    <div id="cafe-walkin-fields" style="display:none">
+      <div class="form-group"><label>Customer Name <span style="color:var(--gray3);font-weight:400">(optional)</span></label>
+        <input type="text" id="cafe-wk-name" placeholder="Leave blank if not provided">
+      </div>
+      <div class="form-group"><label>Phone Number <span style="color:var(--gray3);font-weight:400">(optional)</span></label>
+        <input type="tel" id="cafe-wk-phone" placeholder="Leave blank if not provided">
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--gray2);margin:14px 0;padding-top:14px">
+      <div class="form-group"><label>Item</label><select id="cafe-sale-item"></select></div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Quantity</label><input type="number" id="cafe-sale-qty" value="1" min="1"></div>
+        <div class="form-group"><label>Payment Method</label>
+          <select id="cafe-sale-method"><option value="Cash">Cash</option><option value="GPay">GPay</option></select>
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary" style="width:100%" onclick="addCafeCartItem()">+ Add Item</button>
+    </div>
+
+    <div id="cafe-cart-wrap" style="margin-top:14px">
+      <div id="cafe-cart-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div id="cafe-cart-total" style="text-align:right;font-weight:800;margin-top:8px;display:none"></div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('cafe-sale-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveCafeSale()">Log Sale</button>
+      <button class="btn btn-primary" onclick="saveCafeSaleNow()">Save Sale</button>
+    </div>
+  </div>
+</div>
+
+<!-- CAFÉ BILL MODAL -->
+<div class="modal-overlay" id="cafe-bill-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-title">🧾 Café Bill</div>
+    <input type="hidden" id="cafe-bill-data">
+    <div id="cafe-bill-container" class="receipt-doc"></div>
+    <div class="modal-footer" style="justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="closeModal('cafe-bill-modal')">Close</button>
+      <button class="btn btn-secondary" onclick="printCafeBill()">🖨️ Print</button>
+      <button class="btn btn-secondary" onclick="downloadCafeBillPDF()">📄 Download PDF</button>
+      <button class="btn btn-whatsapp" id="cafe-bill-whatsapp-btn" onclick="shareCafeBillWhatsApp()">💬 Send WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESET DATA MENU -->
+<div class="modal-overlay" id="reset-data-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title" style="color:#991b1b">🗑️ Reset Data</div>
+    <div style="font-size:12px;color:var(--gray3);margin-bottom:14px">Choose ONE category to permanently remove. Every other category is left completely untouched.</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('students')">🎓 Students</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('coaches')">👨‍🏫 Coaches</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('bookings')">📅 Bookings</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('fees')">💰 Fees</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('attendance')">📋 Attendance</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('cafeSales')">☕ Café Sales</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('enquiries')">📞 Enquiries</button>
+      <button type="button" class="btn btn-secondary" style="justify-content:flex-start" onclick="openResetModuleConfirm('birthday')">🎂 Birthday Data</button>
+    </div>
+    <div style="border-top:1px solid var(--gray2);margin:16px 0 12px;padding-top:14px">
+      <button type="button" class="btn btn-danger" style="width:100%" onclick="openResetAllModal()">☠️ Reset All Data</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('reset-data-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESET ONE MODULE — CONFIRM -->
+<div class="modal-overlay" id="reset-module-confirm-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title" style="color:#991b1b" id="reset-confirm-title">Reset?</div>
+    <div style="font-size:13px;color:var(--text);margin-bottom:18px" id="reset-confirm-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cancelResetModuleConfirm()">Cancel</button>
+      <button class="btn btn-danger" id="reset-confirm-btn" onclick="confirmResetModule()">Reset</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESET ALL DATA -->
+<div class="modal-overlay" id="reset-all-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-title" style="color:#991b1b">☠️ Reset All Data?</div>
+    <div style="font-size:13px;color:var(--text);margin-bottom:14px">
+      This will permanently remove all application records — Students, Coaches, Bookings, Fees, Attendance,
+      Café Sales, Enquiries, and Birthday Data. This action cannot be undone. Login accounts, permissions,
+      coaching categories, café menu items, and all other site configuration are never affected.
+    </div>
+    <div class="form-group"><label>Type <b>RESET ALL</b> to continue:</label>
+      <input type="text" id="reset-all-input" placeholder="RESET ALL" oninput="onResetAllTextInput()" autocomplete="off">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cancelResetAll()">Cancel</button>
+      <button class="btn btn-danger" id="reset-all-btn" disabled onclick="confirmResetAllData()">RESET ALL</button>
     </div>
   </div>
 </div>
@@ -3590,7 +3699,12 @@ const PAGE_PERMISSIONS = {
   // manageCoaches below still gates Add/Edit/Delete to Super Admin/Manager.
   coaches:    [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   enquiries:  [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  cafe:       [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  // Widened to include Staff — café sale logging needs to be fast for
+  // whoever's actually at the counter, and that's usually Staff, not
+  // just Super Admin/Manager. No action-level permission existed for
+  // café before this (Add Menu Item / Log Sale had no data-requires-action
+  // gate either), so Staff gets the same full access Manager already had.
+  cafe:       [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.STAFF],
   accounts:   [ROLES.SUPER_ADMIN],
   // PHASE 4.2 — Finance Dashboard & Expense Management. Deliberately
   // separate from 'accounts' above (the existing simple expense tracker
@@ -4279,6 +4393,15 @@ async function loadAllData() {
   syncStudentsFromSheet();
   // PHASE 3.4b — same idea for Fees, now that it has a real GET reader.
   syncFeesFromSheet();
+  // DATA SYNC FIX — same idea for Attendance, Café Sales, and Enquiries,
+  // which never had a GET reader (or any other pull-back path) at all
+  // until now — see the large comment above syncAttendanceFromSheet for
+  // why that was the actual, confirmed cause of a fresh browser/Incognito/
+  // another device showing different data than the browser records were
+  // originally entered on.
+  syncAttendanceFromSheet();
+  syncCafeSalesFromSheet();
+  syncEnquiriesFromSheet();
   // PHASE 3.5 — same idea for Enrolment Requests (public form submissions).
   syncEnrolmentsFromSheet();
   // PHASE 4.2 — Finance. Hard role gate here too (not just "don't fetch
@@ -4291,25 +4414,58 @@ async function loadAllData() {
 }
 
 // ===== COACHING CATEGORIES (admin-manageable Football/Cricket/Taekwondo/...) =====
-// Seeds the three categories DD Turf Zone already runs (Football, Cricket,
-// Taekwondo) exactly ONCE, ever — guarded by its own flag, never by
-// "is the collection empty", so if the admin later deletes all categories
-// on purpose this will not silently bring them back on the next reload.
+// ROOT CAUSE FIX — Add Coach's sport dropdown (and every other coaching
+// sport dropdown/filter — st-sport, att-sport, student-sport-filter,
+// enq-sport — see refreshCategoryDropdowns below) is correctly BUILT from
+// this coachingCategories list; it was never hardcoded to Football. The
+// bug was here, in how that list gets populated:
+//   1. The old guard was a single boolean (`ddtz_categories_seeded==='1'`)
+//      covering all three defaults at once, checked BEFORE anything else —
+//      on any device where that flag was already set while the list held
+//      only Football, Cricket/Taekwondo could never be added, ever again.
+//   2. Even without that flag, the old code only seeded when the list was
+//      COMPLETELY empty (`if (!window.DB.coachingCategories.length)`). If
+//      even one category already existed for any reason (e.g. Football's
+//      LS.add succeeded but a later one didn't, or a category was created
+//      by hand before this ever ran), the other two defaults were silently
+//      skipped forever — a single existing entry looked "fully seeded."
+// FIX — seed each default independently, tracked by slug (not one
+// collection-wide flag), and backfill any default slug this device has
+// never seeded before, regardless of how many categories already exist.
+// Still respects "an admin who deliberately deletes a default category
+// should have that deletion stick" — a slug already recorded as seeded
+// (whether it's still present or was intentionally deleted) is never
+// re-added, so this is a one-time-per-slug backfill, not a resurrection.
 function _seedDefaultCoachingCategoriesOnce() {
   try {
-    if (localStorage.getItem('ddtz_categories_seeded') === '1') return;
-    if (!window.DB.coachingCategories.length) {
-      const defaults = [
-        { name: 'Football', slug: 'football', icon: '⚽', status: 'active' },
-        { name: 'Cricket', slug: 'cricket', icon: '🏏', status: 'active' },
-        { name: 'Taekwondo', slug: 'taekwondo', icon: '🥋', status: 'active' }
-      ];
-      defaults.forEach(d => {
+    const defaults = [
+      { name: 'Football', slug: 'football', icon: '⚽', status: 'active' },
+      { name: 'Cricket', slug: 'cricket', icon: '🏏', status: 'active' },
+      { name: 'Taekwondo', slug: 'taekwondo', icon: '🥋', status: 'active' }
+    ];
+    let seededSlugs = [];
+    try { seededSlugs = JSON.parse(localStorage.getItem('ddtz_categories_seeded_slugs') || '[]'); } catch (e2) {}
+    // Migrates a device still on the old boolean flag: if that flag is set
+    // but the per-slug list is empty, treat only the slugs ALREADY present
+    // in coachingCategories as "seeded before" — anything genuinely
+    // missing (Cricket/Taekwondo on an affected device) is backfilled
+    // exactly once below, exactly the fix this bug report needs.
+    if (!seededSlugs.length && localStorage.getItem('ddtz_categories_seeded') === '1') {
+      seededSlugs = (window.DB.coachingCategories || []).map(c => c.slug);
+    }
+    const seededSet = new Set(seededSlugs);
+    let changed = false;
+    defaults.forEach(d => {
+      if (seededSet.has(d.slug)) return; // already seeded before on this device — never re-add, even if since deleted
+      seededSet.add(d.slug);
+      changed = true;
+      if (!(window.DB.coachingCategories || []).some(c => c.slug === d.slug)) {
         const id = LS.add('coachingCategories', d);
         window.DB.coachingCategories.push({ ...d, id });
-      });
-    }
-    localStorage.setItem('ddtz_categories_seeded', '1');
+      }
+    });
+    if (changed) localStorage.setItem('ddtz_categories_seeded_slugs', JSON.stringify([...seededSet]));
+    localStorage.setItem('ddtz_categories_seeded', '1'); // legacy flag — left in place, harmless, no longer gates anything
   } catch (e) {}
 }
 function slugifyCategory(name) {
@@ -7666,109 +7822,210 @@ window.handleRestoreFileSelected = async (event) => {
 };
 
 // ============================================================================
-// DANGER ZONE — FACTORY RESET
-// ============================================================================
+// RESET DATA — granular, per-module (replaces the old single-button
+// "wipe absolutely everything" Danger Zone flow). Same permission gate as
+// before (factoryReset, Super Admin only) — who can reach this screen
+// hasn't changed, only what happens once they do.
+//
 // This is the single deliberate, sanctioned exception to the
 // DATA_PRESERVATION_POLICY banner above LS (never call LS.set(col, []))
-// — everywhere else in this file that rule stands. Here it's the whole
-// point: a Super-Admin-triggered, heavily confirmed, explicit wipe of
-// every data collection this app has, across all three places it lives
-// (Google Sheets, Firebase, this browser). Nothing about this runs
-// automatically or as a side effect of any other action.
+// — everywhere else in this file that rule stands.
 //
-// Order of operations, each step best-effort and logged so a partial
-// failure (e.g. no internet) doesn't hide what did/didn't get cleared:
-//   1. Permission + typed confirmation gate.
-//   2. Auto-download a JSON backup — the one non-skippable safety net.
-//   3. Clear Firebase Realtime Database (generic root wipe).
-//   4. Clear Firebase Firestore (fees collection).
-//   5. Clear Google Sheets data tabs via Apps Script (Users tab preserved
-//      server-side — see handleResetAllData in Code.gs).
-//   6. Clear local: window.DB + every 'ddtz_*' collection key, backup
-//      history/snapshots, sync queue, and this device's ID sequence.
-//   7. Clear browser Cache Storage (PWA service worker cache), then reload.
-window.factoryResetAllData = async () => {
-  if (!can('factoryReset')) { denyAccess('Only a Super Admin can reset all data.', 'factoryReset'); return; }
+// MODULE_RESET_CONFIG maps each of the eight categories the Reset Data
+// menu offers to exactly what belongs to it — nothing guessed:
+//   - dbCollections: the window.DB/LS collection(s) that ARE that module.
+//   - sheetsModule: the key Code.gs's RESETTABLE_MODULE_TABS uses to find
+//     that module's own Sheet tab (see handleResetModule in Code.gs) —
+//     null where no dedicated tab exists (Birthday Data).
+//   - firebaseDeleteEach / firestoreCollections: reuses the EXACT SAME
+//     per-record Firebase functions the rest of the app already calls for
+//     a single delete (deleteStudentFirebase, deleteCoachFirebase,
+//     publishAvailabilityRecord(...,null), factoryResetFirestore) — never
+//     a guessed path or a broader/shared wipe. Attendance, Café Sales, and
+//     Enquiries have no Firebase presence anywhere else in this file
+//     either, so none is invented here.
+const MODULE_RESET_CONFIG = {
+  students:   { label: 'Students',    dbCollections: ['students'],   sheetsModule: 'students',
+    firebaseDeleteEach: (rec) => window.deleteStudentFirebase?.(rec.studentId || rec.id) },
+  coaches:    { label: 'Coaches',     dbCollections: ['coaches'],    sheetsModule: 'coaches',
+    firebaseDeleteEach: (rec) => window.deleteCoachFirebase?.(rec.coachId || rec.id) },
+  bookings:   { label: 'Bookings',    dbCollections: ['bookings'],   sheetsModule: 'bookings',
+    firebaseDeleteEach: (rec) => window.publishAvailabilityRecord?.('bookings', rec.bookingId || rec.id, null) },
+  fees:       { label: 'Fees',        dbCollections: ['fees'],       sheetsModule: 'fees',
+    firestoreCollections: ['fees'] },
+  attendance: { label: 'Attendance',  dbCollections: ['attendance'], sheetsModule: 'attendance' },
+  cafeSales:  { label: 'Cafe Sales',  dbCollections: ['cafeSales'],  sheetsModule: 'cafeSales' },
+  enquiries:  { label: 'Enquiries',   dbCollections: ['enquiries'],  sheetsModule: 'enquiries' },
+  // Birthday wishes are only ever logged into the shared AuditLog (Activity
+  // Log) — every other module also writes to that same tab — so there is
+  // no dedicated Sheet tab to clear without destroying unrelated history.
+  // This resets the local wish-history list and this device's per-day
+  // "already announced" dedupe flags only. Student DOB (what actually
+  // determines who has a birthday) lives on the Student record — a
+  // completely different reset category — and is never touched here.
+  birthday:   { label: 'Birthday Data', dbCollections: ['birthdayWishes'], sheetsModule: null,
+    localStoragePrefixes: ['ddtz_bday_announced_'] }
+};
+const MODULE_RESET_ORDER = ['students','coaches','bookings','fees','attendance','cafeSales','enquiries','birthday'];
 
-  const typed = prompt(
-    'This PERMANENTLY deletes every booking, student, fee, coach, attendance record, café sale, ' +
-    'request, due, and settlement — from Google Sheets, Firebase, and this browser. Login accounts are kept. ' +
-    'A backup downloads automatically first, but this cannot otherwise be undone.\n\n' +
-    'Type RESET ALL DATA to confirm.'
-  );
-  if (typed !== 'RESET ALL DATA') { showToast('Reset cancelled — nothing was changed.'); return; }
+window.openResetDataMenu = () => {
+  if (!can('factoryReset')) { denyAccess('Only a Super Admin can reset data.', 'factoryReset'); return; }
+  openModal('reset-data-modal');
+};
 
-  showToast('Downloading safety backup before continuing…', 'info');
-  try { downloadJSONBackup(); } catch (e) { console.error('Pre-reset backup failed:', e); }
-  // Give the download a moment to actually start before we start deleting.
-  await new Promise(resolve => setTimeout(resolve, 1200));
+let _pendingResetModule = null;
+window.openResetModuleConfirm = (key) => {
+  const cfg = MODULE_RESET_CONFIG[key];
+  if (!cfg) return;
+  _pendingResetModule = key;
+  closeModal('reset-data-modal');
+  document.getElementById('reset-confirm-title').textContent = `Reset ${cfg.label}?`;
+  document.getElementById('reset-confirm-body').textContent = `This will permanently remove all ${cfg.label} records. Other data will not be affected.`;
+  document.getElementById('reset-confirm-btn').textContent = `Reset ${cfg.label}`;
+  openModal('reset-module-confirm-modal');
+};
+window.cancelResetModuleConfirm = () => {
+  _pendingResetModule = null;
+  closeModal('reset-module-confirm-modal');
+};
 
-  showToast('Resetting everything — this can take a few seconds…', 'info');
-  const report = { firebaseRealtime: null, firestore: null, sheets: null };
+// Actually clears one module's data — Firebase (if applicable), then
+// Google Sheets (that module's own tab only, header row preserved), then
+// local. Never touches BACKUP_COLLECTIONS or window.DB keys outside
+// cfg.dbCollections, and never resets 'ddtz_id_seq' (the shared ID
+// sequence counter every collection uses) — doing so would risk future ID
+// collisions in every OTHER, untouched collection.
+async function _resetModuleData(key) {
+  const cfg = MODULE_RESET_CONFIG[key];
+  if (!cfg) return { ok: false, error: 'Unknown module' };
 
-  // 3. Firebase Realtime Database
-  try {
-    report.firebaseRealtime = await window.factoryResetRealtimeDatabase?.();
-  } catch (e) {
-    report.firebaseRealtime = { ok: false, error: e.message };
+  if (cfg.firebaseDeleteEach) {
+    const records = (window.DB[cfg.dbCollections[0]] || []).slice();
+    await Promise.allSettled(records.map((rec) => {
+      try { return Promise.resolve(cfg.firebaseDeleteEach(rec)); } catch (e) { return Promise.resolve({ ok: false, error: e.message }); }
+    }));
+  }
+  if (cfg.firestoreCollections) {
+    try { await window.factoryResetFirestore?.(cfg.firestoreCollections); } catch (e) { console.error('Firestore reset failed for', key, e); }
   }
 
-  // 4. Firebase Firestore
-  try {
-    report.firestore = await window.factoryResetFirestore?.(['fees']);
-  } catch (e) {
-    report.firestore = { ok: false, error: e.message };
+  let sheetsResult = null;
+  if (cfg.sheetsModule) {
+    try {
+      sheetsResult = await postToGoogleSheet({
+        type: 'reset_module', module: cfg.sheetsModule, confirm: 'RESET_MODULE',
+        performedBy: CURRENT_USER?.name || CURRENT_USER?.email || 'Unknown'
+      });
+    } catch (e) {
+      sheetsResult = { ok: false, error: e.message };
+    }
   }
 
-  // 5. Google Sheets (Users tab preserved server-side)
-  try {
-    report.sheets = await postToGoogleSheet({
-      type: 'resetAllData',
-      confirm: 'RESET_ALL_DATA',
-      performedBy: CURRENT_USER?.name || CURRENT_USER?.email || 'Unknown'
-    });
-  } catch (e) {
-    report.sheets = { ok: false, error: e.message };
-  }
-
-  // 6. Local browser data — the one place this file explicitly forbids
-  // LS.set(col, []) everywhere else. This is that sanctioned exception.
-  BACKUP_COLLECTIONS.forEach(col => {
+  cfg.dbCollections.forEach((col) => {
     LS.set(col, []);
     if (window.DB.hasOwnProperty(col)) window.DB[col] = [];
   });
-  // customers/coachingCategories/enrolments/birthdayWishes aren't in
-  // BACKUP_COLLECTIONS but do live in window.DB — clear those too.
-  Object.keys(window.DB).forEach(col => { window.DB[col] = []; });
+  if (cfg.localStoragePrefixes) {
+    try {
+      Object.keys(localStorage)
+        .filter((k) => cfg.localStoragePrefixes.some((p) => k.startsWith(p)))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch (e) {}
+  }
+
+  return { ok: true, sheets: sheetsResult };
+}
+
+// Re-renders whatever pages exist so an emptied module's page shows its
+// proper empty state immediately, with zero manual refresh — and every
+// OTHER page keeps showing its untouched data exactly as it did before.
+function _refreshAfterReset() {
+  renderDashboard?.();
+  renderStudents?.(); renderCoaches?.(); renderBookings?.(); renderBookingCalendar?.();
+  renderFees?.(); renderAttendance?.(); renderCafe?.(); renderEnquiries?.();
+  renderBirthdayWidget?.();
+}
+
+window.confirmResetModule = async () => {
+  const key = _pendingResetModule;
+  if (!key) return;
+  const cfg = MODULE_RESET_CONFIG[key];
+  closeModal('reset-module-confirm-modal');
+  showToast(`Resetting ${cfg.label}…`, 'info');
+  const result = await _resetModuleData(key);
+  _pendingResetModule = null;
+  _refreshAfterReset();
+
+  if (result.ok) {
+    const lines = MODULE_RESET_ORDER.map((k) => `${MODULE_RESET_CONFIG[k].label} → ${k === key ? 'Deleted' : 'Safe'}`);
+    alert(`Reset ${cfg.label}\n\n${lines.join('\n')}`);
+    showToast(`✅ ${cfg.label} reset. Everything else is untouched.`);
+  } else {
+    showToast('Reset finished with errors — check the console.', 'error');
+  }
+};
+
+// ----- Reset All Data -----
+window.openResetAllModal = () => {
+  if (!can('factoryReset')) { denyAccess('Only a Super Admin can reset all data.', 'factoryReset'); return; }
+  closeModal('reset-data-modal');
+  const input = document.getElementById('reset-all-input');
+  input.value = '';
+  document.getElementById('reset-all-btn').disabled = true;
+  openModal('reset-all-modal');
+};
+window.onResetAllTextInput = () => {
+  document.getElementById('reset-all-btn').disabled = (document.getElementById('reset-all-input').value !== 'RESET ALL');
+};
+window.cancelResetAll = () => { closeModal('reset-all-modal'); };
+
+// Order of operations, each step best-effort so a partial failure (e.g.
+// no internet) doesn't stop the rest from completing:
+//   1. Permission + typed "RESET ALL" gate (enforced by the button itself
+//      being disabled until the text matches exactly — see onResetAllTextInput).
+//   2. Auto-download a JSON backup — the one non-skippable safety net.
+//   3. Reset each of the eight categories exactly like an individual
+//      reset would (same Firebase/Sheets/local steps, same tabs) — never a
+//      broader Firebase root wipe or a Sheets tab outside those eight, so
+//      BlockedSlots, BookingRequests, EnrolmentRequests, DueAdjustments,
+//      CoachSettlements, Users, SiteConfig, and AuditLog all survive.
+//   4. Clear local sync queue + backup snapshot history (harmless
+//      device-local housekeeping; the JSON backup already downloaded is
+//      unaffected — it's already saved to disk) and browser Cache Storage,
+//      then reload. Deliberately does NOT reset 'ddtz_id_seq' — every
+//      collection shares that one counter, and several collections
+//      (BlockedSlots, BookingRequests, etc.) are intentionally preserved,
+//      so resetting it could cause a future ID to collide with one of theirs.
+window.confirmResetAllData = async () => {
+  if (!can('factoryReset')) { denyAccess('Only a Super Admin can reset all data.', 'factoryReset'); return; }
+  if (document.getElementById('reset-all-input').value !== 'RESET ALL') return;
+  closeModal('reset-all-modal');
+
+  showToast('Downloading safety backup before continuing…', 'info');
+  try { downloadJSONBackup(); } catch (e) { console.error('Pre-reset backup failed:', e); }
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+
+  showToast('Resetting all application records — this can take a few seconds…', 'info');
+  for (const key of MODULE_RESET_ORDER) {
+    try { await _resetModuleData(key); } catch (e) { console.error('Reset failed for', key, e); }
+  }
+
   try {
-    localStorage.removeItem('ddtz_id_seq');       // next records start at 0001 again
     localStorage.removeItem(SYNC_QUEUE_KEY);       // don't resurrect deleted records via a stale offline queue
-    localStorage.removeItem(BACKUP_HISTORY_KEY);   // local snapshot history (the JSON backup just downloaded is unaffected — it's already saved to disk)
+    localStorage.removeItem(BACKUP_HISTORY_KEY);   // local snapshot history
     Object.keys(localStorage)
-      .filter(k => k.startsWith(BACKUP_DATA_PREFIX))
-      .forEach(k => localStorage.removeItem(k));
+      .filter((k) => k.startsWith(BACKUP_DATA_PREFIX))
+      .forEach((k) => localStorage.removeItem(k));
   } catch (e) { console.error('Local cache clear error:', e); }
 
-  // 7. Browser Cache Storage (PWA offline cache), then reload fresh.
   try {
     if (window.caches && caches.keys) {
       const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+      await Promise.all(keys.map((k) => caches.delete(k)));
     }
   } catch (e) { console.error('Cache Storage clear error:', e); }
 
-  const failures = [];
-  if (report.firebaseRealtime && report.firebaseRealtime.ok === false) failures.push('Firebase Realtime Database: ' + report.firebaseRealtime.error);
-  if (report.firestore && report.firestore.ok === false) failures.push('Firestore: check console for per-collection detail');
-  if (report.sheets && report.sheets.ok === false) failures.push('Google Sheets: ' + report.sheets.error);
-
-  if (failures.length) {
-    console.error('Factory reset finished with some failures:', failures);
-    alert('Reset finished, but some parts failed (local cache is cleared either way):\n\n' + failures.join('\n') + '\n\nCheck your internet connection and the browser console, then try again if needed.');
-  } else {
-    showToast('✅ Everything has been reset. Reloading…');
-  }
-
+  showToast('✅ All application records have been reset. Reloading…');
   setTimeout(() => location.reload(), 1500);
 };
 
@@ -8664,7 +8921,23 @@ function autoSyncCafeSale(sale) {
     amount: sale.amount,
     method: sale.method,
     date: sale.date,
-    loggedBy: CURRENT_USER?.name || '',
+    loggedBy: sale.loggedBy || CURRENT_USER?.name || '',
+    // Booking Customer / Public Walk-in fields — additive, read back by
+    // Code.gs's handleCafeSaleWrite via _ensureHeaders (same non-destructive
+    // migration pattern already used for Students/Coaching Fees/AuditLog),
+    // so this never disturbs the CafeSales tab's existing columns/rows.
+    saleId: sale.id || '',
+    visitId: sale.visitId || '',
+    time: sale.time || '',
+    customerType: sale.customerType || 'walkin',
+    bookingId: sale.bookingId || '',
+    bookingRef: sale.bookingRef || '',
+    bookingStart: sale.bookingStart || '',
+    bookingEnd: sale.bookingEnd || '',
+    customerName: sale.customerName || '',
+    phone: sale.phone || '',
+    itemId: sale.itemId || '',
+    price: sale.price !== undefined ? sale.price : ''
   };
   return queuedSync(payload);
 }
@@ -8790,6 +9063,145 @@ async function syncFeesFromSheet() {
 // net only, same pattern as Coaches/Finance/Enrolments/Students above.
 window.addEventListener('focus', () => { if (CURRENT_USER) syncFeesFromSheet(); });
 
+// ============================================================================
+// DATA SYNC FIX — Attendance, Café Sales, Enquiries
+// ============================================================================
+// ROOT CAUSE (confirmed by tracing the actual load path, not guessed):
+// window.DB is always seeded from THIS browser's own localStorage first
+// (loadAllData() -> LS.get(col) for every collection). A fresh browser
+// (Incognito, another device) starts with empty localStorage, so it only
+// ever shows correct data for collections that ALSO get pulled back from
+// the central Sheet/Firebase on load — which, until now, meant Bookings/
+// BlockedSlots (syncBookingsAndBlocksFromSheet), Coaches/Students/Fees
+// (their own syncXFromSheet + a Firebase listener), Booking Requests,
+// Due Adjustments, Finance, Coach Settlements, and Pending Enrolments.
+// Attendance, Café Sales, and Enquiries had NEITHER a Firebase listener
+// NOR a GET reader on the Sheet at all (push-only) — so a device that
+// didn't personally create a given record could never see it, no matter
+// how long it stayed online. That is the entire explanation for "normal
+// browser vs Incognito shows different data": it was never a caching bug,
+// it was three collections with no read path back from the central store.
+// See handleAttendanceGet/handleCafeSalesGet/handleEnquiriesGet in Code.gs
+// for the new server-side read side this calls.
+//
+// Same safe-merge shape syncStudentsFromSheet() already uses above: add
+// any record this device hasn't seen yet (preserving the Sheet's own id
+// via _lsAddPreservingId, never minting a new local id for it), and never
+// treat this as authoritative enough to blindly overwrite a full local
+// record wholesale.
+
+let _attendanceSyncInFlight = false;
+async function syncAttendanceFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _attendanceSyncInFlight) return;
+  _attendanceSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=attendance&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    (data.attendance || []).forEach(remote => {
+      if (!remote.id) return;
+      // Same identity local dedup already uses (see saveOneAttendance):
+      // studentId+date, falling back to name+date only for a legacy
+      // record with no studentId on file yet.
+      const local = remote.studentId
+        ? window.DB.attendance.find(a => a.studentId === remote.studentId && a.date === remote.date)
+        : window.DB.attendance.find(a => a.studentName === remote.studentName && a.date === remote.date);
+      if (!local) {
+        window.DB.attendance.unshift(remote);
+        _lsAddPreservingId('attendance', remote);
+        changed = true;
+      } else if (local.status !== remote.status || local.coach !== remote.coach || local.sport !== remote.sport) {
+        // Attendance rows are append-only server-side, so "remote" here is
+        // always the LAST (most recent) mark for this student+date — adopt it.
+        const merged = { ...local, ...remote, id: local.id };
+        LS.update('attendance', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    if (changed && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
+  } catch (e) {
+    // Network hiccup — local data unaffected; next periodic call/focus retries.
+  } finally {
+    _attendanceSyncInFlight = false;
+  }
+}
+window.addEventListener('focus', () => { if (CURRENT_USER) syncAttendanceFromSheet(); });
+
+let _cafeSalesSyncInFlight = false;
+async function syncCafeSalesFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _cafeSalesSyncInFlight) return;
+  _cafeSalesSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=cafeSales&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    (data.cafeSales || []).forEach(remote => {
+      // Café sales are never edited or deleted after being logged (see
+      // saveCafeSaleNow) — so this only ever needs to ADD a record this
+      // device hasn't seen, never update or remove one.
+      if (!remote.id || window.DB.cafeSales.some(s => s.id === remote.id)) return;
+      window.DB.cafeSales.unshift(remote);
+      _lsAddPreservingId('cafeSales', remote);
+      changed = true;
+    });
+
+    if (changed && document.getElementById('page-cafe')?.classList.contains('active')) window.renderCafe?.();
+  } catch (e) {
+  } finally {
+    _cafeSalesSyncInFlight = false;
+  }
+}
+window.addEventListener('focus', () => { if (CURRENT_USER) syncCafeSalesFromSheet(); });
+
+let _enquiriesSyncInFlight = false;
+async function syncEnquiriesFromSheet() {
+  if (!window.DDTZ_SHEET_URL || _enquiriesSyncInFlight) return;
+  _enquiriesSyncInFlight = true;
+  try {
+    const res = await fetch(`${window.DDTZ_SHEET_URL}?action=enquiries&_=${Date.now()}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.ok) return;
+
+    let changed = false;
+    const remoteEnquiries = data.enquiries || [];
+    const remoteIds = new Set(remoteEnquiries.map(e => e.id));
+    // Same "don't resurrect a delete this device already applied but
+    // hasn't reached the server yet" guard syncStudentsFromSheet() uses.
+    const stillPendingDelete = new Set(_getSyncQueue().filter(p => p.type === 'enquiry' && p.action === 'delete').map(p => p.enquiryId));
+
+    remoteEnquiries.forEach(remote => {
+      if (!remote.id || stillPendingDelete.has(remote.id)) return;
+      const local = window.DB.enquiries.find(e => e.id === remote.id);
+      if (!local) {
+        _lsAddPreservingId('enquiries', remote);
+        window.DB.enquiries.unshift(remote);
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
+        const merged = { ...local, ...remote, id: local.id };
+        LS.update('enquiries', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    const beforeCount = window.DB.enquiries.length;
+    window.DB.enquiries = window.DB.enquiries.filter(e => remoteIds.has(e.id) || stillPendingDelete.has(e.id));
+    if (window.DB.enquiries.length !== beforeCount) { changed = true; LS.set('enquiries', window.DB.enquiries); }
+
+    if (changed && document.getElementById('page-enquiries')?.classList.contains('active')) renderEnquiries();
+  } catch (e) {
+  } finally {
+    _enquiriesSyncInFlight = false;
+  }
+}
+window.addEventListener('focus', () => { if (CURRENT_USER) syncEnquiriesFromSheet(); });
+
 // ----- The four modules the sync was requested for but that had no
 // autoSync function at all. `autoSyncBlockedSlot` in particular was already
 // being CALLED (in saveBlockSlot/deleteBlockSlot) despite never being
@@ -8875,6 +9287,10 @@ function autoSyncAttendance(rec) {
     attendanceId: rec.id || '',
     date: rec.date,
     student: rec.studentName,
+    // DATA SYNC FIX — studentId is what makes syncAttendanceFromSheet()
+    // able to reliably match a Sheet row back to a specific student (a
+    // name alone isn't a safe key — see handleAttendanceGet's comment).
+    studentId: rec.studentId || '',
     batch: rec.sport || '',
     coach: rec.coach || '',
     status: rec.status === 'P' ? 'Present' : 'Absent'
@@ -9969,7 +10385,11 @@ window._onFootballBatchChange = () => {
 // disabled-sport-category fallback right above editStudent's coach line.
 function _rebuildStudentCoachSelect(sport, presetValue) {
   const sel = document.getElementById('st-coach');
-  const activeCoaches = (window.DB.coaches || []).filter(c => c.sport === sport && c.status === 'active');
+  // Case/whitespace-insensitive match (e.g. an imported coach record with
+  // "Cricket" instead of the dropdown's "cricket") — the comparison is
+  // normalized, the stored sport value on either record is never rewritten.
+  const sportNorm = String(sport || '').trim().toLowerCase();
+  const activeCoaches = (window.DB.coaches || []).filter(c => String(c.sport || '').trim().toLowerCase() === sportNorm && c.status === 'active');
   sel.innerHTML = '<option value="">No coach assigned</option>' + activeCoaches.map(c => `<option value="${_esc(c.name)}">${_esc(c.name)}</option>`).join('');
   let value = presetValue;
   if (value === undefined) {
@@ -13019,7 +13439,7 @@ window.renderCoaches = () => {
   container.innerHTML=window.DB.coaches.map(c=>`
     <div class="card" id="coach-card-${c.id}">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <div style="width:48px;height:48px;background:var(--green-bg);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px">${c.sport==='cricket'?'🏏':c.sport==='football'?'⚽':'🥋'}</div>
+        <div style="width:48px;height:48px;background:var(--green-bg);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px">${categoryIcon(c.sport)}</div>
         <div><div style="font-weight:700;font-size:16px">${c.name}</div><div style="font-size:12px;color:var(--gray3)">${c.phone}</div></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -15574,19 +15994,33 @@ function _firstNameOf(fullName) {
 }
 window.sendBirthdayWish = (studentId) => {
   const s = window.DB.students.find(x => x.id === studentId);
-  if (!s) return;
+  // FIX — this used to silently `return` here with zero feedback, which is
+  // exactly what "the button does nothing" looks like to whoever clicked it.
+  if (!s) { showToast('Could not find this student — please refresh and try again.', 'error'); return; }
   const firstName = _firstNameOf(s.name);
+  const phone = (s.phone || '').replace(/\D/g, '');
+
+  // FIX — a missing phone number used to still attempt window.open() with
+  // an empty wa.me/?text=... link. That "no number" form of a wa.me link
+  // is unreliable across WhatsApp app versions (often opens nothing at all
+  // on mobile), which is the other half of "the button doesn't respond."
+  // Now it's an explicit, visible refusal instead of a silent failed attempt.
+  if (!phone) {
+    showToast(`Cannot send WhatsApp — no parent phone number on file for ${s.name}.`, 'error');
+    return;
+  }
+  const waNumber = buildWaPhone(phone);
+
   // Exact requested template, first-name-only, public Birthday Page link
   // included, NO private info (no DOB, parent name, phone, address, or
-  // student ID) anywhere in the outgoing message.
-  const message = `Happy Birthday, ${firstName}!\n\nWishing you a wonderful year filled with happiness, good health, confidence, success, and many victories.\n\nYour DD Turf Zone family wishes you an amazing year ahead!\n\nWe have also featured today's birthday wishes on our website.\n\nView your birthday wish here:\n${BIRTHDAY_PAGE_PUBLIC_URL}\n\nHave a fantastic celebration!\n\nDD Turf Zone Family`;
-  const phone = (s.phone || '').replace(/\D/g, '');
-  const waNumber = phone ? buildWaPhone(phone) : '';
-  if (!phone) showToast('No phone number on file — pick the contact in WhatsApp.', 'info');
-  // encodeURIComponent correctly percent-encodes both emoji characters and
-  // \n line breaks (as %0A), so the message displays with proper line
-  // breaks and emojis. wa.me is WhatsApp's own universal link format,
-  // supported identically on Android, iPhone, Desktop, and WhatsApp Web.
+  // student ID) anywhere in the outgoing message. Plain text only — no
+  // emojis, no decorative symbols — so this can never render as "?" or a
+  // broken character on any phone/WhatsApp version.
+  const message = `Happy Birthday ${firstName}\n\nWishing you a very happy birthday and a wonderful year ahead.\n\nView your birthday wish here:\n${BIRTHDAY_PAGE_PUBLIC_URL}\n\nFrom\nDD Turf Zone`;
+  // encodeURIComponent percent-encodes the \n line breaks (as %0A) so the
+  // message displays with proper line breaks. wa.me is WhatsApp's own
+  // universal link format, supported identically on Android, iPhone,
+  // Desktop, and WhatsApp Web.
   const win = window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`, '_blank');
   if (!win) { showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error'); return; }
 
@@ -15962,18 +16396,60 @@ window.renderCafe = () => {
     <div class="stat-card orange"><div class="stat-icon">💵</div><div class="stat-val">₹${cashTotal.toLocaleString('en-IN')} / 📱₹${gpayTotal.toLocaleString('en-IN')}</div><div class="stat-label">Cash / GPay</div></div>`;
 
   document.getElementById('cafe-menu-tbody').innerHTML = items.length ? items.map(i => `
-    <tr><td>${i.name}</td><td>${i.category}</td><td>₹${i.price}</td>
+    <tr><td>${_esc(i.name)}</td><td>${_esc(i.category)}</td><td>₹${i.price}</td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteCafeItem('${i.id}')">🗑️</button></td></tr>
   `).join('') : `<tr><td colspan="4" class="text-center" style="color:var(--gray3)">No menu items yet</td></tr>`;
 
-  document.getElementById('cafe-sales-tbody').innerHTML = todaySales.length ? todaySales.map(s => `
-    <tr><td>${s.itemName}</td><td>${s.qty}</td><td>₹${s.amount}</td><td>${s.method}</td></tr>
-  `).join('') : `<tr><td colspan="4" class="text-center" style="color:var(--gray3)">No sales logged today</td></tr>`;
+  // Group today's sales by visit (everything logged in one "Save Sale"
+  // click) so several items bought together show as one row, while
+  // repeat purchases through the same booking (7pm water, 8pm tea, ...)
+  // correctly show as separate rows — matches how staff actually log
+  // café purchases as a slot progresses. Legacy rows (imported, or logged
+  // before this feature existed) have no visitId — each stands alone.
+  const visits = {};
+  const visitOrder = [];
+  todaySales.forEach(s => {
+    const key = s.visitId || s.id;
+    if (!visits[key]) { visits[key] = []; visitOrder.push(key); }
+    visits[key].push(s);
+  });
+
+  document.getElementById('cafe-sales-tbody').innerHTML = visitOrder.length ? visitOrder.map(key => {
+    const lines = visits[key];
+    const first = lines[0];
+    const isBooking = first.customerType === 'booking';
+    const total = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+    const itemsSummary = lines.map(l => `${_esc(l.itemName)} x${l.qty}`).join(', ');
+    const customerLabel = isBooking
+      ? `${_esc(first.customerName || 'Booking Customer')} <span style="color:var(--gray3);font-size:11px">(${formatTime(first.bookingStart)} - ${formatTime(first.bookingEnd)})</span>`
+      : _esc(first.customerName || 'Walk-in Customer');
+    const phone = first.phone || '';
+    // Every visit's Bill button aggregates the FULL booking (all visits,
+    // not just this one) for a booking customer — "collect all Cafe Log
+    // Sales connected to that booking/slot" — but only this one visit's
+    // items for a walk-in, since walk-ins have no persistent identity to
+    // aggregate across.
+    const billKind = isBooking ? 'booking' : 'visit';
+    const billKey = isBooking ? (first.bookingId || key) : key;
+    return `
+      <tr>
+        <td>${first.time || '-'}</td>
+        <td>${customerLabel}</td>
+        <td style="font-size:12px">${itemsSummary}</td>
+        <td>₹${total.toLocaleString('en-IN')}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-secondary btn-sm" onclick="openCafeBillModal('${billKind}','${billKey}')" title="Generate Bill">🧾</button>
+          ${phone ? `<button class="btn btn-whatsapp btn-sm" onclick="openCafeBillModal('${billKind}','${billKey}',true)" title="Send WhatsApp">💬</button>` : ''}
+        </td>
+      </tr>`;
+  }).join('') : `<tr><td colspan="5" class="text-center" style="color:var(--gray3)">No sales logged today</td></tr>`;
 
   // Keep the sale-item dropdown fresh
   const sel = document.getElementById('cafe-sale-item');
   if (sel) {
-    sel.innerHTML = items.map(i => `<option value="${i.id}" data-price="${i.price}" data-name="${i.name}">${i.name} — ₹${i.price}</option>`).join('');
+    sel.innerHTML = items.length
+      ? items.map(i => `<option value="${i.id}" data-price="${i.price}" data-name="${_esc(i.name)}">${_esc(i.name)} — ₹${i.price}</option>`).join('')
+      : '<option value="">No menu items yet</option>';
   }
 };
 
@@ -15999,33 +16475,345 @@ window.deleteCafeItem = async (id) => {
   renderCafe();
 };
 
-window.onCafeSaleItemChange = () => { onCafeSaleQtyChange(); };
-window.onCafeSaleQtyChange = () => {
-  const sel = document.getElementById('cafe-sale-item');
-  const opt = sel?.selectedOptions[0];
-  const price = Number(opt?.dataset.price) || 0;
-  const qty = Number(document.getElementById('cafe-sale-qty').value) || 1;
-  document.getElementById('cafe-sale-amount').value = price * qty;
+// ===== CAFÉ SALE — Booking Customer / Public Walk-in =====
+let _cafeSaleMode = 'booking';
+let _cafeSelectedBooking = null;
+let _cafeCart = [];
+
+function _cafeBookingsForDate(date) {
+  return (window.DB.bookings || [])
+    .filter(b => b.date === date && b.status !== 'cancelled')
+    .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+}
+
+window.setCafeSaleMode = (mode) => {
+  _cafeSaleMode = mode;
+  _cafeSelectedBooking = null;
+  document.getElementById('cafe-booking-fields').style.display = mode === 'booking' ? '' : 'none';
+  document.getElementById('cafe-walkin-fields').style.display = mode === 'walkin' ? '' : 'none';
+  document.getElementById('cafe-mode-booking-btn').className = 'btn ' + (mode === 'booking' ? 'btn-primary' : 'btn-secondary');
+  document.getElementById('cafe-mode-walkin-btn').className = 'btn ' + (mode === 'walkin' ? 'btn-primary' : 'btn-secondary');
+  if (mode === 'booking') onCafeBookingDateChange();
 };
 
-window.saveCafeSale = async () => {
+window.onCafeBookingDateChange = () => {
+  const date = document.getElementById('cafe-bk-date').value;
+  const sel = document.getElementById('cafe-bk-slot');
+  const bookings = date ? _cafeBookingsForDate(date) : [];
+  sel.innerHTML = '<option value="">Select a booked slot</option>' + bookings.map(b =>
+    `<option value="${b.id}">${formatTime(b.start)} - ${formatTime(b.end)} — ${_esc(b.name)}</option>`
+  ).join('');
+  document.getElementById('cafe-bk-info').style.display = 'none';
+  _cafeSelectedBooking = null;
+};
+
+window.onCafeBookingSlotChange = () => {
+  const id = document.getElementById('cafe-bk-slot').value;
+  const info = document.getElementById('cafe-bk-info');
+  if (!id) { info.style.display = 'none'; _cafeSelectedBooking = null; return; }
+  const b = (window.DB.bookings || []).find(x => x.id === id);
+  _cafeSelectedBooking = b || null;
+  if (!b) { info.style.display = 'none'; return; }
+  document.getElementById('cafe-bk-info-name').textContent = b.name;
+  document.getElementById('cafe-bk-info-phone').textContent = b.phone ? ('WhatsApp: ' + b.phone) : 'No phone number on file for this booking';
+  info.style.display = '';
+};
+
+window.addCafeCartItem = () => {
   const sel = document.getElementById('cafe-sale-item');
   const opt = sel?.selectedOptions[0];
-  if (!opt) { showToast('Add a menu item first', 'error'); return; }
-  const data = {
-    itemName: opt.dataset.name,
-    qty: Number(document.getElementById('cafe-sale-qty').value) || 1,
-    amount: Number(document.getElementById('cafe-sale-amount').value) || 0,
-    method: document.getElementById('cafe-sale-method').value,
-    date: getToday()
-  };
-  const id = await saveDoc('cafeSales', data, null);
-  data.id = id;
-  window.DB.cafeSales.unshift(data);
-  autoSyncCafeSale(data);
+  if (!opt || !opt.value) { showToast('Select a menu item first', 'error'); return; }
+  const qty = Math.max(1, Number(document.getElementById('cafe-sale-qty').value) || 1);
+  const price = Number(opt.dataset.price) || 0;
+  _cafeCart.push({ itemId: opt.value, itemName: opt.dataset.name, price, qty, amount: price * qty });
+  document.getElementById('cafe-sale-qty').value = 1;
+  renderCafeCart();
+};
+
+window.removeCafeCartItem = (idx) => {
+  _cafeCart.splice(idx, 1);
+  renderCafeCart();
+};
+
+function renderCafeCart() {
+  const list = document.getElementById('cafe-cart-list');
+  const totalEl = document.getElementById('cafe-cart-total');
+  if (!_cafeCart.length) {
+    list.innerHTML = `<div style="color:var(--gray3);font-size:12.5px">No items added yet</div>`;
+    totalEl.style.display = 'none';
+    return;
+  }
+  list.innerHTML = _cafeCart.map((l, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--gray);border-radius:8px;padding:8px 10px;font-size:13px">
+      <span>${_esc(l.itemName)} × ${l.qty}</span>
+      <span style="display:flex;align-items:center;gap:8px">₹${l.amount.toLocaleString('en-IN')}
+        <button type="button" class="btn btn-danger btn-sm" onclick="removeCafeCartItem(${i})">✕</button>
+      </span>
+    </div>`).join('');
+  const total = _cafeCart.reduce((s, l) => s + l.amount, 0);
+  totalEl.textContent = `Cart Total: ₹${total.toLocaleString('en-IN')}`;
+  totalEl.style.display = '';
+}
+
+window.openCafeSaleModal = () => {
+  _cafeSaleMode = 'booking';
+  _cafeSelectedBooking = null;
+  _cafeCart = [];
+  document.getElementById('cafe-bk-date').value = getToday();
+  document.getElementById('cafe-wk-name').value = '';
+  document.getElementById('cafe-wk-phone').value = '';
+  document.getElementById('cafe-sale-qty').value = 1;
+  renderCafeCart();
+  setCafeSaleMode('booking');
+  openModal('cafe-sale-modal');
+};
+
+window.saveCafeSaleNow = async () => {
+  if (!_cafeCart.length) { showToast('Add at least one item before saving', 'error'); return; }
+
+  let customerType, bookingId, bookingRef, bookingStart, bookingEnd, customerName, phone, date;
+  if (_cafeSaleMode === 'booking') {
+    if (!_cafeSelectedBooking) { showToast('Select a booked slot first', 'error'); return; }
+    customerType = 'booking';
+    bookingId = _cafeSelectedBooking.id;
+    bookingRef = _cafeSelectedBooking.bookingId || '';
+    bookingStart = _cafeSelectedBooking.start || '';
+    bookingEnd = _cafeSelectedBooking.end || '';
+    customerName = _cafeSelectedBooking.name || '';
+    phone = _cafeSelectedBooking.phone || '';
+    date = _cafeSelectedBooking.date;
+  } else {
+    // Deliberately NOT required — "Do NOT force staff to enter fake
+    // information." An empty name/phone is recorded exactly as empty;
+    // display fallbacks ("Walk-in Customer" / "Not Provided") are applied
+    // only when rendering, never written into the record itself.
+    customerType = 'walkin';
+    bookingId = ''; bookingRef = ''; bookingStart = ''; bookingEnd = '';
+    customerName = document.getElementById('cafe-wk-name').value.trim();
+    phone = document.getElementById('cafe-wk-phone').value.trim();
+    date = getToday();
+  }
+
+  const method = document.getElementById('cafe-sale-method').value;
+  const visitId = 'V' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6).toUpperCase();
+  const time = new Date().toTimeString().slice(0, 5);
+  const cartTotal = _cafeCart.reduce((s, l) => s + l.amount, 0);
+
+  // Every cart line is its own Cafe Log Sale row (item/qty/price/amount),
+  // sharing one visitId/time/customer snapshot — matches "Cafe Log Sale"
+  // per-item recording (section 9) while still saving/displaying as one
+  // single visit.
+  for (const line of _cafeCart) {
+    const data = {
+      itemName: line.itemName, qty: line.qty, amount: line.amount, method, date,
+      visitId, time, customerType, bookingId, bookingRef, bookingStart, bookingEnd,
+      customerName, phone, itemId: line.itemId, price: line.price,
+      loggedBy: CURRENT_USER?.name || ''
+    };
+    const id = await saveDoc('cafeSales', data, null);
+    data.id = id;
+    window.DB.cafeSales.unshift(data);
+    autoSyncCafeSale(data);
+  }
+
   closeModal('cafe-sale-modal');
+  _cafeCart = [];
   renderCafe();
-  showToast('Sale logged ✅');
+  showToast(`Sale logged — ₹${cartTotal.toLocaleString('en-IN')} ✅`);
+};
+
+// ===== CAFÉ BILL — generation, print, PDF, WhatsApp =====
+// Deliberately mirrors _receiptDocHTML/_receiptPrintCss/shareReceiptWhatsApp
+// (the Fee Receipt system) in structure and reuses the exact same .rc-*
+// CSS classes — "use the existing bill design" — but as its own parallel
+// set of functions, since those Fee Receipt functions are explicitly
+// frozen (see the PHASE 3.4c comment above them) and operate on a single
+// stored fee record, whereas a café bill is a computed aggregate across
+// one or more Cafe Log Sale rows with no single record of its own.
+function _cafeSalesForBooking(bookingId) {
+  return (window.DB.cafeSales || []).filter(s => s.customerType === 'booking' && s.bookingId === bookingId);
+}
+function _cafeSalesForVisit(visitId) {
+  return (window.DB.cafeSales || []).filter(s => (s.visitId || s.id) === visitId);
+}
+
+window.openCafeBillModal = (kind, key, autoWhatsapp) => {
+  const lines = kind === 'booking' ? _cafeSalesForBooking(key) : _cafeSalesForVisit(key);
+  if (!lines.length) { showToast('No café sales found.', 'error'); return; }
+  const first = lines[0];
+  const isBooking = first.customerType === 'booking';
+  const bill = {
+    kind, key,
+    customerType: first.customerType,
+    customerName: first.customerName || '',
+    phone: first.phone || '',
+    date: first.date,
+    bookingStart: first.bookingStart || '',
+    bookingEnd: first.bookingEnd || '',
+    items: lines.map(l => ({
+      name: l.itemName, qty: Number(l.qty) || 0,
+      price: (l.price !== undefined && l.price !== '' && l.price !== null) ? Number(l.price) : (Number(l.amount) / (Number(l.qty) || 1)),
+      amount: Number(l.amount) || 0
+    })),
+    total: lines.reduce((s, l) => s + (Number(l.amount) || 0), 0)
+  };
+  document.getElementById('cafe-bill-container').innerHTML = _cafeBillDocHTML(bill, isBooking);
+  document.getElementById('cafe-bill-data').value = JSON.stringify(bill);
+  const waBtn = document.getElementById('cafe-bill-whatsapp-btn');
+  if (waBtn) waBtn.style.display = bill.phone ? '' : 'none';
+  openModal('cafe-bill-modal');
+  if (autoWhatsapp === true && bill.phone) shareCafeBillWhatsApp();
+};
+
+function _cafeBillDocHTML(bill, isBooking) {
+  const biz = _idCardBizSettings();
+  const logoUrl = _idCardLogoUrl();
+  const displayName = bill.customerName || (isBooking ? 'Customer' : 'Walk-in Customer');
+  const displayPhone = bill.phone || 'Not Provided';
+  return `
+    <div class="rc-head">
+      ${logoUrl ? `<img src="${logoUrl}" alt="${biz.name}">` : `<div class="rc-biz-name-fallback">${biz.name}</div>`}
+      <div class="rc-contact">${biz.address}<br>📞 ${biz.contact}</div>
+    </div>
+    <div class="rc-title">Cafe Bill</div>
+    <div class="rc-section-label">Customer</div>
+    <div class="rc-row"><span>Name</span><b>${_esc(displayName)}</b></div>
+    <div class="rc-row"><span>Phone</span><b>${_esc(displayPhone)}</b></div>
+    ${isBooking ? `
+    <div class="rc-row"><span>Booking Date</span><b>${formatDate(bill.date)}</b></div>
+    <div class="rc-row"><span>Booking Time</span><b>${formatTime(bill.bookingStart)} - ${formatTime(bill.bookingEnd)}</b></div>
+    ` : `
+    <div class="rc-row"><span>Sale Date</span><b>${formatDate(bill.date)}</b></div>
+    `}
+    <div class="rc-section-label">Cafe Items</div>
+    <div class="rc-item-head"><span>Item</span><span>Qty</span><span>Price</span><span>Amount</span></div>
+    ${bill.items.map(it => `
+      <div class="rc-item-row"><span>${_esc(it.name)}</span><span>${it.qty}</span><span>₹${it.price.toLocaleString('en-IN')}</span><span>₹${it.amount.toLocaleString('en-IN')}</span></div>
+    `).join('')}
+    <div class="rc-amount-row rc-total"><span>Total Amount</span><span>₹${bill.total.toLocaleString('en-IN')}</span></div>
+    <div class="rc-foot">Thank you for visiting!<br>${biz.name} · ${biz.address}</div>
+  `;
+}
+
+function _cafeBillFromInput() {
+  try { return JSON.parse(document.getElementById('cafe-bill-data').value || '{}'); } catch (e) { return {}; }
+}
+
+// Plain text only — no emojis, no symbols beyond what the exact requested
+// template already has — so this can never render as "?" or a broken
+// character on any phone/WhatsApp version. "Rs." (not ₹) for the same
+// reason; the ₹ glyph is only ever used in the on-screen/printed bill
+// itself (an image once rendered to PDF), never in this live text message.
+function _cafeBillWhatsAppMessage(bill, isBooking) {
+  const name = bill.customerName || (isBooking ? 'Customer' : 'Walk-in Customer');
+  return [
+    `Hello ${name}`,
+    'Thank you for using DD Turf Zone.',
+    'Please find your cafe bill below.',
+    '',
+    `Total Amount: Rs. ${bill.total.toLocaleString('en-IN')}`,
+    '',
+    'Thank you.',
+    'DD Turf Zone'
+  ].join('\n');
+}
+
+// Same inline-CSS-in-a-popup approach as _receiptPrintCss — a
+// window.open('','_blank') document doesn't inherit this page's
+// stylesheet, so the .rc-* rules are restated here for Print/PDF/WhatsApp.
+function _cafeBillPrintCss() {
+  return `
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,Helvetica,sans-serif;padding:16mm;background:#fff}
+    .receipt-doc{width:100%;max-width:420px;margin:0 auto;border:1px solid #e2e8f0;border-radius:6px;padding:20px;color:#1e293b}
+    .rc-head{text-align:center;margin-bottom:18px;border-bottom:2px solid #0B0C0E}
+    .rc-head img{width:245px;max-width:80%;height:auto;margin:0 auto 12px;display:block}
+    .rc-head .rc-contact{font-size:12px;font-weight:500;color:#666;line-height:1.4;text-align:center;margin-top:8px;margin-bottom:16px}
+    .rc-head .rc-biz-name-fallback{font-size:24px;font-weight:800;color:#0B0C0E;margin-bottom:10px}
+    .rc-title{text-align:center;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#0A3327;margin:12px 0}
+    .rc-section-label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin:12px 0 5px}
+    .rc-row{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px dashed #e2e8f0}
+    .rc-row b{color:#94a3b8;font-weight:600}
+    .rc-item-head{display:grid;grid-template-columns:2fr 0.6fr 1fr 1fr;font-size:9px;font-weight:800;text-transform:uppercase;color:#94a3b8;padding:4px 0;border-bottom:1px solid #e2e8f0}
+    .rc-item-row{display:grid;grid-template-columns:2fr 0.6fr 1fr 1fr;font-size:11px;padding:4px 0;border-bottom:1px dashed #e2e8f0}
+    .rc-amount-row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0}
+    .rc-amount-row.rc-total{font-size:14px;font-weight:800;color:#0B0C0E;border-top:2px solid #0B0C0E;margin-top:5px;padding-top:7px}
+    .rc-foot{text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8}
+    @media print { @page{size:A4;margin:10mm} body{padding:0} }
+  `;
+}
+
+window.printCafeBill = () => {
+  const bill = _cafeBillFromInput();
+  const isBooking = bill.customerType === 'booking';
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD Turf Zone - Cafe Bill</title>
+<style>${_cafeBillPrintCss()}</style></head><body>
+  <div class="receipt-doc">${_cafeBillDocHTML(bill, isBooking)}</div>
+</body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Please allow popups to print the bill', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+  const doPrint = () => { try { w.focus(); w.print(); } catch(e) {} };
+  w.onload = doPrint;
+  setTimeout(doPrint, 400);
+};
+
+window.downloadCafeBillPDF = async () => {
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    showToast('PDF library failed to load — check your internet connection.', 'error'); return;
+  }
+  showToast('Preparing PDF…', 'info');
+  const canvas = await html2canvas(document.getElementById('cafe-bill-container'), { scale: 3, backgroundColor: '#ffffff' });
+  const jsPDF = window.jspdf.jsPDF;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 15;
+  const imgWidth = pageWidth - margin * 2;
+  const imgHeight = imgWidth * (canvas.height / canvas.width);
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imgWidth, imgHeight);
+  doc.save(`Cafe_Bill_${getToday()}.pdf`);
+  showToast('Bill PDF downloaded ✅');
+};
+
+window.shareCafeBillWhatsApp = async () => {
+  const bill = _cafeBillFromInput();
+  const isBooking = bill.customerType === 'booking';
+  if (!bill.phone) { showToast('No phone number on file for this sale.', 'info'); return; }
+  const waNumber = buildWaPhone(bill.phone);
+  const libsReady = typeof html2canvas !== 'undefined' && typeof window.jspdf !== 'undefined';
+  const canShareFiles = !!(navigator.share && navigator.canShare);
+
+  if (libsReady && canShareFiles) {
+    try {
+      showToast('Preparing bill…', 'info');
+      const canvas = await html2canvas(document.getElementById('cafe-bill-container'), { scale: 3, backgroundColor: '#ffffff' });
+      const jsPDF = window.jspdf.jsPDF;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 15;
+      const imgWidth = pageWidth - margin * 2;
+      const imgHeight = imgWidth * (canvas.height / canvas.width);
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imgWidth, imgHeight);
+      const file = new File([doc.output('blob')], `Cafe_Bill_${getToday()}.pdf`, { type: 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'DD Turf Zone Cafe Bill', text: _cafeBillWhatsAppMessage(bill, isBooking) });
+        showToast('Bill shared ✅');
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      console.warn('Web Share failed — falling back to wa.me:', err);
+    }
+  }
+
+  const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(_cafeBillWhatsAppMessage(bill, isBooking))}`;
+  const win = window.open(waUrl, '_blank');
+  if (!win) { showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error'); return; }
+
+  if (libsReady) {
+    try { await window.downloadCafeBillPDF(); } catch (e) { showToast('WhatsApp opened, but the PDF could not be prepared — use Download PDF.', 'error'); }
+  }
 };
 
 // ===== USER MANAGEMENT (Super Admin only — reads/writes the Sheet's Users tab) =====
