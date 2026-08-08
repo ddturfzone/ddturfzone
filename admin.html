@@ -7300,7 +7300,15 @@ window.saveBooking = async () => {
         if (reconcileIdx >= 0) window.DB.bookings[reconcileIdx].bookingId = syncRes.bookingId;
       }
     } else {
-      autoSyncBooking(data); // editing an existing booking never assigns a new ID — fire-and-forget as before
+      // STALE-DATA FIX — editing never assigns a new ID, so this used to
+      // stay fire-and-forget; but that meant "Booking updated" could show
+      // (and the page look safe to refresh) before the edit had actually
+      // reached the server. A refresh in that window aborted the in-flight
+      // POST, and the next sync/merge — which only checks "is
+      // remote.updatedAt different", not "which is newer" — would silently
+      // replace the just-made edit with the server's stale row. Awaiting
+      // here closes that window, same fix as every other module's edit path.
+      await autoSyncBooking(data);
     }
 
     closeModal('booking-modal');
@@ -9859,7 +9867,12 @@ window.saveBlockSlot = async () => {
         await saveDoc('blockedSlots', data, m.id);
         const idx = window.DB.blockedSlots.findIndex(x => x.id === m.id);
         if (idx >= 0) window.DB.blockedSlots[idx] = { ...data, id: m.id };
-        autoSyncBlockedSlot({ ...data, id: m.id }, 'update');
+        // STALE-DATA FIX — awaiting inside this loop (same fix as every
+        // other edit path here) means each series member's edit has
+        // genuinely reached the server before moving to the next, so a
+        // refresh right after this series update finishes can't race an
+        // in-flight write and have it silently reverted.
+        await autoSyncBlockedSlot({ ...data, id: m.id }, 'update');
       }
       closeModal('block-slot-modal');
       renderBookingCalendar();
@@ -9878,7 +9891,8 @@ window.saveBlockSlot = async () => {
     await saveDoc('blockedSlots', data, id);
     const idx = window.DB.blockedSlots.findIndex(x => x.id === id);
     if (idx >= 0) window.DB.blockedSlots[idx] = { ...data, id };
-    autoSyncBlockedSlot({ ...data, id }, 'update');
+    // STALE-DATA FIX — same reasoning as the series-update loop above.
+    await autoSyncBlockedSlot({ ...data, id }, 'update');
     closeModal('block-slot-modal');
     renderBookingCalendar();
     showToast('Blocked slot updated ✅');
@@ -10140,7 +10154,11 @@ window.confirmAddPayment = async () => {
   const idx = window.DB.bookings.findIndex(x => x.id === b.id);
   if (idx >= 0) window.DB.bookings[idx] = updated;
 
-  autoSyncBooking(updated);
+  // STALE-DATA FIX — see the comment on the other autoSyncBooking(updated)
+  // call in confirmReservation below: awaiting closes the window where a
+  // refresh right after this balance payment shows as recorded could
+  // interrupt the sync and have it silently reverted by a later merge.
+  await autoSyncBooking(updated);
   closeModal('add-payment-modal');
   renderBookings();
   renderDashboard();
@@ -10169,9 +10187,13 @@ window.confirmReservation = async (id) => {
   await saveDoc('bookings', updated, b.id);
   const idx = window.DB.bookings.findIndex(x => x.id === b.id);
   if (idx >= 0) window.DB.bookings[idx] = updated;
+  // STALE-DATA FIX — same reasoning as every other edit path fixed in this
+  // pass: awaiting means the confirmed-reservation write has genuinely
+  // reached the server before this function returns, so a refresh right
+  // after can't race an in-flight POST and get silently reverted.
+  await autoSyncBooking(updated);
   renderBookings(); renderDashboard(); renderBookingCalendar();
   if (typeof renderReports === 'function') renderReports();
-  autoSyncBooking(updated);
   sendBookingWhatsApp(updated);
   showToast('Reservation confirmed as a booking ✅');
   _announceSlotBookingEvent(b.id, 'reservationConfirmed', { text: 'Reservation confirmed as a booking', voice: 'Reservation has been confirmed as a booking.' });
@@ -10357,7 +10379,18 @@ window.saveStudent = async () => {
   if (fbStudentResult && !fbStudentResult.success) {
     console.warn('Student Firebase sync failed (Sheets sync still proceeding):', fbStudentResult.error);
   }
-  autoSyncStudent(data, existId ? 'update' : 'create');
+  // STALE-DATA FIX — this used to fire without awaiting, so "Student saved!"
+  // appeared (and the page was safe to refresh, as far as the admin could
+  // tell) before the Sheets write had actually landed. A refresh in that
+  // window meant the in-flight POST got aborted by navigation, the server
+  // still had the OLD row, and the next sync/merge — which only compares
+  // "is remote.updatedAt different from local.updatedAt", not "which is
+  // newer" — silently replaced the just-made edit with that stale server
+  // copy. Awaiting here means the edit has genuinely reached the server
+  // (and _rtCaptureUpdatedAt inside queuedSync has already reconciled this
+  // record's local updatedAt to match) by the time "Saved!" appears, so a
+  // refresh right after seeing that toast can no longer revert anything.
+  await autoSyncStudent(data, existId ? 'update' : 'create');
   closeModal('student-modal');
   resetStudentForm();
   renderStudents();
@@ -10784,7 +10817,11 @@ async function _bulkUpdateSelectedStudents(mutator, toastVerb) {
     await saveDoc('students', updated, id);
     const idx = window.DB.students.findIndex(x=>x.id===id);
     if (idx>=0) window.DB.students[idx] = updated;
-    autoSyncStudent(updated, 'update');
+    // STALE-DATA FIX — same reasoning as every other edit path in this
+    // pass: awaiting means each bulk edit has genuinely reached the server
+    // before the success toast appears, so a refresh right after can't
+    // race an in-flight write and have it silently reverted.
+    await autoSyncStudent(updated, 'update');
     count++;
   }
   _clearStudentSelectionState();
@@ -13466,15 +13503,20 @@ window.saveCoach = async () => {
   if (fbResult && !fbResult.success) {
     console.warn('Coach Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
   }
-  // TEMP DIAGNOSTICS — records both legs' outcome for the diagnostics
-  // panel. Sheets sync itself stays fire-and-forget (unchanged); this
-  // just ALSO attaches a diagnostic-only continuation, it doesn't make
-  // the save wait on it.
-  autoSyncCoach(data, existId ? 'update' : 'create').then(sheetsRes => {
-    window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, !!(sheetsRes && sheetsRes.ok));
-  }).catch(() => {
-    window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, false);
-  });
+  // STALE-DATA FIX — this used to be fire-and-forget (diagnostics-only
+  // .then/.catch, nothing actually waited on it), so "Coach saved!" could
+  // appear before the Sheets write landed. A refresh in that window
+  // aborted the in-flight POST, and the next sync/merge — which only
+  // checks "is remote.updatedAt different", not "which is newer" — would
+  // silently replace the just-made edit with the server's stale row.
+  // Awaiting here (same fix as saveStudent above) means the edit has
+  // genuinely reached the server before the toast appears. Diagnostics
+  // recording is unchanged, just now sequenced after an awaited result
+  // instead of a detached .then/.catch.
+  let sheetsRes = null;
+  try { sheetsRes = await autoSyncCoach(data, existId ? 'update' : 'create'); }
+  catch (e) { sheetsRes = null; }
+  window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, !!(sheetsRes && sheetsRes.ok));
   closeModal('coach-modal');
   renderCoaches();
   window.clearRowHighlight('coach-card-', data.id); // UI ENHANCEMENT: same pattern as Fees/Students
@@ -13551,7 +13593,11 @@ window.saveEnquiry = async () => {
   const id=await saveDoc('enquiries',data,existId||null);
   if(!existId){data.id=id;window.DB.enquiries.unshift(data);}
   else{const idx=window.DB.enquiries.findIndex(x=>x.id===existId);if(idx>=0)window.DB.enquiries[idx]={...data,id:existId};}
-  autoSyncEnquiry({...data, id: existId||id}, existId ? 'update' : 'create');
+  // STALE-DATA FIX — same reasoning as saveStudent/saveCoach above: await
+  // the Sheets sync before declaring success, so a refresh right after
+  // "Enquiry saved!" can no longer race an in-flight write and get
+  // silently reverted by the next sync's stale-server merge.
+  await autoSyncEnquiry({...data, id: existId||id}, existId ? 'update' : 'create');
   closeModal('enquiry-modal');
   renderEnquiries(); renderDashboard();
   showToast('Enquiry saved! ✅');
@@ -13561,7 +13607,8 @@ window.updateEnquiryStatus = async (id, status) => {
   const idx=window.DB.enquiries.findIndex(x=>x.id===id);if(idx<0)return;
   window.DB.enquiries[idx].status=status;
   await saveDoc('enquiries',{status},id);
-  autoSyncEnquiry(window.DB.enquiries[idx], 'update');
+  // STALE-DATA FIX — same reasoning as saveEnquiry above.
+  await autoSyncEnquiry(window.DB.enquiries[idx], 'update');
   renderEnquiries(); renderDashboard();
   showToast('Status updated');
 };
@@ -16021,7 +16068,7 @@ window.renderBirthdayWidget = () => {
                 <div style="font-weight:700">${_esc(s.name)} <span style="font-weight:400;color:var(--gray3);font-size:12px">(${s.age !== null ? s.age + ' yrs' : 'age unknown'})</span></div>
                 <div style="font-size:12px;color:var(--gray3)">${_esc(s.sport || '')} · Coach: ${_esc(s.coach || '-')} · 📱 ${_esc(s.phone || '-')}</div>
               </div>
-              <button class="btn btn-whatsapp btn-sm" onclick="sendBirthdayWish('${s.id}')">🎂 Send Birthday Wish</button>
+              <button class="btn btn-whatsapp btn-sm" onclick="sendBirthdayWish('${_esc(s.id)}')">🎂 Send Birthday Wish</button>
             </div>`).join('')}
         </div>`}
     </div>`;
