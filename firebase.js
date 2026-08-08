@@ -225,9 +225,15 @@ window.saveFeeToFirestore = async (receiptNo, feeData) => {
     }
 
     await firestoreDb.collection('fees').doc(receiptNo).set(docData, { merge: true });
-    
+
     console.log(`✓ Fee ${receiptNo} saved to Firestore`);
-    return { ok: true, receiptNo: receiptNo, message: 'Fee saved successfully' };
+    // BUG FIX — updatedAt is now included in the return value (previously
+    // generated here but never handed back to the caller), so a caller
+    // that just wrote this record can stamp its own local copy with the
+    // exact same timestamp Firestore now has, instead of only finding out
+    // via the next realtime listener snapshot. Purely additive — every
+    // existing caller that only read .ok/.receiptNo/.message is unaffected.
+    return { ok: true, receiptNo: receiptNo, updatedAt: timestamp, message: 'Fee saved successfully' };
   } catch (error) {
     console.error('✗ Failed to save fee to Firestore:', error);
     return { ok: false, error: error.message };
@@ -371,7 +377,12 @@ window.syncFeeFirebase = async (data) => {
     if (!receiptNo) return { success: false, error: 'Missing receiptNo' };
     const result = await window.saveFeeToFirestore(receiptNo, data);
     if (!result || !result.ok) return { success: false, error: (result && result.error) || 'Unknown Firestore error' };
-    return { success: true };
+    // BUG FIX — pass the timestamp saveFeeToFirestore just used back to
+    // the caller, so it can stamp its own local record's _fbUpdatedAt
+    // immediately instead of waiting for the realtime listener's own
+    // echo to arrive (which, if a logout happens first, might not have
+    // landed and been persisted to localStorage yet).
+    return { success: true, updatedAt: result.updatedAt };
   } catch (err) {
     console.error('✗ [SYNC] syncFeeFirebase failed:', data && data.receiptNo, err);
     return { success: false, error: err.message || String(err) };

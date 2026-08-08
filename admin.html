@@ -330,6 +330,16 @@ tr:hover td{background:#f8fffe}
    alongside the logo, so it can't reintroduce the duplicate title. */
 .receipt-doc .rc-head .rc-biz-name-fallback{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;color:var(--dark);margin-bottom:10px}
 .receipt-doc .rc-title{text-align:center;font-size:13px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--green-dark);margin:14px 0}
+/* BUG FIX — "excessive empty space below the logo" on the Fee Receipt.
+   Scoped to #receipt-doc-container specifically (not the shared
+   .receipt-doc class, which #cafe-bill-container also uses — Café Bill's
+   own spacing must stay exactly as it is) so only the Fee Receipt's
+   header-to-content gap tightens, from a collapsed ~36px down to ~20px.
+   Logo size itself is untouched — this only reduces the margins around
+   it, per "keep the logo properly sized," not smaller. */
+#receipt-doc-container .rc-head{margin-bottom:10px}
+#receipt-doc-container .rc-head img{margin:0 auto 8px}
+#receipt-doc-container .rc-title{margin:10px 0}
 .receipt-doc .rc-meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:14px;color:var(--gray3)}
 .receipt-doc .rc-meta b{color:var(--text);font-family:monospace}
 .receipt-doc .rc-section-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--gray3);margin:14px 0 6px}
@@ -9316,6 +9326,13 @@ function _addLocallyDeletedFeeId(receiptNo) {
 // existing one (another device edited it), and skips anything this device
 // has locally deleted (see _getLocallyDeletedFeeIds above).
 let _feeSyncInFlight = false;
+// BUG FIX — receiptNos with their own Sheets write currently in flight
+// (see _saveFeeImpl), mirrors _coachesSheetSyncInFlight/
+// _studentsSheetSyncInFlight/_enquiriesSheetSyncInFlight: guards
+// syncFeesFromSheet (focus-triggered, or login) from adopting a stale
+// pre-edit Sheet row while this device's own background write for the
+// same receiptNo is still in flight.
+const _feesSheetSyncInFlight = new Set();
 async function syncFeesFromSheet() {
   if (!window.DDTZ_SHEET_URL || _feeSyncInFlight) return;
   _feeSyncInFlight = true;
@@ -9335,6 +9352,11 @@ async function syncFeesFromSheet() {
     const remoteFees = (data.fees || []).filter(f => f.receiptNo && !deletedIds.has(f.receiptNo) && f.status !== 'deleted');
 
     remoteFees.forEach(remote => {
+      // BUG FIX — this exact receipt's own edit is still being written to
+      // Sheets in the background right now; this fetch may still reflect
+      // the pre-edit row, so skip it rather than reverting the just-made
+      // edit.
+      if (_feesSheetSyncInFlight.has(remote.receiptNo)) return;
       const local = window.DB.fees.find(f => f.receiptNo === remote.receiptNo);
       if (!local) {
         _lsAddPreservingId('fees', { ...remote, id: remote.receiptNo });
@@ -11952,7 +11974,17 @@ async function _saveFeeImpl(sendWA=false) {
   // later if this was the row that had been highlighted.
   window.clearRowHighlight('fee-row-', data.id);
 
+  // BUG FIX — "updated payment reverts to Due after logout/login": guard
+  // this specific receiptNo while its own Sheets write is in flight, same
+  // in-flight-protection pattern already used for Coaches/Students/
+  // Enquiries/Attendance, so a syncFeesFromSheet() triggered concurrently
+  // (e.g. a focus event firing mid-save) can't adopt a stale pre-edit
+  // Sheet row. Only meaningful for an EDIT — a brand-new payment has no
+  // receiptNo yet to guard until the line below assigns one.
+  const editReceiptNo = existId ? data.receiptNo : '';
+  if (editReceiptNo) _feesSheetSyncInFlight.add(editReceiptNo);
   const syncRes = await autoSyncFee(data);
+  if (editReceiptNo) _feesSheetSyncInFlight.delete(editReceiptNo);
   // A brand-new payment gets its real ReceiptNo back from the server (see
   // handleFeeWrite in Code.gs) — reconcile the locally-optimistic blank
   // one the instant it's known, same idea as the provisional-booking-ID
@@ -11978,10 +12010,24 @@ async function _saveFeeImpl(sendWA=false) {
     if (fbFeeResult && !fbFeeResult.success) {
       console.warn('Fee Firebase sync failed (Sheets sync still proceeding):', fbFeeResult.error);
     }
+    // BUG FIX — stamp _fbUpdatedAt immediately from Firestore's own fresh
+    // timestamp (now returned by syncFeeFirebase) instead of waiting for
+    // the realtime listener's own echo. Without this, a logout right
+    // after this save could leave localStorage's copy of _fbUpdatedAt
+    // stale/missing, and on the very next login a fresh listener
+    // subscription's merge logic (which trusts _fbUpdatedAt as its "did
+    // this actually change" signal) has a less reliable baseline to
+    // compare against.
+    if (fbFeeResult && fbFeeResult.success && fbFeeResult.updatedAt) {
+      data._fbUpdatedAt = fbFeeResult.updatedAt;
+      LS.update('fees', data.id, { _fbUpdatedAt: data._fbUpdatedAt });
+      const idx = window.DB.fees.findIndex(x=>x.id===data.id);
+      if (idx>=0) window.DB.fees[idx]._fbUpdatedAt = data._fbUpdatedAt;
+    }
   }
   if (syncRes && syncRes.ok) {
     showToast(`Payment saved! Receipt: ${data.receiptNo||'(assigned)'} ✅`);
-    _announceFeeEvent(data.id, existingId ? 'updated' : 'added', 'Fee payment received.');
+    _announceFeeEvent(data.id, existId ? 'updated' : 'added', 'Fee payment received.');
   } else if (syncRes && syncRes.queued) showToast('Payment saved locally — receipt number will be assigned once back online 📴');
   else showToast('Payment saved locally. Sync will retry automatically.', 'error');
 
@@ -12315,16 +12361,18 @@ function _receiptPrintCss() {
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:Arial,Helvetica,sans-serif;padding:16mm;background:#fff}
     .receipt-doc{width:100%;max-width:420px;margin:0 auto;border:1px solid #e2e8f0;border-radius:6px;padding:20px;color:#1e293b}
-    .rc-head{text-align:center;margin-bottom:18px;border-bottom:2px solid #0B0C0E}
-    /* Matches the on-screen .receipt-doc rules — this stylesheet drives
-       Print, Download PDF, WhatsApp PDF and Email PDF alike (they all
-       render this same document). Logo enlarged ~45% (170px -> 245px).
-       .rc-contact's own margin-bottom is the spacing before the divider
-       border, same single-source reasoning as the on-screen rules. */
-    .rc-head img{width:245px;max-width:80%;height:auto;margin:0 auto 12px;display:block}
+    .rc-head{text-align:center;margin-bottom:10px;border-bottom:2px solid #0B0C0E}
+    /* BUG FIX — "excessive empty space below the logo": margin-bottom and
+       the logo's own bottom margin tightened (18px/12px -> 10px/8px),
+       same fix as the on-screen #receipt-doc-container rules — this
+       function is Fee-Receipt-only (Café Bill has its own
+       _cafeBillPrintCss), so no scoping needed here. Logo SIZE is
+       untouched. .rc-contact's own margin-bottom is the spacing before
+       the divider border, same single-source reasoning as before. */
+    .rc-head img{width:245px;max-width:80%;height:auto;margin:0 auto 8px;display:block}
     .rc-head .rc-contact{font-size:12px;font-weight:500;color:#666;line-height:1.4;text-align:center;margin-top:8px;margin-bottom:16px}
     .rc-head .rc-biz-name-fallback{font-size:24px;font-weight:800;color:#0B0C0E;margin-bottom:10px}
-    .rc-title{text-align:center;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#0A3327;margin:12px 0}
+    .rc-title{text-align:center;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#0A3327;margin:10px 0}
     .rc-meta{display:flex;justify-content:space-between;font-size:11px;margin-bottom:12px;color:#94a3b8}
     .rc-meta b{color:#1e293b;font-family:monospace}
     .rc-section-label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin:12px 0 5px}
@@ -12656,18 +12704,61 @@ function _dueQuarterOf(monthIdx) {
 }
 
 // The "current" billing period + its Due Date for a student's Fee Plan, as
-// of `today`. Monthly = this calendar month. Quarterly = this calendar
-// quarter (Q1 Jan-Mar … Q4 Oct-Dec — the same Q1-Q4 the Fee Collection form
-// already uses). Yearly = anchored to the student's Joining month every
-// year (falls back to January if no Joining Date is on file) so an annual
-// student's due date recurs on the same month each year rather than
-// always defaulting to January. Due Day is clamped to 1-28 so it never
-// rolls into the following month (e.g. "31" in February).
+// of `today`. Monthly = this calendar month. Yearly = anchored to the
+// student's Joining month every year (falls back to January if no Joining
+// Date is on file) so an annual student's due date recurs on the same
+// month each year rather than always defaulting to January. Due Day is
+// clamped to 1-28 so it never rolls into the following month (e.g. "31"
+// in February).
+//
+// QUARTERLY FEE DUE-DATE FIX — quarterly used to mean "whichever fixed
+// Jan-Mar/Apr-Jun/Jul-Sep/Oct-Dec calendar quarter today falls in,"
+// completely independent of when the student actually paid — so a
+// payment made partway through a quarter only covered whatever was left
+// of that fixed quarter, not a full 3 months from the payment itself
+// (e.g. a May 5 payment only covered May-June under the old rule, with
+// the student already showing Due again on July 1, instead of covering
+// May-July as it should). Coverage is now anchored to the student's most
+// recent quarterly PAYMENT DATE instead: Quarter Start = that payment
+// date, Quarter End = the last calendar day of the second month after
+// the payment month, Next Due Date = the 1st of the following month
+// (`new Date(y, m, 0)` naturally lands on the correct last day for any
+// month, including a 28/29-day February, with no manual leap-year
+// handling needed — JS's Date constructor already normalizes real
+// calendar math, including year rollover for a December payment). This
+// only changes which period is treated as "current" for a quarterly
+// student — the existing quarter/year LABEL already stored on that fee
+// record is reused as-is, so _dueMatchingFees below (unchanged) still
+// finds it exactly like before; no fee record, ID, or stored field is
+// touched. Only fully-paid coverage is extended this way — a still-
+// partial quarterly payment keeps falling through to the same
+// fixed-quarter fallback every other student without a matching payment
+// already used, so an outstanding balance keeps showing as due now
+// instead of silently looking "upcoming" for 3 months.
 function _dueCurrentPeriod(s, today) {
   const structure = s.feeStructure || 'monthly';
   const dueDay = Math.min(Math.max(Number(s.dueDay) || 1, 1), 28);
   const year = today.getFullYear();
   if (structure === 'quarterly') {
+    const sid = s.studentId || s.id;
+    const lastQuarterlyPayment = (window.DB.fees || [])
+      .filter(f => f.studentId === sid && f.feeType === 'quarterly' && (f.receiptDate || f.date))
+      .sort((a, b) => new Date(b.receiptDate || b.date) - new Date(a.receiptDate || a.date))[0];
+    if (lastQuarterlyPayment) {
+      const paidOn = new Date((lastQuarterlyPayment.receiptDate || lastQuarterlyPayment.date) + 'T00:00:00');
+      const coverageEnd = new Date(paidOn.getFullYear(), paidOn.getMonth() + 3, 0); // last day of the 2nd month after the payment month
+      const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const receivedForThatPeriod = (window.DB.fees || [])
+        .filter(f => f.studentId === sid && f.feeType === 'quarterly' && f.quarter === lastQuarterlyPayment.quarter && String(f.year) === String(lastQuarterlyPayment.year))
+        .reduce((sum, f) => sum + (Number(f.amountReceived ?? f.paid) || 0), 0);
+      if (todayDateOnly <= coverageEnd && receivedForThatPeriod >= _dueAmountForStudent(s)) {
+        const nextDue = new Date(coverageEnd.getFullYear(), coverageEnd.getMonth() + 1, 1);
+        return { feeType: 'quarterly', month: '', quarter: lastQuarterlyPayment.quarter, year: String(lastQuarterlyPayment.year), dueDate: nextDue };
+      }
+    }
+    // No quarterly payment on file yet, or the last one's coverage has
+    // ended — same fixed-calendar-quarter fallback as before, for a
+    // fresh/unpaid period with no payment date to anchor coverage to yet.
     const quarter = _dueQuarterOf(today.getMonth());
     return { feeType: 'quarterly', month: '', quarter, year: String(year), dueDate: new Date(year, DUE_QUARTER_START_MONTH[quarter], dueDay) };
   }
@@ -14524,8 +14615,23 @@ window.saveFinanceExpense = async () => {
     logAudit({ type: 'finance_expense', action: 'added', recordId: newId, summary: `Expense Added — ${record.expenseType} ₹${amount}` });
   }
 
-  window.syncFinanceExpenseFirebase?.(record);
-  _finSyncExpenseToSheets(record, id ? 'update' : 'create');
+  // FINANCE SYNC FIX — Firebase-first, same pattern as Students/Coaches/
+  // Café/Fees: await the Firebase write (window.DB/UI already updated
+  // above) so it's the fast, live source another device's listener picks
+  // up from immediately, THEN fire the existing Sheets sync in the
+  // background — guarded by _financeExpensesSheetSyncInFlight so a
+  // Sheets pull racing this exact save can't adopt a stale pre-edit row.
+  const fbFinResult = await window.syncFinanceExpenseFirebase?.(record);
+  if (fbFinResult && !fbFinResult.success) {
+    console.warn('Finance expense Firebase sync failed (Sheets sync still proceeding):', fbFinResult.error);
+  }
+  _financeExpensesSheetSyncInFlight.add(record.id);
+  const finSheetsSyncPromise = _finSyncExpenseToSheets(record, id ? 'update' : 'create');
+  if (finSheetsSyncPromise && typeof finSheetsSyncPromise.finally === 'function') {
+    finSheetsSyncPromise.finally(() => _financeExpensesSheetSyncInFlight.delete(record.id));
+  } else {
+    _financeExpensesSheetSyncInFlight.delete(record.id);
+  }
 
   closeModal('finance-expense-modal');
   renderFinance();
@@ -14542,9 +14648,14 @@ window.deleteFinanceExpense = (id) => {
   LS.delete('financeExpenses', id);
   window.DB.financeExpenses = window.DB.financeExpenses.filter(x => x.id !== id);
   logAudit({ type: 'finance_expense', action: 'deleted', recordId: id, summary: `Expense Deleted — ${e.expenseType} ₹${e.amount}` });
-  // FINANCE SYNC FIX — guard against a lagging Firebase snapshot
-  // resurrecting this expense via the realtime listener's "new record"
-  // branch while the delete below is still in flight.
+  // FINANCE SYNC FIX — persistent marker (survives logout/login, unlike
+  // the in-memory Set below) so a later login's Sheets pull can't
+  // resurrect this expense even if the Sheet's own row for it was never
+  // removed/marked server-side.
+  _addLocallyDeletedFinanceExpenseId(id);
+  // Guard against a lagging Firebase snapshot resurrecting this expense
+  // via the realtime listener's "new record" branch while the delete
+  // below is still in flight (this session only).
   _financeExpensesPendingLocalDelete.add(id);
   window.deleteFinanceExpenseFirebase?.(id).then(r => {
     if (r && !r.success) console.warn('Finance expense Firebase delete failed (Sheets delete still proceeding):', r.error);
@@ -14625,8 +14736,20 @@ window.markFinanceExpensePaid = async (id) => {
   window.DB.financeExpenses.unshift(record);
 
   logAudit({ type: 'finance_expense', action: 'paid', recordId: newId, summary: `Expense Paid — ${e.expenseType} ₹${e.amount}` });
-  window.syncFinanceExpenseFirebase?.(record);
-  _finSyncExpenseToSheets(record, 'create');
+  // FINANCE SYNC FIX — same Firebase-first + guarded-background-Sheets
+  // pattern as saveFinanceExpense, since this also creates a new expense
+  // record (the next cycle's entry).
+  const fbPaidResult = await window.syncFinanceExpenseFirebase?.(record);
+  if (fbPaidResult && !fbPaidResult.success) {
+    console.warn('Finance expense Firebase sync failed (Sheets sync still proceeding):', fbPaidResult.error);
+  }
+  _financeExpensesSheetSyncInFlight.add(record.id);
+  const paidSheetsSyncPromise = _finSyncExpenseToSheets(record, 'create');
+  if (paidSheetsSyncPromise && typeof paidSheetsSyncPromise.finally === 'function') {
+    paidSheetsSyncPromise.finally(() => _financeExpensesSheetSyncInFlight.delete(record.id));
+  } else {
+    _financeExpensesSheetSyncInFlight.delete(record.id);
+  }
 
   renderFinance();
   showToast(`✅ Marked as paid — next due ${formatDate(newNextDue)}`);
@@ -14897,6 +15020,28 @@ window.stopFinanceFirebaseListener = () => {
   }
 };
 
+// ---- Local "don't resurrect a locally-deleted expense" exclusion list ----
+// Same pattern as Fees' _getLocallyDeletedFeeIds — persisted in
+// localStorage (not just the in-memory _financeExpensesPendingLocalDelete
+// Set, which only covers the narrow window while THIS session's own
+// delete call is still in flight) so a fresh login's Sheets pull can't
+// resurrect an expense deleted in an earlier session, even if the
+// Sheet's own row for it wasn't removed/marked server-side.
+function _getLocallyDeletedFinanceExpenseIds() {
+  try { return JSON.parse(localStorage.getItem('ddtz_finance_expenses_locally_deleted') || '[]'); } catch(e) { return []; }
+}
+function _addLocallyDeletedFinanceExpenseId(id) {
+  try {
+    const ids = _getLocallyDeletedFinanceExpenseIds();
+    if (!ids.includes(id)) { ids.push(id); localStorage.setItem('ddtz_finance_expenses_locally_deleted', JSON.stringify(ids)); }
+  } catch(e) {}
+}
+// FINANCE SYNC FIX — ids with a Sheets sync currently in flight (save),
+// mirrors _feesSheetSyncInFlight/_coachesSheetSyncInFlight: guards
+// syncFinanceExpensesFromSheet from adopting a stale pre-edit Sheet row
+// while this device's own background write is still in flight.
+const _financeExpensesSheetSyncInFlight = new Set();
+
 // ----- Initial load from Google Sheets (Super Admin only — the ONLY
 // place financeExpenses is ever fetched from the network; called once
 // from loadAllData(), already gated by _finCanAccess() there). Mirrors
@@ -14913,18 +15058,29 @@ async function syncFinanceExpensesFromSheet() {
     if (!data || !data.ok) return;
 
     let changed = false;
+    const deletedIds = new Set(_getLocallyDeletedFinanceExpenseIds());
+    // FINANCE SYNC FIX — Firebase is now this module's live/primary
+    // store (via listenFinanceExpenses), with its own reliable
+    // same-clock-source updatedAt comparison. This Sheets pull runs only
+    // once, on login — its job is now limited to backfilling a record
+    // Firebase might genuinely be missing (e.g. it was saved while
+    // Firebase was unreachable), NOT to "correct" a record Firebase
+    // already has. The old "adopt if different" branch here compared a
+    // Sheets timestamp against a client-clock local timestamp — two
+    // independent clocks that are almost never exactly equal even when
+    // nothing actually changed — so it would routinely treat an
+    // up-to-date local/Firebase record as "different" and silently
+    // overwrite it with whatever Sheets happened to have at that moment,
+    // including a stale pre-edit row if Sheets hadn't caught up yet.
+    // Removed rather than "fixed", since Firebase already owns this job
+    // correctly.
     (data.expenses || []).forEach(remote => {
-      if (!remote.id) return;
+      if (!remote.id || deletedIds.has(remote.id) || _financeExpensesSheetSyncInFlight.has(remote.id)) return;
       const local = window.DB.financeExpenses.find(r => r.id === remote.id);
       if (!local) {
         const rec = { ...remote, isRecurring: remote.isRecurring === 'yes' || remote.isRecurring === true };
         _lsAddPreservingId('financeExpenses', rec);
         window.DB.financeExpenses.unshift(rec);
-        changed = true;
-      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
-        const merged = { ...local, ...remote, id: local.id, isRecurring: remote.isRecurring === 'yes' || remote.isRecurring === true };
-        LS.update('financeExpenses', local.id, merged);
-        Object.assign(local, merged);
         changed = true;
       }
     });
