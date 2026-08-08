@@ -339,6 +339,70 @@ window.generateNextReceiptNumber = () => {
 };
 
 // ============================================================================
+// FEES — BRIDGE FUNCTIONS (new)
+// ----------------------------------------------------------------------------
+// admin.html's Fee Collection flow (_saveFeeImpl, deleteFee) and its
+// realtime listener (initFeesFirebaseListener) were already fully built
+// to call window.syncFeeFirebase / window.deleteFeeFirebase /
+// window.listenFees (via optional chaining, so it degraded gracefully
+// while these were missing) — but this file only ever defined the lower-
+// level Firestore primitives above (saveFeeToFirestore/
+// updateFeeInFirestore/deleteFeeFromFirestore/listenToFeesRealtime) under
+// different names, so the two sides never actually connected and Fees
+// had no working Firebase sync at all.
+//
+// These three functions are pure bridges to the EXISTING Firestore
+// primitives above — nothing here talks to Firestore directly, and none
+// of the primitives above are modified, renamed, or replaced. This keeps
+// "Fees = Firestore, primary; Sheets = backup" (this file's own opening
+// comment) exactly as originally designed, just actually wired up.
+// ============================================================================
+
+/**
+ * Create or update one fee (Firestore doc id = receiptNo). Bridges to the
+ * existing saveFeeToFirestore, which already safely handles both create
+ * and update via set({merge:true}). Returns { success: true } or
+ * { success: false, error }, matching every other module's Firebase
+ * wrapper shape (syncStudentFirebase, syncCoachFirebase, etc.).
+ */
+window.syncFeeFirebase = async (data) => {
+  try {
+    const receiptNo = data && data.receiptNo;
+    if (!receiptNo) return { success: false, error: 'Missing receiptNo' };
+    const result = await window.saveFeeToFirestore(receiptNo, data);
+    if (!result || !result.ok) return { success: false, error: (result && result.error) || 'Unknown Firestore error' };
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncFeeFirebase failed:', data && data.receiptNo, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Delete one fee. Bridges to the existing deleteFeeFromFirestore (a soft
+ * delete — marks status:'deleted', which listenToFeesRealtime's own query
+ * already excludes). Returns { success: true } or { success: false, error }.
+ */
+window.deleteFeeFirebase = async (receiptNo) => {
+  try {
+    if (!receiptNo) return { success: false, error: 'Missing receiptNo' };
+    const result = await window.deleteFeeFromFirestore(receiptNo);
+    if (!result || !result.ok) return { success: false, error: (result && result.error) || 'Unknown Firestore error' };
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] deleteFeeFirebase failed:', receiptNo, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all active fees. Pure alias for the existing
+ * listenToFeesRealtime — same signature, same behavior, just under the
+ * name admin.html's initFeesFirebaseListener already calls.
+ */
+window.listenFees = (callback, onError) => window.listenToFeesRealtime(callback, onError);
+
+// ============================================================================
 // REAL-TIME DATABASE (for availability - existing code)
 // ============================================================================
 
@@ -383,6 +447,605 @@ window.listenLiveAvailability = (callback, onError) => {
   };
   const errorHandler = (error) => {
     console.error('✗ [SYNC] Live availability listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// CAFÉ — REAL-TIME DATABASE (new — Café Items + Café Sales)
+// ----------------------------------------------------------------------------
+// Self-contained addition. Does not modify, remove, or rename anything else
+// in this file. Mirrors the existing publishAvailabilityRecord/
+// listenLiveAvailability read/write pattern above (same realtimeDb ref/.on/
+// .set/.remove calls, same guard checks) and the existing Fees Firestore
+// functions' success/error return shape (syncCoachFirebase-style
+// { success, error } object), so admin.html's café functions can await
+// these exactly like it already awaits window.syncCoachFirebase.
+//
+// Paths used (both brand-new nodes — nothing existing lives under these
+// paths, confirmed against this file before this addition, so there is no
+// collision with any existing data):
+//   cafeItems/{id}   — one node per café menu item
+//   cafeSales/{id}   — one node per café sale line (one per cart line saved)
+//
+// There is intentionally no deleteCafeSaleFirebase — Café Sales are
+// append-only everywhere else in this app (no deleteCafeSale function
+// exists in admin.html either), so none was added here.
+// ============================================================================
+
+/**
+ * Create or update one café menu item.
+ * Returns { success: true } or { success: false, error }.
+ */
+window.saveCafeItemFirebase = async (id, data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const ref = realtimeDb.ref(`cafeItems/${id}`);
+    await ref.set({ ...data, id, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] saveCafeItemFirebase failed:', id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Delete one café menu item.
+ * Returns { success: true } or { success: false, error }.
+ */
+window.deleteCafeItemFirebase = async (id) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    await realtimeDb.ref(`cafeItems/${id}`).remove();
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] deleteCafeItemFirebase failed:', id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for the full café menu. callback receives an array
+ * of item records (each with .id). Returns an unsubscribe function, or
+ * null if Firebase isn't initialized yet (onError is called in that case).
+ */
+window.listenCafeItems = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('cafeItems');
+  const handler = (snapshot) => {
+    const items = [];
+    snapshot.forEach((child) => { items.push({ id: child.key, ...child.val() }); });
+    callback(items);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Café items listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+/**
+ * Create one café sale line (one call per cart line — matches the
+ * existing "every cart line is its own Cafe Log Sale row" model already
+ * used for the Google Sheets/local copy).
+ * Returns { success: true } or { success: false, error }.
+ */
+window.saveCafeSaleFirebase = async (id, data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const ref = realtimeDb.ref(`cafeSales/${id}`);
+    await ref.set({ ...data, id, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] saveCafeSaleFirebase failed:', id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all café sales. callback receives an array of
+ * sale records (each with .id). Returns an unsubscribe function, or null
+ * if Firebase isn't initialized yet (onError is called in that case).
+ */
+window.listenCafeSales = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('cafeSales');
+  const handler = (snapshot) => {
+    const sales = [];
+    snapshot.forEach((child) => { sales.push({ id: child.key, ...child.val() }); });
+    callback(sales);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Café sales listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// COACHES — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// admin.html already calls window.syncCoachFirebase / window.listenCoaches /
+// window.deleteCoachFirebase (via optional chaining, so it degraded
+// gracefully while these were missing — see this file's own gap note in
+// the FACTORY RESET comment below). This defines them for real, following
+// the exact same pattern as the Café addition directly above: mirrors
+// publishAvailabilityRecord/listenLiveAvailability's realtimeDb.ref/.on/
+// .set/.remove calls, same guard checks, same { success, error } shape.
+//
+// Path used: coaches/{coachId} — keyed by the coach's own coachId field,
+// already this app's identifier for a coach everywhere else (Coach
+// Settlement, Student assignment, etc.), so no new ID scheme is introduced.
+// ============================================================================
+
+/**
+ * Create or update one coach. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.syncCoachFirebase = async (data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const coachId = data && data.coachId;
+    if (!coachId) return { success: false, error: 'Missing coachId' };
+    const ref = realtimeDb.ref(`coaches/${coachId}`);
+    await ref.set({ ...data, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncCoachFirebase failed:', data && data.coachId, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Delete one coach. Returns { success: true } or { success: false, error }.
+ */
+window.deleteCoachFirebase = async (coachId) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    await realtimeDb.ref(`coaches/${coachId}`).remove();
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] deleteCoachFirebase failed:', coachId, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all coaches. callback receives an array of coach
+ * records (each with .coachId). Returns an unsubscribe function, or null
+ * if Firebase isn't initialized yet (onError is called in that case).
+ */
+window.listenCoaches = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('coaches');
+  const handler = (snapshot) => {
+    const coaches = [];
+    snapshot.forEach((child) => { coaches.push({ coachId: child.key, ...child.val() }); });
+    callback(coaches);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Coaches listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// ATTENDANCE — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// Same pattern as the Café and Coaches additions above. An attendance mark
+// has no id of its own that's stable across devices — its true identity is
+// studentId+date (see saveOneAttendance/syncAttendanceFromSheet in
+// admin.html, which already upsert/merge on that composite key, never on
+// a record's local id) — so unlike Café/Coaches, this is keyed by a
+// deterministic "studentId_date" path rather than a generated id. That
+// makes a concurrent mark for the same student+date from two devices a
+// plain last-write-wins overwrite at the same path, with no possibility
+// of a duplicate record.
+//
+// There is no deleteAttendanceFirebase — the existing Attendance system
+// has no delete function at all (Present/Absent is always an update of
+// the same studentId+date row), so none was added here.
+// ============================================================================
+
+function _attendanceFirebaseKey(studentId, date) {
+  // Firebase RTDB keys can't contain '.', '#', '$', '[', ']', '/'.
+  return `${studentId}_${date}`.replace(/[.#$\[\]/]/g, '-');
+}
+
+/**
+ * Create or update one attendance mark (studentId+date is the identity).
+ * Returns { success: true } or { success: false, error }.
+ */
+window.syncAttendanceFirebase = async (rec) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    if (!rec || !rec.studentId || !rec.date) return { success: false, error: 'Missing studentId/date' };
+    const key = _attendanceFirebaseKey(rec.studentId, rec.date);
+    const ref = realtimeDb.ref(`attendance/${key}`);
+    await ref.set({
+      id: rec.id || '',
+      studentId: rec.studentId,
+      studentName: rec.studentName || '',
+      sport: rec.sport || '',
+      coach: rec.coach || '',
+      date: rec.date,
+      // Matches the format already used for Sheets-sourced attendance rows
+      // (see admin.html's autoSyncAttendance/syncAttendanceFromSheet) so a
+      // record arriving here reads the same way as one merged from Sheets.
+      status: rec.status === 'P' ? 'Present' : (rec.status === 'A' ? 'Absent' : rec.status),
+      updatedAt: firebase.database.ServerValue.TIMESTAMP
+    });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncAttendanceFirebase failed:', rec && rec.studentId, rec && rec.date, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all attendance marks. callback receives an array
+ * of records (each with .studentId/.date). Returns an unsubscribe
+ * function, or null if Firebase isn't initialized yet (onError is called
+ * in that case).
+ */
+window.listenAttendance = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('attendance');
+  const handler = (snapshot) => {
+    const records = [];
+    snapshot.forEach((child) => { records.push(child.val()); });
+    callback(records);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Attendance listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// ENQUIRIES — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// Same pattern as the Café/Coaches/Attendance additions above. Keyed by
+// the enquiry's own id (the same identity syncEnquiriesFromSheet already
+// merges on), since — unlike Attendance — an enquiry's local id already
+// is its stable identity everywhere else in the app.
+// ============================================================================
+
+/**
+ * Create or update one enquiry. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.syncEnquiryFirebase = async (data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const id = data && data.id;
+    if (!id) return { success: false, error: 'Missing id' };
+    const ref = realtimeDb.ref(`enquiries/${id}`);
+    await ref.set({ ...data, id, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncEnquiryFirebase failed:', data && data.id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Delete one enquiry. Returns { success: true } or { success: false, error }.
+ */
+window.deleteEnquiryFirebase = async (id) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    await realtimeDb.ref(`enquiries/${id}`).remove();
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] deleteEnquiryFirebase failed:', id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all enquiries. callback receives an array of
+ * enquiry records (each with .id). Returns an unsubscribe function, or
+ * null if Firebase isn't initialized yet (onError is called in that case).
+ */
+window.listenEnquiries = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('enquiries');
+  const handler = (snapshot) => {
+    const enquiries = [];
+    snapshot.forEach((child) => { enquiries.push({ id: child.key, ...child.val() }); });
+    callback(enquiries);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Enquiries listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// STUDENTS — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// admin.html already calls window.syncStudentFirebase / window.listenStudents
+// / window.deleteStudentFirebase (via optional chaining, so it degraded
+// gracefully while these were missing — see this file's own gap note in
+// the FACTORY RESET comment below) from a fully-built Students realtime
+// listener (initStudentsFirebaseListener), saveStudent, archiveStudent/
+// restoreStudent, and bulkDeleteStudents. This defines them for real,
+// following the exact same pattern as the Café/Coaches/Enquiries
+// additions above.
+//
+// Path used: students/{studentId} — keyed by the student's own studentId
+// field, already this app's identifier for a student everywhere else
+// (Attendance, Fees, Birthday, Coach assignment), so no new ID scheme is
+// introduced and no existing relationship is affected.
+// ============================================================================
+
+/**
+ * Create or update one student. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.syncStudentFirebase = async (data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const studentId = data && data.studentId;
+    if (!studentId) return { success: false, error: 'Missing studentId' };
+    const ref = realtimeDb.ref(`students/${studentId}`);
+    await ref.set({ ...data, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncStudentFirebase failed:', data && data.studentId, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Permanently delete one student. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.deleteStudentFirebase = async (studentId) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    await realtimeDb.ref(`students/${studentId}`).remove();
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] deleteStudentFirebase failed:', studentId, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all students. callback receives an array of
+ * student records (each with .studentId). Returns an unsubscribe
+ * function, or null if Firebase isn't initialized yet (onError is called
+ * in that case).
+ */
+window.listenStudents = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('students');
+  const handler = (snapshot) => {
+    const students = [];
+    snapshot.forEach((child) => { students.push({ studentId: child.key, ...child.val() }); });
+    callback(students);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Students listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// DUE ADJUSTMENTS — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// admin.html's saveDueAdjustment and its realtime listener
+// (initDueAdjustmentsFirebaseListener) were already fully built to call
+// window.syncDueAdjustmentFirebase / window.listenDueAdjustments (via
+// optional chaining, so it degraded gracefully while these were missing —
+// see this file's own gap note in the FACTORY RESET comment below). This
+// defines them for real, following the exact same pattern as the Café/
+// Coaches/Students/Enquiries additions above.
+//
+// Due Adjustments are append-only everywhere else in this app (a manual
+// correction entry is created and never edited or deleted — confirmed:
+// no deleteDueAdjustment function exists anywhere in admin.html), and the
+// existing listener already reflects that (ADD-only, no update/remove
+// branches) — so there is no deleteDueAdjustmentFirebase here, matching
+// that same design; adding one would be inventing a feature that doesn't
+// exist.
+//
+// Path used: dueAdjustments/{id} — keyed by the adjustment's own existing
+// id (already generated in saveDueAdjustment as 'ADJ'+timestamp — no new
+// ID scheme is introduced here).
+// ============================================================================
+
+/**
+ * Create one due adjustment (append-only — never updated or deleted).
+ * Returns { success: true } or { success: false, error }.
+ */
+window.syncDueAdjustmentFirebase = async (record) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const id = record && record.id;
+    if (!id) return { success: false, error: 'Missing id' };
+    const ref = realtimeDb.ref(`dueAdjustments/${id}`);
+    await ref.set({ ...record, id, _fbUpdatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncDueAdjustmentFirebase failed:', record && record.id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all due adjustments. callback receives an array
+ * of records (each with .id). Returns an unsubscribe function, or null if
+ * Firebase isn't initialized yet (onError is called in that case).
+ */
+window.listenDueAdjustments = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('dueAdjustments');
+  const handler = (snapshot) => {
+    const adjustments = [];
+    snapshot.forEach((child) => { adjustments.push({ id: child.key, ...child.val() }); });
+    callback(adjustments);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Due Adjustments listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// BOOKING REQUESTS — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// admin.html's confirmBookingRequest / rejectBookingRequest /
+// autoRejectConflictingRequests and the realtime listener
+// (initBookingRequestsFirebaseListener) were already fully built to call
+// window.syncBookingRequestFirebase / window.listenBookingRequests (via
+// optional chaining, so it degraded gracefully while these were missing —
+// see this file's own gap note in the FACTORY RESET comment below). This
+// defines them for real, following the exact same pattern as the Café/
+// Coaches/Students/Enquiries/Due Adjustments additions above.
+//
+// This is STRICTLY the realtime-notification layer, additive to the
+// existing Sheets sync (syncBookingRequestUpdate) which remains the
+// actual write-of-record — admin.html already calls this fire-and-forget,
+// after the Sheets call, never blocking on it (see the "STAGE 1 —
+// realtime transport only" comments at each call site). Nothing about
+// that ordering or the underlying booking/conflict logic is touched here.
+//
+// There is no deleteBookingRequestFirebase — a booking request is never
+// deleted, only status-transitioned PENDING -> CONFIRMED/REJECTED
+// (confirmed: no delete function exists anywhere in admin.html for this
+// module, and the existing listener already reflects that — add+update
+// only, no removal branch) — so none was added here.
+//
+// Path used: bookingRequests/{requestId} — keyed by the request's own
+// existing requestId field, already this app's identifier for a booking
+// request everywhere else. No new ID scheme is introduced.
+// ============================================================================
+
+/**
+ * Create or update one booking request. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.syncBookingRequestFirebase = async (data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const requestId = data && (data.requestId || data.id);
+    if (!requestId) return { success: false, error: 'Missing requestId' };
+    const ref = realtimeDb.ref(`bookingRequests/${requestId}`);
+    await ref.set({ ...data, requestId, _fbUpdatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncBookingRequestFirebase failed:', data && (data.requestId || data.id), err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all booking requests. callback receives an array
+ * of request records (each with .requestId). Returns an unsubscribe
+ * function, or null if Firebase isn't initialized yet (onError is called
+ * in that case).
+ */
+window.listenBookingRequests = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('bookingRequests');
+  const handler = (snapshot) => {
+    const requests = [];
+    snapshot.forEach((child) => { requests.push({ requestId: child.key, ...child.val() }); });
+    callback(requests);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Booking Requests listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// FINANCE EXPENSES — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// admin.html's saveFinanceExpense / deleteFinanceExpense /
+// markFinanceExpensePaid and its realtime listener
+// (initFinanceFirebaseListener, already Super-Admin-gated via
+// _finCanAccess() inside admin.html itself — nothing about that gate is
+// duplicated or changed here) were already fully built to call
+// window.syncFinanceExpenseFirebase / window.deleteFinanceExpenseFirebase
+// / window.listenFinanceExpenses (via optional chaining, so it degraded
+// gracefully while these were missing — see this file's own gap note in
+// the FACTORY RESET comment below). This defines them for real, following
+// the exact same pattern as the Café/Coaches/Students/Enquiries/Due
+// Adjustments/Booking Requests additions above.
+//
+// Path used: financeExpenses/{id} — keyed by the expense's own existing
+// local id (LS.add/LS.update's id), already this app's identifier for a
+// finance expense everywhere else. No new ID scheme is introduced.
+// ============================================================================
+
+/**
+ * Create or update one finance expense. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.syncFinanceExpenseFirebase = async (data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const id = data && data.id;
+    if (!id) return { success: false, error: 'Missing id' };
+    const ref = realtimeDb.ref(`financeExpenses/${id}`);
+    await ref.set({ ...data, id, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncFinanceExpenseFirebase failed:', data && data.id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Delete one finance expense. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.deleteFinanceExpenseFirebase = async (id) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    await realtimeDb.ref(`financeExpenses/${id}`).remove();
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] deleteFinanceExpenseFirebase failed:', id, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all finance expenses. callback receives an array
+ * of expense records (each with .id). Returns an unsubscribe function, or
+ * null if Firebase isn't initialized yet (onError is called in that case).
+ */
+window.listenFinanceExpenses = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('financeExpenses');
+  const handler = (snapshot) => {
+    const expenses = [];
+    snapshot.forEach((child) => { expenses.push({ id: child.key, ...child.val() }); });
+    callback(expenses);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Finance Expenses listener error:', error);
     onError?.(error);
   };
   ref.on('value', handler, errorHandler);

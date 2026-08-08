@@ -4066,6 +4066,19 @@ function _enterApp(user) {
         window.initStudentsFirebaseListener?.();
         window.initFeesFirebaseListener?.();
         window.initDueAdjustmentsFirebaseListener?.();
+        // CAFÉ FIREBASE INTEGRATION — Café Items/Sales are available to
+        // every role like Coaches (no role gate on the Café page itself),
+        // so no access-gate check is needed here either.
+        window.initCafeFirebaseListener?.();
+        // ATTENDANCE FIREBASE INTEGRATION — Attendance is available to
+        // every role like Coaches/Café (no role gate on the page itself),
+        // so no access-gate check is needed here either.
+        window.initAttendanceFirebaseListener?.();
+        // ENQUIRIES FIREBASE INTEGRATION — Enquiries is available to every
+        // role like Attendance/Coaches/Café (no role gate on the page
+        // itself, confirmed — saveEnquiry/deleteEnquiry have no can()
+        // check), so no access-gate check is needed here either.
+        window.initEnquiriesFirebaseListener?.();
         // Verify connection after initialization
         setTimeout(() => {
           window.verifyFirebaseConnection?.().then((verification) => {
@@ -4749,6 +4762,11 @@ async function syncCoachesFromSheet() {
 
     remoteCoaches.forEach(remote => {
       if (!remote.coachId) return;
+      // COACHING SYNC FIX — this coach's own edit is still being written
+      // to Sheets in the background (see _coachesSheetSyncInFlight in
+      // saveCoach); this fetch reflects the pre-edit row until that write
+      // lands, so skip it here rather than reverting the just-made edit.
+      if (_coachesSheetSyncInFlight.has(remote.coachId)) return;
       const local = window.DB.coaches.find(c => c.coachId === remote.coachId);
       if (!local) {
         // New coach this device has never seen — id doubles as coachId,
@@ -4805,6 +4823,17 @@ window.addEventListener('focus', () => { if (CURRENT_USER) syncCoachesFromSheet(
 let _coachesFirebaseUnsubscribe = null;
 let _coachesFirebaseSeeded = false;
 const _ddtzAnnouncedCoachEvents = new Set(); // "coachId:kind" already announced this session
+// COACHING SYNC FIX — coachIds with a Sheets sync currently in flight
+// (save), so a Sheets-based merge (syncCoachesFromSheet, focus-triggered)
+// can't adopt a stale pre-edit Sheet row and revert an edit whose
+// Firebase write already landed but whose background Sheets write
+// hasn't finished yet. Cleared as soon as that specific call settles.
+const _coachesSheetSyncInFlight = new Set();
+// coachIds deleted locally whose Firebase delete hasn't been confirmed
+// yet — guards the realtime listener from resurrecting them off a stale
+// snapshot (same pattern as the Café Items listener's
+// _cafeItemsPendingLocalDelete).
+const _coachesPendingLocalDelete = new Set();
 let _bookingRequestsFirebaseUnsubscribe = null;
 let _bookingRequestsFirebaseSeeded = false;
 const _ddtzAnnouncedBookingRequestEvents = new Set(); // "requestId:kind" already announced this session
@@ -4821,6 +4850,10 @@ window.initCoachesFirebaseListener = () => {
 
     remoteCoaches.forEach(remote => {
       if (!remote.coachId) return;
+      // COACHING SYNC FIX — a delete just fired for this coach and its
+      // Firebase removal hasn't been confirmed yet; don't let this
+      // possibly-stale snapshot resurrect it.
+      if (_coachesPendingLocalDelete.has(remote.coachId)) return;
       seenCoachIds.add(remote.coachId);
       const local = window.DB.coaches.find(c => c.coachId === remote.coachId);
       const isOwnAction = remote.updatedBy && CURRENT_USER && remote.updatedBy === (CURRENT_USER.email || CURRENT_USER.name);
@@ -4904,6 +4937,216 @@ function _announceCoachEvent(coachId, kind, { text, voice }) {
   window._ddtzDiag?.recordNotification('bell'); // TEMP DIAGNOSTICS
   window.playVoiceAnnouncement?.(voice, false);
 }
+
+// ============================================================================
+// CAFÉ — FIREBASE REALTIME LISTENER
+// ----------------------------------------------------------------------------
+// Same overall shape as the Coaches listener above (single guarded
+// subscription per node, matched by the record's own id, seeded silently
+// on the first snapshot, diffs from the second snapshot onward), scoped
+// down to what Café actually needs — no toast/bell/voice announcements,
+// since those were never part of the Café workflow and the approved scope
+// is "only change what's necessary".
+//
+// Two independent subscriptions:
+//   cafeItems — full add/update/remove reconciliation (items CAN be
+//     deleted via deleteCafeItem/deleteCafeItemFirebase).
+//   cafeSales — ADD-ONLY. Café Sales are append-only everywhere else in
+//     this app (no deleteCafeSale exists), so this never removes a local
+//     sale based on a remote snapshot — it only pulls in sales made on
+//     another device that this device doesn't have yet.
+// ============================================================================
+
+let _cafeItemsFirebaseUnsubscribe = null;
+let _cafeSalesFirebaseUnsubscribe = null;
+let _cafeItemsFirebaseSeeded = false;
+// Ids deleted locally whose Firebase delete hasn't been confirmed yet —
+// guards the listener against resurrecting an item from a stale snapshot
+// that arrives while the delete is still in flight.
+const _cafeItemsPendingLocalDelete = new Set();
+
+window.initCafeFirebaseListener = () => {
+  if (_cafeItemsFirebaseUnsubscribe && _cafeSalesFirebaseUnsubscribe) {
+    console.log('[FB-DEBUG] Listener already active (café) — not re-subscribing');
+    return;
+  }
+
+  if (typeof window.listenCafeItems === 'function' && !_cafeItemsFirebaseUnsubscribe) {
+    _cafeItemsFirebaseUnsubscribe = window.listenCafeItems((remoteItems) => {
+      const isFirstSnapshot = !_cafeItemsFirebaseSeeded;
+      let changed = false;
+      const seenIds = new Set();
+
+      remoteItems.forEach(remote => {
+        if (!remote.id || _cafeItemsPendingLocalDelete.has(remote.id)) return;
+        seenIds.add(remote.id);
+        const local = window.DB.cafeItems.find(i => i.id === remote.id);
+        if (!local) {
+          _lsAddPreservingId('cafeItems', remote);
+          window.DB.cafeItems.push(remote);
+          changed = true;
+        } else if (remote.updatedAt && remote.updatedAt !== local._fbUpdatedAt) {
+          const merged = { ...local, ...remote, _fbUpdatedAt: remote.updatedAt };
+          LS.update('cafeItems', local.id, merged);
+          Object.assign(local, merged);
+          changed = true;
+        }
+      });
+
+      if (!isFirstSnapshot) {
+        const before = window.DB.cafeItems.length;
+        window.DB.cafeItems = window.DB.cafeItems.filter(i => !i.id || seenIds.has(i.id) || _cafeItemsPendingLocalDelete.has(i.id));
+        if (window.DB.cafeItems.length !== before) { LS.set('cafeItems', window.DB.cafeItems); changed = true; }
+      }
+
+      _cafeItemsFirebaseSeeded = true;
+      if (changed && document.getElementById('page-cafe')?.classList.contains('active')) renderCafe();
+    }, (err) => console.error('✗ [SYNC] Café items listener error:', err));
+  }
+
+  if (typeof window.listenCafeSales === 'function' && !_cafeSalesFirebaseUnsubscribe) {
+    _cafeSalesFirebaseUnsubscribe = window.listenCafeSales((remoteSales) => {
+      let changed = false;
+      remoteSales.forEach(remote => {
+        if (!remote.id) return;
+        const local = window.DB.cafeSales.find(s => s.id === remote.id);
+        if (!local) {
+          _lsAddPreservingId('cafeSales', remote);
+          window.DB.cafeSales.push(remote);
+          changed = true;
+        }
+      });
+      if (changed && document.getElementById('page-cafe')?.classList.contains('active')) renderCafe();
+    }, (err) => console.error('✗ [SYNC] Café sales listener error:', err));
+  }
+
+  console.log('✓ Firebase realtime listener active for Café');
+};
+
+// ============================================================================
+// ATTENDANCE — FIREBASE REALTIME LISTENER
+// ----------------------------------------------------------------------------
+// Same overall shape as the Café Sales listener above: ADD/UPDATE only,
+// no toast/bell/voice announcements (never part of the Attendance
+// workflow, and out of scope here — "do not add new Attendance
+// features"). Matched by the record's true identity, studentId+date
+// (same identity saveOneAttendance/syncAttendanceFromSheet already use
+// for upsert/merge — an attendance mark is never keyed by its local id),
+// since a mark's local `id` can differ device-to-device for what is
+// logically the same student+date record.
+//
+// There is no removal reconciliation here on purpose: the existing
+// Attendance system has no delete function at all (Present/Absent is
+// always an UPDATE of the same studentId+date row, never a delete —
+// confirmed in saveOneAttendance), so nothing should ever cause a local
+// attendance record to disappear based on a remote snapshot.
+// ============================================================================
+
+let _attendanceFirebaseUnsubscribe = null;
+let _attendanceFirebaseSeeded = false;
+// ATTENDANCE SYNC FIX — "studentId|date" keys whose own background Sheets
+// write (see saveOneAttendance) is still in flight, mirrors
+// _coachesSheetSyncInFlight: guards syncAttendanceFromSheet (focus-
+// triggered) from adopting a stale pre-mark Sheet row while this exact
+// mark's Sheets write hasn't landed yet.
+const _attendanceSheetSyncInFlight = new Set();
+
+window.initAttendanceFirebaseListener = () => {
+  if (typeof window.listenAttendance !== 'function') return;
+  if (_attendanceFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (attendance) — not re-subscribing'); return; }
+
+  _attendanceFirebaseUnsubscribe = window.listenAttendance((remoteRecords) => {
+    const isFirstSnapshot = !_attendanceFirebaseSeeded;
+    let changed = false;
+
+    remoteRecords.forEach(remote => {
+      if (!remote.studentId || !remote.date) return;
+      const syncKey = remote.studentId + '|' + remote.date;
+      if (_attendanceSheetSyncInFlight.has(syncKey)) return;
+      const local = window.DB.attendance.find(a => a.studentId === remote.studentId && a.date === remote.date);
+      if (!local) {
+        _lsAddPreservingId('attendance', remote);
+        window.DB.attendance.unshift(remote);
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local._fbUpdatedAt) {
+        const merged = { ...local, ...remote, id: local.id, _fbUpdatedAt: remote.updatedAt };
+        LS.update('attendance', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    _attendanceFirebaseSeeded = true;
+    if (changed && document.getElementById('page-attendance')?.classList.contains('active')) window.renderAttendance?.();
+  }, (err) => console.error('✗ [SYNC] Attendance listener error:', err));
+
+  console.log('✓ Firebase realtime listener active for Attendance');
+};
+
+// ============================================================================
+// ENQUIRIES — FIREBASE REALTIME LISTENER
+// ----------------------------------------------------------------------------
+// Same shape as the Coaches listener: full add/update/remove
+// reconciliation (Enquiries supports delete, unlike Attendance), matched
+// by the record's own id — the same identity syncEnquiriesFromSheet
+// already merges on — seeded silently on the first snapshot, diffs from
+// the second snapshot onward. No toast/bell/voice announcements — never
+// part of the Enquiries workflow, out of scope here.
+// ============================================================================
+
+let _enquiriesFirebaseUnsubscribe = null;
+let _enquiriesFirebaseSeeded = false;
+// ENQUIRIES SYNC FIX — ids with a Sheets sync currently in flight (save),
+// mirrors _coachesSheetSyncInFlight/_attendanceSheetSyncInFlight: guards
+// syncEnquiriesFromSheet (focus-triggered) from adopting a stale pre-edit
+// Sheet row while this device's own background Sheets write is still in
+// flight. Cleared as soon as that specific call settles.
+const _enquiriesSheetSyncInFlight = new Set();
+// ids deleted locally whose Firebase delete hasn't been confirmed yet —
+// guards the listener from resurrecting them off a stale snapshot (same
+// pattern as Café Items' _cafeItemsPendingLocalDelete / Coaches'
+// _coachesPendingLocalDelete).
+const _enquiriesPendingLocalDelete = new Set();
+
+window.initEnquiriesFirebaseListener = () => {
+  if (typeof window.listenEnquiries !== 'function') return;
+  if (_enquiriesFirebaseUnsubscribe) { console.log('[FB-DEBUG] Listener already active (enquiries) — not re-subscribing'); return; }
+
+  _enquiriesFirebaseUnsubscribe = window.listenEnquiries((remoteEnquiries) => {
+    const isFirstSnapshot = !_enquiriesFirebaseSeeded;
+    let changed = false;
+    const seenIds = new Set();
+
+    remoteEnquiries.forEach(remote => {
+      if (!remote.id) return;
+      if (_enquiriesPendingLocalDelete.has(remote.id)) return;
+      if (_enquiriesSheetSyncInFlight.has(remote.id)) return;
+      seenIds.add(remote.id);
+      const local = window.DB.enquiries.find(e => e.id === remote.id);
+      if (!local) {
+        _lsAddPreservingId('enquiries', remote);
+        window.DB.enquiries.push(remote);
+        changed = true;
+      } else if (remote.updatedAt && remote.updatedAt !== local._fbUpdatedAt) {
+        const merged = { ...local, ...remote, id: local.id, _fbUpdatedAt: remote.updatedAt };
+        LS.update('enquiries', local.id, merged);
+        Object.assign(local, merged);
+        changed = true;
+      }
+    });
+
+    if (!isFirstSnapshot) {
+      const beforeCount = window.DB.enquiries.length;
+      window.DB.enquiries = window.DB.enquiries.filter(e => !e.id || seenIds.has(e.id) || _enquiriesPendingLocalDelete.has(e.id) || _enquiriesSheetSyncInFlight.has(e.id));
+      if (window.DB.enquiries.length !== beforeCount) { LS.set('enquiries', window.DB.enquiries); changed = true; }
+    }
+
+    _enquiriesFirebaseSeeded = true;
+    if (changed && document.getElementById('page-enquiries')?.classList.contains('active')) window.renderEnquiries?.();
+  }, (err) => console.error('✗ [SYNC] Enquiries listener error:', err));
+
+  console.log('✓ Firebase realtime listener active for Enquiries');
+};
 
 // ============================================================================
 // VOICE NOTIFICATION SYSTEM - COMPLETE IMPLEMENTATION
@@ -5419,6 +5662,18 @@ function _refreshDuesIfActive() {
 }
 
 const _ddtzAnnouncedStudentEvents = new Set(); // "studentId:kind" already announced this session
+// STUDENTS SYNC FIX — studentIds with a Sheets sync currently in flight
+// (save), mirrors _coachesSheetSyncInFlight/_enquiriesSheetSyncInFlight:
+// guards syncStudentsFromSheet (focus-triggered) from adopting a stale
+// pre-edit Sheet row, or dropping a brand-new student it doesn't know
+// about yet, while this device's own background Sheets write is still in
+// flight. Cleared as soon as that specific call settles.
+const _studentsSheetSyncInFlight = new Set();
+// studentIds permanently deleted locally (bulkDeleteStudents) whose
+// Firebase delete hasn't been confirmed yet — guards the listener below
+// from resurrecting them off a stale snapshot (same pattern as Coaches'
+// _coachesPendingLocalDelete / Café Items' _cafeItemsPendingLocalDelete).
+const _studentsPendingLocalDelete = new Set();
 
 window.initStudentsFirebaseListener = () => {
   if (typeof window.listenStudents !== 'function') return;
@@ -5431,6 +5686,10 @@ window.initStudentsFirebaseListener = () => {
 
     remoteStudents.forEach(remote => {
       if (!remote.studentId) return;
+      // STUDENTS SYNC FIX — a permanent delete just fired for this student
+      // and its Firebase removal hasn't been confirmed yet; don't let this
+      // possibly-stale snapshot resurrect it.
+      if (_studentsPendingLocalDelete.has(remote.studentId)) return;
       seenStudentIds.add(remote.studentId);
       const local = window.DB.students.find(s => s.studentId === remote.studentId);
       const me = CURRENT_USER?.email || CURRENT_USER?.name;
@@ -5892,6 +6151,14 @@ function _firebaseReconnectWatchdog(trigger) {
   if (!_studentsFirebaseUnsubscribe)       { missing.push('students');       window.initStudentsFirebaseListener?.(); }
   if (!_feesFirebaseUnsubscribe)           { missing.push('fees');           window.initFeesFirebaseListener?.(); }
   if (!_dueAdjustmentsFirebaseUnsubscribe) { missing.push('dueAdjustments'); window.initDueAdjustmentsFirebaseListener?.(); }
+  // CAFÉ FIREBASE INTEGRATION — same reconnect-recovery treatment as every
+  // other listener above. Only re-init if BOTH café subscriptions dropped,
+  // since initCafeFirebaseListener re-subscribes each independently.
+  if (!_cafeItemsFirebaseUnsubscribe || !_cafeSalesFirebaseUnsubscribe) { missing.push('cafe'); window.initCafeFirebaseListener?.(); }
+  // ATTENDANCE FIREBASE INTEGRATION — same reconnect-recovery treatment.
+  if (!_attendanceFirebaseUnsubscribe) { missing.push('attendance'); window.initAttendanceFirebaseListener?.(); }
+  // ENQUIRIES FIREBASE INTEGRATION — same reconnect-recovery treatment.
+  if (!_enquiriesFirebaseUnsubscribe) { missing.push('enquiries'); window.initEnquiriesFirebaseListener?.(); }
 
   if (missing.length) {
     console.log('[FB-DEBUG] Watchdog restored missing listeners:', missing.join(', '));
@@ -5936,7 +6203,13 @@ async function syncStudentsFromSheet() {
     const stillPendingPermanentDelete = new Set(_getSyncQueue().filter(p => p.type === 'student' && p.action === 'permanent_delete').map(p => p.studentId));
 
     remoteStudents.forEach(remote => {
-      if (!remote.studentId || stillPendingPermanentDelete.has(remote.studentId)) return;
+      if (!remote.studentId || stillPendingPermanentDelete.has(remote.studentId) || _studentsPendingLocalDelete.has(remote.studentId)) return;
+      // STUDENTS SYNC FIX — this student's own edit is still being
+      // written to Sheets in the background (see _studentsSheetSyncInFlight
+      // in saveStudent); this fetch reflects the pre-edit row (or doesn't
+      // know about a brand-new student yet) until that write lands, so
+      // skip it here rather than reverting/dropping the just-made change.
+      if (_studentsSheetSyncInFlight.has(remote.studentId)) return;
       const local = window.DB.students.find(s => s.studentId === remote.studentId);
       if (!local) {
         // New student this device has never seen — id doubles as
@@ -5961,7 +6234,12 @@ async function syncStudentsFromSheet() {
     // device's own archive for it hasn't reached the server yet.
     const stillPendingArchive = new Set(_getSyncQueue().filter(p => p.type === 'student' && (p.action === 'archive' || p.action === 'delete')).map(p => p.studentId));
     const beforeCount = window.DB.students.length;
-    window.DB.students = window.DB.students.filter(s => remoteIds.has(s.studentId) || stillPendingArchive.has(s.studentId));
+    // STUDENTS SYNC FIX — also keep any student whose own Sheets write is
+    // still in flight: a brand-new student Firebase already has but
+    // Sheets doesn't yet (fire-and-forget, not landed) would otherwise be
+    // wrongly dropped here just because this Sheets fetch doesn't list it
+    // yet.
+    window.DB.students = window.DB.students.filter(s => remoteIds.has(s.studentId) || stillPendingArchive.has(s.studentId) || _studentsSheetSyncInFlight.has(s.studentId));
     if (window.DB.students.length !== beforeCount) { changed = true; LS.set('students', window.DB.students); }
 
     if (changed) {
@@ -9137,6 +9415,12 @@ async function syncAttendanceFromSheet() {
     let changed = false;
     (data.attendance || []).forEach(remote => {
       if (!remote.id) return;
+      // ATTENDANCE SYNC FIX — this exact mark's own background Sheets
+      // write (see saveOneAttendance) is still in flight, so this fetch
+      // may still reflect the pre-mark row — skip it rather than
+      // reverting the just-made mark. Cleared the moment that write
+      // settles (success or failure).
+      if (remote.studentId && _attendanceSheetSyncInFlight.has(remote.studentId + '|' + remote.date)) return;
       // Same identity local dedup already uses (see saveOneAttendance):
       // studentId+date, falling back to name+date only for a legacy
       // record with no studentId on file yet.
@@ -9212,6 +9496,12 @@ async function syncEnquiriesFromSheet() {
 
     remoteEnquiries.forEach(remote => {
       if (!remote.id || stillPendingDelete.has(remote.id)) return;
+      // ENQUIRIES SYNC FIX — this enquiry's own edit is still being
+      // written to Sheets in the background (see _enquiriesSheetSyncInFlight
+      // in saveEnquiry/updateEnquiryStatus); this fetch reflects the
+      // pre-edit row until that write lands, so skip it here rather than
+      // reverting the just-made edit.
+      if (_enquiriesSheetSyncInFlight.has(remote.id)) return;
       const local = window.DB.enquiries.find(e => e.id === remote.id);
       if (!local) {
         _lsAddPreservingId('enquiries', remote);
@@ -9226,7 +9516,11 @@ async function syncEnquiriesFromSheet() {
     });
 
     const beforeCount = window.DB.enquiries.length;
-    window.DB.enquiries = window.DB.enquiries.filter(e => remoteIds.has(e.id) || stillPendingDelete.has(e.id));
+    // ENQUIRIES SYNC FIX — also keep any enquiry whose own Sheets write is
+    // still in flight: a brand-new enquiry Firebase already has but Sheets
+    // doesn't yet (fire-and-forget, not landed) would otherwise be wrongly
+    // dropped here just because this Sheets fetch doesn't list it yet.
+    window.DB.enquiries = window.DB.enquiries.filter(e => remoteIds.has(e.id) || stillPendingDelete.has(e.id) || _enquiriesSheetSyncInFlight.has(e.id));
     if (window.DB.enquiries.length !== beforeCount) { changed = true; LS.set('enquiries', window.DB.enquiries); }
 
     if (changed && document.getElementById('page-enquiries')?.classList.contains('active')) renderEnquiries();
@@ -10379,18 +10673,26 @@ window.saveStudent = async () => {
   if (fbStudentResult && !fbStudentResult.success) {
     console.warn('Student Firebase sync failed (Sheets sync still proceeding):', fbStudentResult.error);
   }
-  // STALE-DATA FIX — this used to fire without awaiting, so "Student saved!"
-  // appeared (and the page was safe to refresh, as far as the admin could
-  // tell) before the Sheets write had actually landed. A refresh in that
-  // window meant the in-flight POST got aborted by navigation, the server
-  // still had the OLD row, and the next sync/merge — which only compares
-  // "is remote.updatedAt different from local.updatedAt", not "which is
-  // newer" — silently replaced the just-made edit with that stale server
-  // copy. Awaiting here means the edit has genuinely reached the server
-  // (and _rtCaptureUpdatedAt inside queuedSync has already reconciled this
-  // record's local updatedAt to match) by the time "Saved!" appears, so a
-  // refresh right after seeing that toast can no longer revert anything.
-  await autoSyncStudent(data, existId ? 'update' : 'create');
+  // STUDENTS FIREBASE-FIRST FIX — Firebase (just awaited above) is now
+  // this app's fast, immediate source of truth for Students, the same way
+  // it already is for Café/Coaching/Attendance/Enquiries. The old
+  // STALE-DATA FIX (superseded) used to await Sheets here because Sheets
+  // was the only thing a page refresh could rely on — that's no longer
+  // true: Firebase already has the edit the instant the await above
+  // returns, and the realtime listener keeps every device (including this
+  // one, post-refresh) in sync from there. Sheets sync is fire-and-forget
+  // again so the user never waits on it — guarded by
+  // _studentsSheetSyncInFlight so a focus-triggered syncStudentsFromSheet
+  // can't adopt a stale pre-edit Sheet row (or drop a brand-new student it
+  // doesn't know about yet) while this specific write is still in flight.
+  const studentIdForSync = data.studentId;
+  _studentsSheetSyncInFlight.add(studentIdForSync);
+  const studentSheetsSyncPromise = autoSyncStudent(data, existId ? 'update' : 'create');
+  if (studentSheetsSyncPromise && typeof studentSheetsSyncPromise.finally === 'function') {
+    studentSheetsSyncPromise.finally(() => _studentsSheetSyncInFlight.delete(studentIdForSync));
+  } else {
+    _studentsSheetSyncInFlight.delete(studentIdForSync);
+  }
   closeModal('student-modal');
   resetStudentForm();
   renderStudents();
@@ -10888,8 +11190,14 @@ window.bulkDeleteStudents = async () => {
     window.DB.students = window.DB.students.filter(x=>x.id!==id);
     // PHASE 6 — mirror the permanent delete into Firebase too, same
     // fail-soft non-blocking pattern as deleteCoach.
-    window.deleteStudentFirebase?.(s.studentId || s.id).then(r => {
+    // STUDENTS SYNC FIX — guard against a lagging Firebase snapshot
+    // resurrecting this student via the realtime listener's "new record"
+    // branch while the delete above is still in flight.
+    const studentIdForDelete = s.studentId || s.id;
+    _studentsPendingLocalDelete.add(studentIdForDelete);
+    window.deleteStudentFirebase?.(studentIdForDelete).then(r => {
       if (r && !r.success) console.warn('Student Firebase delete failed (Sheets delete still proceeding):', r.error);
+      _studentsPendingLocalDelete.delete(studentIdForDelete);
     });
     autoSyncStudent(s, 'permanent_delete');
     count++;
@@ -11159,6 +11467,15 @@ window.loadAttendance = () => {
   students.forEach(s => refreshAttButtonStyle(s.id));
   updateAttCountSummary(students.length);
 };
+// ATTENDANCE FIREBASE-FIRST FIX — window.renderAttendance was already
+// called (optional-chained, so silently a no-op) by syncAttendanceFromSheet
+// and elsewhere whenever attendance data changed while this page was open,
+// but was never actually defined anywhere in the file. Aliasing it to the
+// existing loadAttendance (which already rebuilds #attendance-list from
+// window.DB.attendance/students for the currently-selected sport/date) is
+// what makes those existing "refresh if this page is active" call sites,
+// and the new Attendance Firebase listener above, actually take effect.
+window.renderAttendance = window.loadAttendance;
 
 const attMarks = {};
 
@@ -11222,7 +11539,27 @@ async function saveOneAttendance(studentId, status) {
   const id = await saveDoc('attendance',rec,existingId||null);
   if (existingIdx>=0) window.DB.attendance[existingIdx] = {...rec, id};
   else window.DB.attendance.unshift({...rec, id});
-  autoSyncAttendance({...rec, id}); // queuedSync underneath — offline-safe, retries automatically
+  // ATTENDANCE FIREBASE-FIRST FIX — same pattern as Café/Coaching: Firebase
+  // is awaited right after the local window.DB update, so it's the fast,
+  // live source another device's Attendance listener picks up from almost
+  // immediately. Sheets sync below is unchanged — still fire-and-forget via
+  // queuedSync (it already was, since Attendance is high-frequency/tap-
+  // driven) — just now guarded by _attendanceSheetSyncInFlight so a
+  // focus-triggered syncAttendanceFromSheet can't adopt a stale pre-mark
+  // Sheet row while this exact mark's background Sheets write is still in
+  // flight (same guard shape as Coaching's saveCoach).
+  const fbResult = await window.syncAttendanceFirebase?.({...rec, id});
+  if (fbResult && !fbResult.success) {
+    console.warn('Attendance Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+  }
+  const syncKey = s.id + '|' + date;
+  _attendanceSheetSyncInFlight.add(syncKey);
+  const sheetsSyncPromise = autoSyncAttendance({...rec, id}); // queuedSync underneath — offline-safe, retries automatically
+  if (sheetsSyncPromise && typeof sheetsSyncPromise.finally === 'function') {
+    sheetsSyncPromise.finally(() => _attendanceSheetSyncInFlight.delete(syncKey));
+  } else {
+    _attendanceSheetSyncInFlight.delete(syncKey);
+  }
 }
 
 window.saveAttendance = async () => {
@@ -13503,20 +13840,24 @@ window.saveCoach = async () => {
   if (fbResult && !fbResult.success) {
     console.warn('Coach Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
   }
-  // STALE-DATA FIX — this used to be fire-and-forget (diagnostics-only
-  // .then/.catch, nothing actually waited on it), so "Coach saved!" could
-  // appear before the Sheets write landed. A refresh in that window
-  // aborted the in-flight POST, and the next sync/merge — which only
-  // checks "is remote.updatedAt different", not "which is newer" — would
-  // silently replace the just-made edit with the server's stale row.
-  // Awaiting here (same fix as saveStudent above) means the edit has
-  // genuinely reached the server before the toast appears. Diagnostics
-  // recording is unchanged, just now sequenced after an awaited result
-  // instead of a detached .then/.catch.
-  let sheetsRes = null;
-  try { sheetsRes = await autoSyncCoach(data, existId ? 'update' : 'create'); }
-  catch (e) { sheetsRes = null; }
-  window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, !!(sheetsRes && sheetsRes.ok));
+  // COACHING FIREBASE-FIRST FIX — Firebase (just awaited above) is now
+  // this app's fast, immediate source of truth for Coaches, the same way
+  // it already is for Café. The old STALE-DATA FIX (below, superseded)
+  // used to await Sheets here because Sheets was the only thing a page
+  // refresh could rely on — a refresh in the fire-and-forget gap could
+  // lose the edit entirely. That's no longer true: Firebase already has
+  // the edit the instant this line runs, and the realtime listener keeps
+  // every device (including this one, post-refresh) in sync from there.
+  // Sheets sync is fire-and-forget again so the user never waits on it —
+  // guarded by _coachesSheetSyncInFlight so a focus-triggered
+  // syncCoachesFromSheet can't adopt a stale pre-edit Sheet row while
+  // this specific write is still in flight (see that function above).
+  const coachIdForSync = data.coachId;
+  _coachesSheetSyncInFlight.add(coachIdForSync);
+  autoSyncCoach(data, existId ? 'update' : 'create')
+    .then(sheetsRes => window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, !!(sheetsRes && sheetsRes.ok)))
+    .catch(() => window._ddtzDiag?.recordBackgroundSync('coaches', !fbResult || fbResult.success, false))
+    .finally(() => _coachesSheetSyncInFlight.delete(coachIdForSync));
   closeModal('coach-modal');
   renderCoaches();
   window.clearRowHighlight('coach-card-', data.id); // UI ENHANCEMENT: same pattern as Fees/Students
@@ -13534,8 +13875,12 @@ window.deleteCoach = async (id) => {
   if (c) {
     // Firebase-first delete too, same non-blocking fail-soft pattern.
     const coachId = c.coachId || c.id;
+    // COACHING SYNC FIX — protect against an old snapshot recreating this
+    // coach (see the pending-delete guard added to the listener above).
+    _coachesPendingLocalDelete.add(coachId);
     window.deleteCoachFirebase?.(coachId).then(r => {
       if (r && !r.success) console.warn('Coach Firebase delete failed (Sheets delete still proceeding):', r.error);
+      _coachesPendingLocalDelete.delete(coachId);
     });
     autoSyncCoach(c, 'delete');
   }
@@ -13593,11 +13938,27 @@ window.saveEnquiry = async () => {
   const id=await saveDoc('enquiries',data,existId||null);
   if(!existId){data.id=id;window.DB.enquiries.unshift(data);}
   else{const idx=window.DB.enquiries.findIndex(x=>x.id===existId);if(idx>=0)window.DB.enquiries[idx]={...data,id:existId};}
-  // STALE-DATA FIX — same reasoning as saveStudent/saveCoach above: await
-  // the Sheets sync before declaring success, so a refresh right after
-  // "Enquiry saved!" can no longer race an in-flight write and get
-  // silently reverted by the next sync's stale-server merge.
-  await autoSyncEnquiry({...data, id: existId||id}, existId ? 'update' : 'create');
+  // ENQUIRIES FIREBASE-FIRST FIX — same pattern as Café/Coaching/
+  // Attendance: Firebase is awaited right after the local window.DB
+  // update, so it's the fast, live source another device's Enquiries
+  // listener picks up from immediately. Sheets sync below is now
+  // fire-and-forget again (the old STALE-DATA FIX awaited it because
+  // Sheets was the only thing a refresh could rely on — Firebase now
+  // fills that role), guarded by _enquiriesSheetSyncInFlight so a
+  // focus-triggered syncEnquiriesFromSheet can't adopt a stale pre-edit
+  // Sheet row while this save's background write is still in flight.
+  const enqId = existId || id;
+  const fbResult = await window.syncEnquiryFirebase?.({...data, id: enqId});
+  if (fbResult && !fbResult.success) {
+    console.warn('Enquiry Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+  }
+  _enquiriesSheetSyncInFlight.add(enqId);
+  const enqSheetsSyncPromise = autoSyncEnquiry({...data, id: enqId}, existId ? 'update' : 'create');
+  if (enqSheetsSyncPromise && typeof enqSheetsSyncPromise.finally === 'function') {
+    enqSheetsSyncPromise.finally(() => _enquiriesSheetSyncInFlight.delete(enqId));
+  } else {
+    _enquiriesSheetSyncInFlight.delete(enqId);
+  }
   closeModal('enquiry-modal');
   renderEnquiries(); renderDashboard();
   showToast('Enquiry saved! ✅');
@@ -13607,8 +13968,18 @@ window.updateEnquiryStatus = async (id, status) => {
   const idx=window.DB.enquiries.findIndex(x=>x.id===id);if(idx<0)return;
   window.DB.enquiries[idx].status=status;
   await saveDoc('enquiries',{status},id);
-  // STALE-DATA FIX — same reasoning as saveEnquiry above.
-  await autoSyncEnquiry(window.DB.enquiries[idx], 'update');
+  // ENQUIRIES FIREBASE-FIRST FIX — same pattern as saveEnquiry above.
+  const fbResult = await window.syncEnquiryFirebase?.(window.DB.enquiries[idx]);
+  if (fbResult && !fbResult.success) {
+    console.warn('Enquiry Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+  }
+  _enquiriesSheetSyncInFlight.add(id);
+  const statusSheetsSyncPromise = autoSyncEnquiry(window.DB.enquiries[idx], 'update');
+  if (statusSheetsSyncPromise && typeof statusSheetsSyncPromise.finally === 'function') {
+    statusSheetsSyncPromise.finally(() => _enquiriesSheetSyncInFlight.delete(id));
+  } else {
+    _enquiriesSheetSyncInFlight.delete(id);
+  }
   renderEnquiries(); renderDashboard();
   showToast('Status updated');
 };
@@ -13618,7 +13989,17 @@ window.deleteEnquiry = async (id) => {
   const enq = window.DB.enquiries.find(x=>x.id===id);
   await deleteDoc2('enquiries',id);
   window.DB.enquiries=window.DB.enquiries.filter(x=>x.id!==id);
-  if (enq) autoSyncEnquiry(enq, 'delete');
+  if (enq) {
+    // ENQUIRIES FIREBASE-FIRST FIX — Firebase-first delete, same
+    // non-blocking fail-soft pattern as Coaches/Café, with the same
+    // pending-delete guard so a lagging snapshot can't resurrect it.
+    _enquiriesPendingLocalDelete.add(id);
+    window.deleteEnquiryFirebase?.(id).then(r => {
+      if (r && !r.success) console.warn('Enquiry Firebase delete failed (Sheets delete still proceeding):', r.error);
+      _enquiriesPendingLocalDelete.delete(id);
+    });
+    autoSyncEnquiry(enq, 'delete');
+  }
   renderEnquiries(); renderDashboard();
   showToast('Enquiry deleted');
 };
@@ -14161,7 +14542,14 @@ window.deleteFinanceExpense = (id) => {
   LS.delete('financeExpenses', id);
   window.DB.financeExpenses = window.DB.financeExpenses.filter(x => x.id !== id);
   logAudit({ type: 'finance_expense', action: 'deleted', recordId: id, summary: `Expense Deleted — ${e.expenseType} ₹${e.amount}` });
-  window.deleteFinanceExpenseFirebase?.(id);
+  // FINANCE SYNC FIX — guard against a lagging Firebase snapshot
+  // resurrecting this expense via the realtime listener's "new record"
+  // branch while the delete below is still in flight.
+  _financeExpensesPendingLocalDelete.add(id);
+  window.deleteFinanceExpenseFirebase?.(id).then(r => {
+    if (r && !r.success) console.warn('Finance expense Firebase delete failed (Sheets delete still proceeding):', r.error);
+    _financeExpensesPendingLocalDelete.delete(id);
+  });
   _finSyncExpenseToSheets(e, 'delete');
   renderFinance();
   showToast('Expense deleted');
@@ -14413,6 +14801,11 @@ window.printFinanceReport = () => {
 // exactly what this can/cannot enforce). -----
 let _financeFirebaseUnsubscribe = null;
 let _financeFirebaseSeeded = false; // was missing entirely, same gap as Coach Settlement — without it, every existing expense would be announced on first login
+// FINANCE SYNC FIX — ids deleted locally whose Firebase delete hasn't
+// been confirmed yet — guards the listener below from resurrecting them
+// off a stale snapshot (same pattern as Coaches'
+// _coachesPendingLocalDelete / Café Items' _cafeItemsPendingLocalDelete).
+const _financeExpensesPendingLocalDelete = new Set();
 window.initFinanceFirebaseListener = () => {
   if (!_finCanAccess()) return; // hard gate — this must never even attempt to subscribe for Manager/Staff
   if (typeof window.listenFinanceExpenses !== 'function') return;
@@ -14421,8 +14814,14 @@ window.initFinanceFirebaseListener = () => {
   _financeFirebaseUnsubscribe = window.listenFinanceExpenses((remoteExpenses) => {
     const isFirstSnapshot = !_financeFirebaseSeeded;
     let changed = false;
+    const seenIds = new Set();
     remoteExpenses.forEach(remote => {
       if (!remote.id) return;
+      // FINANCE SYNC FIX — a delete just fired for this expense and its
+      // Firebase removal hasn't been confirmed yet; don't let this
+      // possibly-stale snapshot resurrect it.
+      if (_financeExpensesPendingLocalDelete.has(remote.id)) return;
+      seenIds.add(remote.id);
       const idx = window.DB.financeExpenses.findIndex(e => e.id === remote.id);
       const me = CURRENT_USER?.name || CURRENT_USER?.email;
       const isOwnAction = remote.addedBy && remote.addedBy === me;
@@ -14442,6 +14841,26 @@ window.initFinanceFirebaseListener = () => {
         }
       }
     });
+
+    // FINANCE SYNC FIX — this listener previously only ever added or
+    // updated (see the gap this comment replaces) — an expense deleted on
+    // another device would just stop appearing in future snapshots, but
+    // nothing here ever noticed, so it stayed in window.DB.financeExpenses
+    // (and every Finance total that reads it) forever on every OTHER
+    // device. Same removal-reconciliation shape already used by the
+    // Coaches/Students/Fees listeners: anything locally present but
+    // missing from this snapshot, and not itself still queued for this
+    // device's own pending Sheets delete, gets removed too.
+    if (!isFirstSnapshot) {
+      const stillQueuedIds = new Set(_getSyncQueue().filter(p => p.type === 'finance_expense' && p.action === 'delete').map(p => p.id));
+      const beforeCount = window.DB.financeExpenses.length;
+      window.DB.financeExpenses = window.DB.financeExpenses.filter(e => !e.id || seenIds.has(e.id) || stillQueuedIds.has(e.id) || _financeExpensesPendingLocalDelete.has(e.id));
+      if (window.DB.financeExpenses.length !== beforeCount) {
+        changed = true;
+        window._ddtzDiag?.recordEvent('finance', 'Delete'); // TEMP DIAGNOSTICS
+      }
+    }
+
     _financeFirebaseSeeded = true;
     if (changed && document.getElementById('page-finance')?.classList.contains('active')) {
       renderFinance();
@@ -16578,6 +16997,17 @@ window.saveCafeItem = async () => {
   const id = await saveDoc('cafeItems', data, null);
   data.id = id;
   window.DB.cafeItems.unshift(data);
+  // CAFÉ FIREBASE INTEGRATION — Firebase is now the live/primary source for
+  // Café Items (this module never had a Google Sheets sync at all, so
+  // there's nothing to background here — awaiting just means the save
+  // reaches the live store before the toast appears, same convention as
+  // every other awaited Firebase-first save in this file, e.g. saveCoach).
+  // Fail-soft: a Firebase error is logged, not thrown — the item is still
+  // saved locally and fully usable on this device either way.
+  const fbResult = await window.saveCafeItemFirebase?.(id, data);
+  if (fbResult && !fbResult.success) {
+    console.warn('Café item Firebase sync failed (item still saved locally):', fbResult.error);
+  }
   closeModal('cafe-item-modal');
   document.getElementById('cafe-item-name').value = '';
   document.getElementById('cafe-item-price').value = '';
@@ -16589,6 +17019,15 @@ window.deleteCafeItem = async (id) => {
   if (!confirm('Remove this menu item?')) return;
   await deleteDoc2('cafeItems', id);
   window.DB.cafeItems = window.DB.cafeItems.filter(i => i.id !== id);
+  // CAFÉ FIREBASE INTEGRATION — same fire-and-forget, fail-soft pattern as
+  // deleteCoachFirebase: never delays this local delete from completing.
+  // Guarded via _cafeItemsPendingLocalDelete so a stale snapshot arriving
+  // before Firebase's own delete lands doesn't resurrect the item.
+  _cafeItemsPendingLocalDelete.add(id);
+  window.deleteCafeItemFirebase?.(id).then(r => {
+    if (r && !r.success) console.warn('Café item Firebase delete failed:', r.error);
+    _cafeItemsPendingLocalDelete.delete(id);
+  });
   renderCafe();
 };
 
@@ -16730,6 +17169,15 @@ window.saveCafeSaleNow = async () => {
     const id = await saveDoc('cafeSales', data, null);
     data.id = id;
     window.DB.cafeSales.unshift(data);
+    // CAFÉ FIREBASE INTEGRATION — Firebase is now the live/primary source
+    // for Café Sales; awaited so this device's own UI (and any other open
+    // device, via listenCafeSales) reflects the sale immediately. Google
+    // Sheets stays exactly as before via autoSyncCafeSale below — fire-
+    // and-forget, must never block a café sale from completing.
+    const fbResult = await window.saveCafeSaleFirebase?.(id, data);
+    if (fbResult && !fbResult.success) {
+      console.warn('Café sale Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
+    }
     autoSyncCafeSale(data);
   }
 
