@@ -11947,6 +11947,18 @@ async function _saveFeeImpl(sendWA=false) {
     updatedAt: existingRecord?.updatedAt || ''
   };
   _stampAudit(data, existingRecord);
+  // BUG FIX — "WhatsApp not sending after collecting a fee payment":
+  // window.open() must happen synchronously, within the original click's
+  // user-gesture window, or the browser silently blocks it as a popup —
+  // same class of bug already fixed in shareReceiptWhatsApp's "FIX #2".
+  // Everything below this point is awaited (local save, then a real
+  // Google Sheets POST and a real Firestore write, both genuine network
+  // round-trips), so by the time the WhatsApp message used to be built at
+  // the end of this function, the gesture window had very likely already
+  // expired. Open the destination tab now, before any await, and simply
+  // navigate it once the real message is ready below — nothing else about
+  // the save flow changes.
+  const waWindow = sendWA ? window.open('', '_blank') : null;
   const id=await saveDoc('fees',data,existId||null);
   data.id=id;
   console.log('[FEE] Fee saved locally', {id: data.id, receiptNo: data.receiptNo, status: data.status, existId: !!existId});
@@ -12075,8 +12087,15 @@ async function _saveFeeImpl(sendWA=false) {
     const phone = (st.phone || '').replace(/\D/g, '');
     if (!phone) showToast('No parent mobile number on file — pick the contact in WhatsApp.', 'info');
     const waNumber = phone ? buildWaPhone(phone) : '';
-    const win = window.open(`https://wa.me/${waNumber}?text=${msg}`, '_blank');
-    if (!win) showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error');
+    // Navigate the tab opened synchronously at the top of this function
+    // (before the awaits above) rather than calling window.open() fresh
+    // here — this is the actual fix; see the comment at waWindow's
+    // declaration for why.
+    if (waWindow) {
+      waWindow.location = `https://wa.me/${waNumber}?text=${msg}`;
+    } else {
+      showToast('Unable to open WhatsApp. Please ensure WhatsApp is installed or use WhatsApp Web.', 'error');
+    }
   }
 };
 
@@ -15307,13 +15326,21 @@ window.csRecordPayment = async (settlementId, { amountPaid, method, remarks }) =
   return { success: true, record: rec };
 };
 
+// COACH SETTLEMENT SYNC FIX — settlementIds with their own Sheets write
+// currently in flight, mirrors _financeExpensesSheetSyncInFlight/
+// _feesSheetSyncInFlight: guards syncCoachSettlementsFromSheet from
+// adopting a stale pre-update Sheet row while this device's own
+// background write for the same settlement is still in flight.
+const _csSheetSyncInFlight = new Set();
+
 /** Firebase-first (same fail-soft convention as Coaches/Finance), then a non-blocking Sheets push with nested fields JSON-stringified — same convention as SiteConfig. */
 async function _csSyncFirebaseAndSheets(record) {
   const fbResult = await window.syncCoachSettlementFirebase?.(record);
   if (fbResult && !fbResult.success) {
     console.warn('Coach Settlement Firebase sync failed (Sheets sync still proceeding):', fbResult.error);
   }
-  queuedSync({
+  _csSheetSyncInFlight.add(record.settlementId);
+  const csSheetsSyncPromise = queuedSync({
     type: 'coach_settlement', action: 'update',
     settlementId: record.settlementId, coachId: record.coachId, coachName: record.coachName, sport: record.sport,
     monthValue: record.monthValue, monthLabel: record.monthLabel, year: record.year,
@@ -15322,6 +15349,11 @@ async function _csSyncFirebaseAndSheets(record) {
     status: record.status, paymentHistory: JSON.stringify(record.paymentHistory),
     generatedDate: record.generatedDate, generatedBy: record.generatedBy
   });
+  if (csSheetsSyncPromise && typeof csSheetsSyncPromise.finally === 'function') {
+    csSheetsSyncPromise.finally(() => _csSheetSyncInFlight.delete(record.settlementId));
+  } else {
+    _csSheetSyncInFlight.delete(record.settlementId);
+  }
 }
 
 // ----- Google Sheets: initial load + periodic merge (Super Admin only,
@@ -15337,17 +15369,26 @@ async function syncCoachSettlementsFromSheet() {
     if (!data || !data.ok) return;
 
     let changed = false;
+    // COACH SETTLEMENT SYNC FIX — Firebase (via listenCoachSettlements) is
+    // now this module's live/primary store, with a reliable same-clock-
+    // source updatedAt comparison. This Sheets pull's job is now limited
+    // to backfilling a settlement Firebase might genuinely be missing
+    // (e.g. saved while Firebase was unreachable), NOT to "correct" one
+    // Firebase already has. The removed "adopt if different" branch used
+    // to compare a Sheets timestamp against a client-clock local
+    // timestamp that was never actually being kept fresh (no updatedAt
+    // field is set anywhere in csGenerateSettlement/csRecordPayment) — so
+    // it would treat an up-to-date record as "different" essentially every
+    // time and silently overwrite it with whatever Sheets had, including a
+    // stale pre-update row if Sheets hadn't caught up yet. Firebase's own
+    // listener already owns "keep an existing settlement current"
+    // correctly, so this is removed rather than patched.
     (data.settlements || []).forEach(remote => {
-      if (!remote.settlementId) return;
+      if (!remote.settlementId || _csSheetSyncInFlight.has(remote.settlementId)) return;
       const local = window.DB.coachSettlements.find(r => r.settlementId === remote.settlementId);
       if (!local) {
         const id = LS.add('coachSettlements', remote);
         window.DB.coachSettlements.unshift({ ...remote, id });
-        changed = true;
-      } else if (remote.updatedAt && remote.updatedAt !== local.updatedAt) {
-        const merged = { ...local, ...remote, id: local.id };
-        LS.update('coachSettlements', local.id, merged);
-        Object.assign(local, merged);
         changed = true;
       }
     });

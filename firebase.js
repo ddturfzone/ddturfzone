@@ -1064,6 +1064,152 @@ window.listenFinanceExpenses = (callback, onError) => {
 };
 
 // ============================================================================
+// COACH SETTLEMENTS — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// admin.html's _csSyncFirebaseAndSheets (called by both csGenerateSettlement
+// and csRecordPayment) and its realtime listener
+// (initCoachSettlementFirebaseListener, already Super-Admin-gated via
+// _csCanAccess() inside admin.html itself — nothing about that gate is
+// duplicated or changed here) were already fully built to call
+// window.syncCoachSettlementFirebase / window.listenCoachSettlements (via
+// optional chaining, so it degraded gracefully while these were missing —
+// see this file's own gap note in the FACTORY RESET comment below). This
+// defines them for real, following the exact same pattern as the Finance/
+// Café/Coaches/Students/Enquiries additions above.
+//
+// There is no deleteCoachSettlementFirebase — confirmed by inspecting
+// admin.html that no delete function exists anywhere for this module
+// (csGenerateSettlement creates, csRecordPayment appends a payment and
+// updates status — a settlement is never removed), so none was added here.
+//
+// Path used: coachSettlements/{settlementId} — keyed by the settlement's
+// own existing settlementId field (already this app's identifier for a
+// settlement everywhere else). No new ID scheme is introduced.
+// ============================================================================
+
+/**
+ * Create or update one coach settlement. Returns { success: true } or
+ * { success: false, error }.
+ */
+window.syncCoachSettlementFirebase = async (data) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const settlementId = data && data.settlementId;
+    if (!settlementId) return { success: false, error: 'Missing settlementId' };
+    const ref = realtimeDb.ref(`coachSettlements/${settlementId}`);
+    await ref.set({ ...data, settlementId, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true };
+  } catch (err) {
+    console.error('✗ [SYNC] syncCoachSettlementFirebase failed:', data && data.settlementId, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all coach settlements. callback receives an array
+ * of settlement records (each with .settlementId). Returns an unsubscribe
+ * function, or null if Firebase isn't initialized yet (onError is called
+ * in that case).
+ */
+window.listenCoachSettlements = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('coachSettlements');
+  const handler = (snapshot) => {
+    const settlements = [];
+    snapshot.forEach((child) => { settlements.push({ settlementId: child.key, ...child.val() }); });
+    callback(settlements);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Coach Settlements listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
+// PENDING ENROLMENTS — REAL-TIME DATABASE (new)
+// ----------------------------------------------------------------------------
+// Two independent call sites already existed for this, both missing their
+// Firebase functions (degrading gracefully — enroll.html guards with a
+// typeof check, admin.html's initPendingEnrolmentsListener guards the
+// same way), which is the actual root cause of "a new public enrolment
+// doesn't appear until logout/login": the admin-side realtime listener
+// never had anything to listen to, because nothing was writing new
+// enrolments into Firebase in the first place — the Google Sheets
+// submission (POST to ENROL_SHEET_URL in enroll.html) remains the
+// unchanged, authoritative write; this file only adds the realtime
+// transport layer on top of it, exactly as already designed:
+//
+//   enroll.html's _submitEnrolment() -> submitPendingEnrolmentFirebase()
+//   admin.html's initPendingEnrolmentsListener() -> listenPendingEnrolments()
+//
+// enroll.html is a public, unauthenticated page — it can write here
+// because initializeFirebase() (called on page load by enroll.html itself,
+// unchanged) already performs an anonymous Firebase Auth sign-in as part
+// of its existing init chain (see above), so no Firebase Rule change is
+// needed for this to work under an auth-required rule.
+//
+// Path used: pendingEnrolments/{requestId} — keyed by the request's own
+// existing requestId (already generated client-side in enroll.html and
+// used as the row identity in Google Sheets/admin.html everywhere else).
+// No new ID scheme is introduced.
+//
+// Deliberately NOT added here (out of scope for this specific bug —
+// admin.html's approveEnrolment/confirmRejectEnrolment already guard
+// these behind `window.getFirebaseStatus?.().fullyReady === true`, and
+// getFirebaseStatus itself is also missing, so that condition is always
+// false today and Approve/Reject already safely fall back to their
+// original, working, non-Firebase behavior — adding these would touch a
+// shared status function used by every other module's diagnostics/
+// reconnect-watchdog, well beyond a Pending-Enrolment-only fix):
+//   getFirebaseStatus, claimEnrolmentForApproval, releaseEnrolmentClaim,
+//   finalizeEnrolmentApproval, rejectEnrolmentFirebase
+// ============================================================================
+
+/**
+ * Submit one new pending enrolment (called from the public enroll.html,
+ * anonymously authenticated). Returns { success: true, firebaseKey } or
+ * { success: false, error } — enroll.html already treats failure here as
+ * non-fatal (the Sheets POST right after this remains the real submission).
+ */
+window.submitPendingEnrolmentFirebase = async (payload) => {
+  try {
+    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
+    const requestId = payload && payload.requestId;
+    if (!requestId) return { success: false, error: 'Missing requestId' };
+    const ref = realtimeDb.ref(`pendingEnrolments/${requestId}`);
+    await ref.set({ ...payload, status: 'pending', updatedAt: firebase.database.ServerValue.TIMESTAMP });
+    return { success: true, firebaseKey: requestId };
+  } catch (err) {
+    console.error('✗ [SYNC] submitPendingEnrolmentFirebase failed:', payload && payload.requestId, err);
+    return { success: false, error: err.message || String(err) };
+  }
+};
+
+/**
+ * Realtime listener for all pending enrolments. callback receives an
+ * array of enrolment records (each with .requestId). Returns an
+ * unsubscribe function, or null if Firebase isn't initialized yet
+ * (onError is called in that case).
+ */
+window.listenPendingEnrolments = (callback, onError) => {
+  if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
+  const ref = realtimeDb.ref('pendingEnrolments');
+  const handler = (snapshot) => {
+    const enrolments = [];
+    snapshot.forEach((child) => { enrolments.push({ requestId: child.key, ...child.val() }); });
+    callback(enrolments);
+  };
+  const errorHandler = (error) => {
+    console.error('✗ [SYNC] Pending Enrolments listener error:', error);
+    onError?.(error);
+  };
+  ref.on('value', handler, errorHandler);
+  return () => ref.off('value', handler);
+};
+
+// ============================================================================
 // FACTORY RESET (used by Settings → Danger Zone → Reset All Data)
 // ============================================================================
 
