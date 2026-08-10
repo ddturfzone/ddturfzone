@@ -1150,10 +1150,22 @@ window.listenCoachSettlements = (callback, onError) => {
 // of its existing init chain (see above), so no Firebase Rule change is
 // needed for this to work under an auth-required rule.
 //
-// Path used: pendingEnrolments/{requestId} — keyed by the request's own
+// Path used: pending_enrolments/{requestId} — keyed by the request's own
 // existing requestId (already generated client-side in enroll.html and
 // used as the row identity in Google Sheets/admin.html everywhere else).
 // No new ID scheme is introduced.
+//
+// BUG FIX — this was originally written as pendingEnrolments (camelCase),
+// a path the live Security Rules don't specifically recognize, so an
+// unauthenticated write from enroll.html fell back to the default
+// auth-required rule and was rejected (confirmed live: "FIREBASE WARNING:
+// set at /pendingEnrolments/... failed: permission_denied"). The correct,
+// already-existing path is pending_enrolments (snake_case, with its own
+// rule carve-out allowing the public form to write without logging in) —
+// see admin.html's own PHASE 4.2 comment: "The Firebase Security Rule for
+// /finance_expenses (same shape as /pending_enrolments)". No Rules change
+// needed — the rule for this path already existed; only the path name
+// used here was wrong.
 //
 // Deliberately NOT added here (out of scope for this specific bug —
 // admin.html's approveEnrolment/confirmRejectEnrolment already guard
@@ -1178,7 +1190,7 @@ window.submitPendingEnrolmentFirebase = async (payload) => {
     if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
     const requestId = payload && payload.requestId;
     if (!requestId) return { success: false, error: 'Missing requestId' };
-    const ref = realtimeDb.ref(`pendingEnrolments/${requestId}`);
+    const ref = realtimeDb.ref(`pending_enrolments/${requestId}`);
     await ref.set({ ...payload, status: 'pending', updatedAt: firebase.database.ServerValue.TIMESTAMP });
     return { success: true, firebaseKey: requestId };
   } catch (err) {
@@ -1195,7 +1207,7 @@ window.submitPendingEnrolmentFirebase = async (payload) => {
  */
 window.listenPendingEnrolments = (callback, onError) => {
   if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
-  const ref = realtimeDb.ref('pendingEnrolments');
+  const ref = realtimeDb.ref('pending_enrolments');
   const handler = (snapshot) => {
     const enrolments = [];
     snapshot.forEach((child) => { enrolments.push({ requestId: child.key, ...child.val() }); });
