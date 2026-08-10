@@ -12084,7 +12084,11 @@ async function _saveFeeImpl(sendWA=false) {
     // silently opened wa.me/91?text=... — a malformed single-digit
     // "recipient" — instead of the same soft "no number on file, pick the
     // contact yourself" behavior every other WhatsApp send in this file uses.
-    const phone = (st.phone || '').replace(/\D/g, '');
+    // BUG FIX — st.phone can come through as a JS number (not a string)
+    // for some students (e.g. a Sheet Phone column formatted as a
+    // number); String(...) coerces it to text first so .replace() never
+    // throws, same fix as sendBirthdayWish's identical crash.
+    const phone = String(st.phone || '').replace(/\D/g, '');
     if (!phone) showToast('No parent mobile number on file — pick the contact in WhatsApp.', 'info');
     const waNumber = phone ? buildWaPhone(phone) : '';
     // Navigate the tab opened synchronously at the top of this function
@@ -14131,7 +14135,7 @@ window.renderEnquiries = () => {
     <td style="font-size:12px;color:var(--gray3);max-width:160px">${e.notes||'-'}</td>
     <td>${formatDate(e.date)}</td>
     <td><div style="display:flex;gap:4px">
-      <button class="btn btn-whatsapp btn-sm" onclick="window.open('https://wa.me/${e.phone.replace(/\\D/g,'')}','_blank')">📱</button>
+      <button class="btn btn-whatsapp btn-sm" onclick="window.open('https://wa.me/${String(e.phone||'').replace(/\\D/g,'')}','_blank')">📱</button>
       <button class="btn btn-danger btn-sm" onclick="deleteEnquiry('${e.id}')">🗑️</button>
     </div></td>
   </tr>`).join('');
@@ -16731,7 +16735,13 @@ window.sendBirthdayWish = (studentId) => {
   // exactly what "the button does nothing" looks like to whoever clicked it.
   if (!s) { showToast('Could not find this student — please refresh and try again.', 'error'); return; }
   const firstName = _firstNameOf(s.name);
-  const phone = (s.phone || '').replace(/\D/g, '');
+  // BUG FIX — s.phone can come through as a JS number (not a string) for
+  // some students, e.g. if their Sheet's Phone column is formatted as a
+  // number — (s.phone || '') doesn't help then, since a real number is
+  // still truthy, and .replace() only exists on strings. String(...)
+  // coerces either case to text first, so this never crashes regardless
+  // of how the phone value happened to come through.
+  const phone = String(s.phone || '').replace(/\D/g, '');
 
   // FIX — a missing phone number used to still attempt window.open() with
   // an empty wa.me/?text=... link. That "no number" form of a wa.me link
