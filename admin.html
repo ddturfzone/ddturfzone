@@ -9334,6 +9334,25 @@ let _feeSyncInFlight = false;
 // same receiptNo is still in flight.
 const _feesSheetSyncInFlight = new Set();
 async function syncFeesFromSheet() {
+  // BUG FIX — "a payment reverts to Due after logout/login (or just tab-
+  // focus)": confirmed live via console log — this Sheets poll was still
+  // running on every focus event even once the Firebase listener was
+  // already active and correctly seeded, and Google Sheets can briefly
+  // lag a few seconds behind a write that JUST happened (a real, known
+  // Sheets/Apps Script propagation characteristic, not a data problem) —
+  // so a focus event firing in that short window would fetch a
+  // not-yet-updated Sheet row and "adopt" it, reverting the fresh save.
+  // Same SINGLE-SOURCE FIX already applied to Booking Requests/Pending
+  // Enrolments elsewhere in this file: once the Firebase listener is
+  // confirmed active and has delivered its first snapshot, it already
+  // owns keeping window.DB.fees current in real time — this poll (login-
+  // time backfill, focus events, and the generic AuditLog-triggered
+  // refresh) becomes redundant AND is the one thing that could revert
+  // good data, so it now stands down once Firebase has taken over.
+  if (_feesFirebaseSeeded) {
+    console.log('[FB-DEBUG] Skipping automatic Sheets poll for fees — Firebase listener is active and seeded');
+    return;
+  }
   if (!window.DDTZ_SHEET_URL || _feeSyncInFlight) return;
   _feeSyncInFlight = true;
   try {

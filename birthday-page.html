@@ -755,11 +755,25 @@
           logoEl.src = CONFIG.LOGO_BASE64;
           
           // Generate QR code
+          // BUG FIX — QRCode.toDataURL is not a function: the library
+          // actually loaded (qrcodejs, see the <script> tag near the top
+          // of this file) is davidshimjs/qrcodejs, which only exposes a
+          // `new QRCode(element, options)` constructor that renders
+          // synchronously and directly into a DOM element — it has no
+          // .toDataURL()/callback API at all (that belongs to a
+          // different, unrelated QR library that was never loaded here).
+          // This was throwing on every Download/Share attempt before the
+          // QR code ever had a chance to render. Since it renders
+          // directly into qrContainer (already part of `template`, which
+          // gets captured by html2canvas right below), no data-URL step
+          // is needed at all.
           const qrContainer = template.querySelector('.card-qr');
-          QRCode.toDataURL(CONFIG.BIRTHDAY_PAGE_URL, { width: 120 }, (err, qrDataUrl) => {
-            if (!err) {
-              qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width:100%;height:100%;border-radius:4px;">`;
-            }
+          new QRCode(qrContainer, {
+            text: CONFIG.BIRTHDAY_PAGE_URL,
+            width: 120,
+            height: 120,
+            colorDark: '#000000',
+            colorLight: '#ffffff'
           });
           
           // Append to body temporarily
@@ -843,11 +857,25 @@
           const logoEl = template.querySelector('.card-logo');
           logoEl.src = CONFIG.LOGO_BASE64;
           
+          // BUG FIX — QRCode.toDataURL is not a function: the library
+          // actually loaded (qrcodejs, see the <script> tag near the top
+          // of this file) is davidshimjs/qrcodejs, which only exposes a
+          // `new QRCode(element, options)` constructor that renders
+          // synchronously and directly into a DOM element — it has no
+          // .toDataURL()/callback API at all (that belongs to a
+          // different, unrelated QR library that was never loaded here).
+          // This was throwing on every Download/Share attempt before the
+          // QR code ever had a chance to render. Since it renders
+          // directly into qrContainer (already part of `template`, which
+          // gets captured by html2canvas right below), no data-URL step
+          // is needed at all.
           const qrContainer = template.querySelector('.card-qr');
-          QRCode.toDataURL(CONFIG.BIRTHDAY_PAGE_URL, { width: 120 }, (err, qrDataUrl) => {
-            if (!err) {
-              qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width:100%;height:100%;border-radius:4px;">`;
-            }
+          new QRCode(qrContainer, {
+            text: CONFIG.BIRTHDAY_PAGE_URL,
+            width: 120,
+            height: 120,
+            colorDark: '#000000',
+            colorLight: '#ffffff'
           });
           
           template.style.position = 'fixed';
