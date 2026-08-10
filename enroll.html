@@ -299,22 +299,15 @@ async function _submitEnrolment(e) {
   };
 
   try {
-    // PHASE 4.1: Submit to Firebase first (instant write for realtime admin visibility).
-    // Reuses the SAME payload object already built above with the CORRECT field IDs
-    // (f-studentName, f-parentName, f-mobile, etc.) — do not re-query the DOM with
-    // different id names here, the public form has no f-name/f-phone/f-parent/f-age.
-    if (typeof window.submitPendingEnrolmentFirebase === 'function') {
-      const firebaseResult = await window.submitPendingEnrolmentFirebase(payload);
-
-      if (!firebaseResult.success) {
-        // Non-fatal: Firebase is the realtime-visibility layer only. The
-        // authoritative write is the POST below, which still proceeds.
-        console.warn('Firebase submission failed (will still submit to Sheets):', firebaseResult.error);
-      } else {
-        console.log('✓ Enrolment submitted to Firebase:', firebaseResult.firebaseKey);
-      }
-    }
-
+    // Realtime admin visibility is now handled server-side (Code.gs's
+    // _pushEnrolmentToFirebase, called after this same POST is received —
+    // see handleEnrolmentRequestCreate) using a Realtime Database Secret,
+    // since this public page is deliberately never authenticated with
+    // Firebase and the live Security Rules require auth != null on every
+    // path with no exception. A prior client-side attempt from here
+    // (submitPendingEnrolmentFirebase) was removed — it could only ever
+    // fail with PERMISSION_DENIED under those rules, confirmed live.
+    //
     // Authoritative submission — unchanged from the original implementation.
     const res = await fetch(ENROL_SHEET_URL, {
       method: 'POST',

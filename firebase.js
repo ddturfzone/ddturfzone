@@ -1130,74 +1130,47 @@ window.listenCoachSettlements = (callback, onError) => {
 // ============================================================================
 // PENDING ENROLMENTS — REAL-TIME DATABASE (new)
 // ----------------------------------------------------------------------------
-// Two independent call sites already existed for this, both missing their
-// Firebase functions (degrading gracefully — enroll.html guards with a
-// typeof check, admin.html's initPendingEnrolmentsListener guards the
-// same way), which is the actual root cause of "a new public enrolment
-// doesn't appear until logout/login": the admin-side realtime listener
-// never had anything to listen to, because nothing was writing new
-// enrolments into Firebase in the first place — the Google Sheets
-// submission (POST to ENROL_SHEET_URL in enroll.html) remains the
-// unchanged, authoritative write; this file only adds the realtime
-// transport layer on top of it, exactly as already designed:
+// admin.html's initPendingEnrolmentsListener was already fully built to
+// call window.listenPendingEnrolments (via a typeof guard, so it degraded
+// gracefully while this was missing), which is the actual root cause of
+// "a new public enrolment doesn't appear until logout/login": the
+// admin-side realtime listener never had anything to listen to.
 //
-//   enroll.html's _submitEnrolment() -> submitPendingEnrolmentFirebase()
-//   admin.html's initPendingEnrolmentsListener() -> listenPendingEnrolments()
+// DECISION — the live Realtime Database Rules were checked directly
+// (not assumed): every path, including enrolments, requires
+// `auth != null` with no exception for an unauthenticated visitor:
+//   ".read": "auth != null", ".write": "auth != null"
+// enroll.html is a public, unauthenticated page by deliberate original
+// design (it never even loads the Firebase Auth SDK — see admin.html's
+// own PHASE 4.1 comment), so it can never satisfy that rule, and Rules
+// were explicitly NOT to be changed. Two earlier path-name guesses here
+// (pendingEnrolments, then pending_enrolments) were both wrong for a
+// different reason: there is no public-write exception at all, at any
+// path name.
 //
-// enroll.html is a public, unauthenticated page — it can write here
-// because initializeFirebase() (called on page load by enroll.html itself,
-// unchanged) already performs an anonymous Firebase Auth sign-in as part
-// of its existing init chain (see above), so no Firebase Rule change is
-// needed for this to work under an auth-required rule.
+// The chosen fix (approved): the SERVER (Code.gs's
+// _pushEnrolmentToFirebase, called from handleEnrolmentRequestCreate)
+// pushes each new enrolment into Firebase using a Realtime Database
+// Secret, which bypasses Security Rules entirely — the standard Firebase
+// mechanism for a trusted backend. The public browser side of enroll.html
+// no longer attempts any Firebase write at all (removed — it could only
+// ever fail under these rules). Only the listener below remains here.
 //
-// Path used: pending_enrolments/{requestId} — keyed by the request's own
-// existing requestId (already generated client-side in enroll.html and
-// used as the row identity in Google Sheets/admin.html everywhere else).
-// No new ID scheme is introduced.
+// Path used: enrolments/{requestId} — the REAL path from the live rules
+// (confirmed directly, not inferred from a comment) — keyed by the
+// request's own existing requestId, already used as the row identity in
+// Google Sheets/admin.html everywhere else. No new ID scheme is introduced.
 //
-// BUG FIX — this was originally written as pendingEnrolments (camelCase),
-// a path the live Security Rules don't specifically recognize, so an
-// unauthenticated write from enroll.html fell back to the default
-// auth-required rule and was rejected (confirmed live: "FIREBASE WARNING:
-// set at /pendingEnrolments/... failed: permission_denied"). The correct,
-// already-existing path is pending_enrolments (snake_case, with its own
-// rule carve-out allowing the public form to write without logging in) —
-// see admin.html's own PHASE 4.2 comment: "The Firebase Security Rule for
-// /finance_expenses (same shape as /pending_enrolments)". No Rules change
-// needed — the rule for this path already existed; only the path name
-// used here was wrong.
-//
-// Deliberately NOT added here (out of scope for this specific bug —
-// admin.html's approveEnrolment/confirmRejectEnrolment already guard
-// these behind `window.getFirebaseStatus?.().fullyReady === true`, and
-// getFirebaseStatus itself is also missing, so that condition is always
-// false today and Approve/Reject already safely fall back to their
-// original, working, non-Firebase behavior — adding these would touch a
-// shared status function used by every other module's diagnostics/
-// reconnect-watchdog, well beyond a Pending-Enrolment-only fix):
+// Deliberately NOT added here (out of scope — admin.html's
+// approveEnrolment/confirmRejectEnrolment already guard these behind
+// `window.getFirebaseStatus?.().fullyReady === true`, and getFirebaseStatus
+// itself is also missing, so that condition is always false today and
+// Approve/Reject already safely fall back to their original, working,
+// non-Firebase behavior — adding these would touch a shared status
+// function used by every other module's diagnostics/reconnect-watchdog):
 //   getFirebaseStatus, claimEnrolmentForApproval, releaseEnrolmentClaim,
 //   finalizeEnrolmentApproval, rejectEnrolmentFirebase
 // ============================================================================
-
-/**
- * Submit one new pending enrolment (called from the public enroll.html,
- * anonymously authenticated). Returns { success: true, firebaseKey } or
- * { success: false, error } — enroll.html already treats failure here as
- * non-fatal (the Sheets POST right after this remains the real submission).
- */
-window.submitPendingEnrolmentFirebase = async (payload) => {
-  try {
-    if (!realtimeDb || !firebaseFullyReady) return { success: false, error: 'Firebase not initialized' };
-    const requestId = payload && payload.requestId;
-    if (!requestId) return { success: false, error: 'Missing requestId' };
-    const ref = realtimeDb.ref(`pending_enrolments/${requestId}`);
-    await ref.set({ ...payload, status: 'pending', updatedAt: firebase.database.ServerValue.TIMESTAMP });
-    return { success: true, firebaseKey: requestId };
-  } catch (err) {
-    console.error('✗ [SYNC] submitPendingEnrolmentFirebase failed:', payload && payload.requestId, err);
-    return { success: false, error: err.message || String(err) };
-  }
-};
 
 /**
  * Realtime listener for all pending enrolments. callback receives an
@@ -1207,7 +1180,7 @@ window.submitPendingEnrolmentFirebase = async (payload) => {
  */
 window.listenPendingEnrolments = (callback, onError) => {
   if (!realtimeDb) { onError?.(new Error('Firebase not initialized')); return null; }
-  const ref = realtimeDb.ref('pending_enrolments');
+  const ref = realtimeDb.ref('enrolments');
   const handler = (snapshot) => {
     const enrolments = [];
     snapshot.forEach((child) => { enrolments.push({ requestId: child.key, ...child.val() }); });
